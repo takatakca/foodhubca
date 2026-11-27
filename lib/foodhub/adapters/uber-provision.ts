@@ -13,7 +13,8 @@
 import crypto from 'node:crypto';
 import rawBrands from '../../../data/actual/brands.json';
 import rawLocations from '../../../data/actual/locations.json';
-import { matchBrandLocation, type LocationRef } from '../brand-match';
+import { kitchenAtAddress, matchBrandLocation, type LocationRef } from '../brand-match';
+import { getCatalog } from '../catalog';
 import { callApi, publicBaseUrl, result, timedFetch } from '../config';
 import { getRepo } from '../repo';
 import type { ChannelResult } from '../types';
@@ -127,13 +128,18 @@ export async function uberConnectSession(id: string): Promise<{ stores: Array<Ub
   const s = await getSession(id);
   if (!s) return null;
   // Clover merchant suggestion: the register the other stores at that location already use (most common one).
-  const mapped = await getRepo().listStores().catch(() => []);
+  const [mapped, catalog] = await Promise.all([getRepo().listStores().catch(() => []), getCatalog({ strict: true })]);
+  const locations = catalog.locations.filter((place) => place.active);
   const cloverAt = (loc?: string) => {
     const counts = new Map<string, number>();
     for (const m of mapped) if (loc && m.locationCode === loc && m.cloverMerchantId) counts.set(m.cloverMerchantId, (counts.get(m.cloverMerchantId) ?? 0) + 1);
     return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
   };
-  return { stores: (s.stores ?? []).map((x) => ({ ...x, suggestedClover: cloverAt(x.suggestedLocation) })), error: s.error ?? null, active: Boolean(s.token) };
+  const stores = (s.stores ?? []).map((store) => {
+    const suggestedLocation = kitchenAtAddress(store.address, locations);
+    return { ...store, suggestedLocation, suggestedClover: cloverAt(suggestedLocation) };
+  });
+  return { stores, error: s.error ?? null, active: Boolean(s.token) };
 }
 
 export interface UberActivation {

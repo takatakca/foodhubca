@@ -1,3 +1,9 @@
+## Rapprochement des adresses marchandes Uber
+
+Dans Restaurants → Branchements, la confirmation de cuisine dépend de l’adresse civique renvoyée par Uber et du catalogue actif. Une adresse absente laisse une indication historique. Une adresse reçue mais ambiguë demande un choix manuel. La reprise d’une session Uber recalcule la suggestion avant de proposer une caisse. Un magasin découvert et déjà lié conserve ses réglages dans le formulaire. Les preuves de liaison et les préalables marchands sont suivis dans [la checklist #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ navigateur marchand · 2026-11-27
+
 ## 2026-11-26 — Numéro de commande saisi à partir d’un écran
 
 La saisie manuelle distingue désormais deux commandes qui portent le même numéro affiché dans deux magasins. Saisir deux fois le même numéro pour le même magasin reste un doublon, même depuis un autre écran ou si la première saisie date d’une version antérieure. Clover utilise une référence de magasin dans le titre de reprise des nouvelles commandes pour retrouver la bonne commande quand plusieurs magasins partagent une caisse. L’import reconnaît ce titre sans écarter une commande native de Clover qui porte le même numéro. Le numéro affiché reste celui de la plateforme. Les preuves de réception physique restent suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

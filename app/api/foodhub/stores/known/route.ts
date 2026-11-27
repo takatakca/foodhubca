@@ -9,6 +9,7 @@ export const dynamic = 'force-dynamic';
 export const GET = withPerm('stores:map', async (_req, _ctx, actor) => {
   const stores = await knownStores();
   return ok({ stores: stores.filter((store) =>
+    (!actor.locations.length || !store.address || store.confirmedByPlatform) &&
     uberStoreInScope(actor, store.storeId, store.mapped?.locationCode, store.expectedLocation),
   ) });
 });

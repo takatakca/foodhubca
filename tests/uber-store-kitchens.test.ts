@@ -12,6 +12,7 @@ import * as uber from '../lib/foodhub/adapters/uber-eats';
 import { hashPassword } from '../lib/foodhub/auth';
 import * as uberProvision from '../lib/foodhub/adapters/uber-provision';
 import { KNOWN_UBER_KITCHENS, knownStores } from '../lib/foodhub/known-stores';
+import { saveLocation } from '../lib/foodhub/catalog';
 import { getRepo } from '../lib/foodhub/repo';
 
 const SAINT_LEONARD_UUIDS = [
@@ -199,4 +200,49 @@ describe('scope of merchant inventory route results', () => {
     expect(saint.status).toBe(200);
     expect(await saint.json()).toMatchObject({ stores: [stores[0], stores[3]] });
   });
+});
+
+describe('merchant address evidence', () => {
+  it.each([
+    ['6284 Avenue Somerled, Montréal', 'NDG_6284', true],
+    ['6280 Somerled Ave', 'NDG_MAIN', true],
+    ['6284 Av Somerled, Laval', null, false],
+    ['6284 Av Somerled, Laval QC H3X 2B6', null, false],
+    ['6284 Av Somerled, local 2, Montréal', null, false],
+    ['6284 Av Somerled, Montréal, QC H1W 2E6', null, false],
+    ['5837 Rue Jean-Talon Est, Montréal', 'SAINT_LEONARD', true],
+    ['5839 rue Jean-Talon Est, Saint-Léonard', 'SAINT_LEONARD', true],
+    ['6280 Rue Exemple, Montréal', null, false],
+    ['6280 Avenue Somerled Ouest', null, false],
+    ['Av. Somerled', null, false],
+    ['Rue Jean-Talon Est', null, false],
+    ['Saint-Léonard', null, false],
+    ['', 'SAINT_LEONARD', false],
+  ] as const)('resolves the kitchen from the returned street address %j', async (address, expectedLocation, confirmedByPlatform) => {
+    vi.spyOn(uber.uberEatsAdapter, 'readiness').mockReturnValue({ ...uber.uberEatsAdapter.readiness(), configured: true });
+    vi.spyOn(uber, 'fetchUberStoreDetails').mockResolvedValue({ ok: true, name: 'Pi pita (Hochelaga)', address });
+    const rows = await knownStores();
+    expect(rows).toHaveLength(7);
+    for (const row of rows) {
+      expect(row).toMatchObject({ expectedLocation, suggestedLocation: expectedLocation, confirmedByPlatform });
+    }
+  });
+
+  it('rechecks saved Uber sessions against active kitchens before suggesting the Clover destination', async () => {
+    const id = 'a'.repeat(36);
+    const address = '42 Rue Exemple';
+    await getRepo().setKv(`uber-connect:${id}`, {
+      createdAt: Date.now(), token: 'test-session', stores: [{ id: 'sample', name: 'Pi Pita', address, suggestedLocation: 'NDG_MAIN' }],
+    });
+    const place = { code: 'NEW_KITCHEN', name: 'Test kitchen', address, active: true };
+    const suggestion = async () => (await uberProvision.uberConnectSession(id))?.stores[0].suggestedLocation;
+    expect(await suggestion()).toBeUndefined();
+    await saveLocation(place);
+    expect(await suggestion()).toBe(place.code);
+    await saveLocation({ ...place, code: 'SECOND_KITCHEN' });
+    expect(await suggestion()).toBeUndefined();
+    await saveLocation({ ...place, active: false });
+    expect(await suggestion()).toBe('SECOND_KITCHEN');
+  });
+
 });

@@ -196,12 +196,22 @@ export function MappingView() {
     });
   }
 
+  function openDiscoveredStore(storeId: string) {
+    const linked = stores?.find((store) => store.channel === 'uber_eats' && store.channelStoreId === storeId);
+    if (linked) return editStore(linked);
+    setForm({
+      draftId: formDraftId('store-link', `uber-${storeId}`),
+      initial: { ...blank(), channel: 'uber_eats', channelStoreId: storeId, brandName: '', locationCode: '' },
+    });
+  }
+
   function moveKnown(k: Known) {
     const store = stores?.find((s) => s.id === k.mapped?.id);
     if (store && k.expectedLocation) editStore(store, k.expectedLocation);
   }
   const unlinked = known.filter((k) => !k.mapped);
   const misplaced = known.filter((k) => k.locationMismatch);
+  const unresolved = known.filter((k) => k.mapped && k.address && !k.confirmedByPlatform);
   const shown = (stores ?? []).filter((s) => !leaving.includes(s.id));
 
   return (
@@ -238,13 +248,21 @@ export function MappingView() {
         </Card>
       )}
 
+      {unresolved.length > 0 && (
+        <Banner tone="warn" className="mb-5">
+          <strong>{t('Adresses Uber à rapprocher', 'Uber addresses to match')}</strong>
+          <ul>{unresolved.map((store) => <li key={store.storeId}>{store.name} · {store.address}</li>)}</ul>
+        </Banner>
+      )}
+
       {misplaced.length > 0 && (
         <Banner tone="warn" className="mb-5">
-          <strong>{t(`${countFr(misplaced.length, 'magasin Uber relié', 'magasins Uber reliés')} à la mauvaise cuisine`, `${countEn(misplaced.length, 'Uber store')} linked to the wrong kitchen`)}</strong> — {t('Uber les place dans une autre cuisine (même quand leur nom Uber dit « Hochelaga »).', 'Uber puts them in another kitchen (even when their Uber name says “Hochelaga”).')}
+          <strong>{t(`${countFr(misplaced.length, 'magasin Uber relié', 'magasins Uber reliés')} avec une cuisine à vérifier`, `${countEn(misplaced.length, 'Uber store')} with a kitchen to review`)}</strong> — {t('Vérifiez la source de la cuisine proposée pour chaque magasin.', 'Check the source of each proposed kitchen.')}
           <ul className="mt-2 space-y-1.5">{misplaced.map((k) => (
             <li key={k.storeId} className="flex flex-wrap items-center gap-2">
               <span className="font-semibold text-ink">{k.name}</span><span className="font-mono text-micro text-ink-3">{k.storeId}</span>
               <span>{shortLoc(locName(k.mapped?.locationCode))} → <strong>{shortLoc(locName(k.expectedLocation))}</strong></span>
+              <span>{k.confirmedByPlatform ? t('Adresse Uber concordante', 'Matching Uber address') : t('Registre historique', 'Historical record')}</span>
               <Button size="sm" variant="outline" disabled={!stores?.some((s) => s.id === k.mapped?.id)} onClick={() => moveKnown(k)}>{t('Déplacer', 'Move')}</Button>
             </li>
           ))}</ul>
@@ -262,7 +280,7 @@ export function MappingView() {
               const upd = (patch: Partial<Known & { brandName: string; locationCode: string }>) => setKnown((all) => all.map((x) => (x.storeId === k.storeId ? { ...x, ...patch } : x)));
               return (
                 <Tr key={k.storeId}>
-                  <Td primary><div className="font-semibold">{k.name}</div><div className="font-mono text-micro text-ink-3">{k.storeId}</div>{k.address ? <div className="text-small text-go-2">✓ {k.address}</div> : <div className="text-small text-ink-3">{t('adresse confirmée par Uber quand les clés seront en place', 'address confirmed by Uber once the keys are in')}</div>}</Td>
+                  <Td primary><div className="font-semibold">{k.name}</div><div className="font-mono text-micro text-ink-3">{k.storeId}</div>{k.address ? <div className={k.confirmedByPlatform ? "text-small text-go-2" : "text-small text-ink-3"}>{k.confirmedByPlatform ? "✓ " : ""}{k.address}{!k.confirmedByPlatform && t(' · cuisine à vérifier', ' · verify kitchen')}</div> : <div className="text-small text-ink-3">{t('Adresse Uber à vérifier', 'Uber address awaiting verification')}</div>}</Td>
                   <Td label={t('Marque', 'Brand')}><Select selectSize="sm" aria-label={t(`Marque de ${k.name}`, `${k.name} brand`)} value={k.brandName} onChange={(e) => upd({ brandName: e.target.value })}><option value="">—</option>{brands.map((b) => <option key={b}>{b}</option>)}</Select></Td>
                   <Td label={t('Cuisine', 'Kitchen')}><Select selectSize="sm" aria-label={t(`Cuisine de ${k.name}`, `${k.name} kitchen`)} value={k.locationCode} onChange={(e) => upd({ locationCode: e.target.value })}><option value="">{t('— choisir —', '— choose —')}</option>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)}</option>)}</Select></Td>
                   <Td align="right"><Button size="sm" variant="outline" loading={busy === `known-${k.storeId}`} disabled={!k.brandName || !k.locationCode} onClick={() => linkKnown(k)}>{t('Relier', 'Link')}</Button></Td>
@@ -283,8 +301,8 @@ export function MappingView() {
           <div className="mx-5 mb-4 rounded-lg border border-line bg-raised">
             {discovered.map((d) => (
               <div key={d.id} className="flex items-center gap-3 border-b border-line px-4 py-2 last:border-0">
-                <div className="min-w-0 flex-1"><div className="text-body font-semibold">{d.name}</div><div className="truncate font-mono text-small text-ink-3">{d.id}</div></div>
-                <Button size="sm" variant="outline" onClick={() => setForm({ draftId: formDraftId('store-link', `uber-${d.id}`), initial: { ...blank(), channel: 'uber_eats', channelStoreId: d.id } })}>{t('Utiliser', 'Use')}</Button>
+                <div className="min-w-0 flex-1"><div className="text-body font-semibold">{d.name}</div><div className="truncate font-mono text-small text-ink-3">{d.id}</div>{d.address && <div className="text-small text-ink-3">{d.address}</div>}</div>
+                <Button size="sm" variant="outline" disabled={!stores} onClick={() => openDiscoveredStore(d.id)}>{t('Utiliser', 'Use')}</Button>
               </div>
             ))}
           </div>
@@ -401,8 +419,8 @@ function StoreLinkForm({ draftId, initial, sourceLocation, lock, onClose, onSave
         <Field label={t('Plateforme', 'Platform')}><Select value={form.channel} onChange={(e) => setForm({ ...form, channel: e.target.value })} disabled={Boolean(form.id)}>{[['uber_eats', 'Uber Eats'], ['doordash', 'DoorDash'], ['skip', 'SkipTheDishes'], ['tgtg', 'Too Good To Go']].map(([k, l]) => <option key={k} value={k}>{l}</option>)}</Select></Field>
         <Field label={t('Identifiant du magasin', 'Store id')} hint={ID_HINT[form.channel]}><Input value={form.channelStoreId} onChange={(e) => setForm({ ...form, channelStoreId: e.target.value })} className="font-mono" /></Field>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label={t('Marque', 'Brand')}><Select value={form.brandName} onChange={(e) => setForm({ ...form, brandName: e.target.value })}>{brands.map((b) => <option key={b}>{b}</option>)}</Select></Field>
-          <Field label={t('Cuisine', 'Kitchen')}><Select value={form.locationCode} onChange={(e) => changeKitchen(e.target.value)}>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)}</option>)}</Select></Field>
+          <Field label={t('Marque', 'Brand')}><Select value={form.brandName} onChange={(e) => setForm({ ...form, brandName: e.target.value })}><option value="">{t('— choisir —', '— choose —')}</option>{brands.map((b) => <option key={b}>{b}</option>)}</Select></Field>
+          <Field label={t('Cuisine', 'Kitchen')}><Select value={form.locationCode} onChange={(e) => changeKitchen(e.target.value)}><option value="">{t('— choisir —', '— choose —')}</option>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)}</option>)}</Select></Field>
         </div>
         <Field label={movingUber ? t('Marchand Clover de destination (requis)', 'Destination Clover merchant (required)') : t('Marchand Clover (optionnel)', 'Clover merchant (optional)')}
           hint={movingUber ? t('Vérifiez la caisse de cette cuisine dans le tableau de bord Clover et saisissez son identifiant marchand.', 'Check this kitchen’s register in the Clover dashboard and enter its merchant ID.') : t('Vide = la caisse Clover par défaut. Les ruptures venues de Clover suivent ce marchand ; une cuisine n’en reçoit que si tous ses magasins suivent le même marchand. Sinon le code de lettres et de chiffres dans l’adresse du tableau de bord Clover (clover.com/home/m/…), pas le numéro de marchand du terminal de paiement.', 'Empty = the default Clover register. 86s coming from Clover follow this merchant; a location only gets them when all its stores follow the same merchant. Otherwise the code of letters and digits in the Clover dashboard address (clover.com/home/m/…), not the payment terminal’s merchant number.')}>

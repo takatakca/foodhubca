@@ -1,3 +1,11 @@
+## 2026-11-26 — État de santé dans la preuve de publication
+
+La réconciliation locale de #181 sur `86d190c` conserve le rapport explicite `ok` ou `degraded`, la preuve du SHA exact et le refus des commandes anonymes. La condition d’exploitation pour le prochain lancement reste la confirmation publique de #178 avec sept états `ok`, puis deux passages automatiques Watchtower distincts avant #184. [Suivi de la publication](https://github.com/takatakca/foodhubca/issues/155#issuecomment-7210201216)
+
+`verify:live` affiche l'état global `ok` ou `degraded` avec la base `ok`, sans traiter un avertissement comme une certification des services. La sonde isolée de build signale séparément l'absence de base. L'accès HTTPS public a échoué depuis cette session ; prochaine étape : vérifier le SHA publié et les alertes dans un environnement autorisé, puis poursuivre les essais marchands de l'[issue #46](https://github.com/takatakca/foodhubca/issues/46). Lire `scripts/verify-live.mjs` et `docs/DEPLOYMENT.md`.
+
+— signé : Copilot @ cloud · 2026-11-26
+
 ## 2026-11-26 — Numéro de commande saisi à partir d’un écran
 
 La saisie manuelle distingue désormais deux commandes qui portent le même numéro affiché dans deux magasins. Saisir deux fois le même numéro pour le même magasin reste un doublon, même depuis un autre écran ou si la première saisie date d’une version antérieure. Clover utilise une référence de magasin dans le titre de reprise des nouvelles commandes pour retrouver la bonne commande quand plusieurs magasins partagent une caisse. L’import reconnaît ce titre sans écarter une commande native de Clover qui porte le même numéro. Le numéro affiché reste celui de la plateforme. Les preuves de réception physique restent suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

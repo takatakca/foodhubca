@@ -97,7 +97,7 @@ export async function verifyLiveDeployment({ url, sha = '', fetchImpl = fetch, a
   }
   const health = await readJson(healthResponse, '/api/health');
   if (databaseFreeBuild ? health.ok !== false || health.checks?.database !== 'down'
-    : health.ok !== true || !health.status || health.status === 'down' || health.checks?.database !== 'ok') {
+    : health.ok !== true || !['ok', 'degraded'].includes(health.status) || health.checks?.database !== 'ok') {
     throw new Error('/api/health is not healthy');
   }
 
@@ -114,7 +114,9 @@ export async function verifyLiveDeployment({ url, sha = '', fetchImpl = fetch, a
     checks: [
       '/api/release: exact deployed SHA',
       '/api/public/directory: public brands, kitchens and ON2GO CORS',
-      '/api/health: healthy',
+      databaseFreeBuild
+        ? '/api/health: isolated build smoke (database unavailable)'
+        : '/api/health: HTTP 200, database ok, overall status ' + health.status,
       '/login: available',
       '/api/foodhub/orders: anonymous access denied',
     ],

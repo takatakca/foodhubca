@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseOptions, verifyLiveDeployment } from '../scripts/verify-live.mjs';
 
 const SHA = 'a'.repeat(40);
-function mockFetch({ sha = SHA, publicStatus = 200, privateStatus = 401, healthStatus = 200, database = 'ok', cors = true } = {}) {
+function mockFetch({ sha = SHA, publicStatus = 200, privateStatus = 401, healthStatus = 200, healthState = healthStatus === 200 ? 'ok' : 'down', database = 'ok', cors = true } = {}) {
   return async (url, options) => {
     const path = new URL(url).pathname;
     expect(options.method).toBe('GET');
@@ -18,7 +18,7 @@ function mockFetch({ sha = SHA, publicStatus = 200, privateStatus = 401, healthS
       });
     }
     if (path === '/api/health') {
-      return Response.json({ ok: healthStatus === 200, status: healthStatus === 200 ? 'ok' : 'down', checks: { database } }, { status: healthStatus });
+      return Response.json({ ok: healthStatus === 200, status: healthState, checks: { database } }, { status: healthStatus });
     }
     if (path === '/login') return new Response('login', { status: 200 });
     if (path === '/api/foodhub/orders') return Response.json({ ok: false }, { status: privateStatus });
@@ -35,6 +35,17 @@ describe('Food Hub live release verification (no network)', () => {
     });
     expect(report.sha).toBe(SHA);
     expect(report.checks).toHaveLength(5);
+    expect(report.checks[2]).toContain('overall status ok');
+  });
+
+  it('reports degraded health without claiming all services are healthy', async () => {
+    const report = await verifyLiveDeployment({
+      url: 'https://foodhub.on2go.ca/', sha: SHA, fetchImpl: mockFetch({ healthState: 'degraded' }),
+    });
+    expect(report.checks[2]).toContain('overall status degraded');
+    await expect(verifyLiveDeployment({
+      url: 'https://foodhub.on2go.ca/', sha: SHA, fetchImpl: mockFetch({ healthState: 'unknown' }),
+    })).rejects.toThrow(/not healthy/);
   });
 
   it('fails closed when the expected revision is missing, before any HTTP request', async () => {
@@ -100,7 +111,9 @@ describe('Food Hub live release verification (no network)', () => {
   it('restricts the database-free build probe to explicitly allowed IPv4 loopback', async () => {
     const local = { url: 'http://127.0.0.1:18092/', sha: SHA, allowLoopback: true, buildSmoke: true,
       fetchImpl: mockFetch({ healthStatus: 503, database: 'down' }) };
-    expect((await verifyLiveDeployment(local)).sha).toBe(SHA);
+    const report = await verifyLiveDeployment(local);
+    expect(report.sha).toBe(SHA);
+    expect(report.checks[2]).toContain('isolated build smoke (database unavailable)');
     await expect(verifyLiveDeployment({ ...local, buildSmoke: false })).rejects.toThrow(/expected 200/);
     await expect(verifyLiveDeployment({ ...local, url: 'http://example.com/' })).rejects.toThrow(/HTTPS origin/);
     await expect(verifyLiveDeployment({ ...local, url: 'http://127.0.0.1:18092/', allowLoopback: false })).rejects.toThrow(/HTTPS origin/);

@@ -79,6 +79,10 @@ const MENU: MasterMenu = {
 const SCREEN: PlatformScreen = {
   id: 's01', name: 'DoorDash 1', platform: 'doordash', locationCode: 'NDG_6284', viewUrl: 'https://screens.example.test/s01/', createdBy: 'Owner', createdAt: '2026-11-05T00:00:00.000Z',
 };
+const SECOND_STORE = 'dd-second-kitchen';
+const SECOND_SCREEN: PlatformScreen = {
+  ...SCREEN, id: 's02', name: 'DoorDash 2', locationCode: 'TEST_SECOND_KITCHEN', viewUrl: 'https://screens.example.test/s02/', storeIds: [SECOND_STORE],
+};
 
 async function setup(opts: { autoAccept?: boolean } = {}) {
   const repo = getRepo();
@@ -94,12 +98,26 @@ const INPUT: ScreenEntryInput = {
   ],
 };
 
+async function setupSecondStore() {
+  await getRepo().upsertStore({
+    channel: 'doordash', channelStoreId: SECOND_STORE, brandName: 'OOeuf', locationCode: SECOND_SCREEN.locationCode,
+    cloverMerchantId: MID, autoAccept: false, online: true, meta: {},
+  });
+}
+
+async function saveLegacyScreenOrder() {
+  const built = buildScreenEntryOrder(INPUT, { channel: 'doordash', store: { channelStoreId: 'dd-ooeuf', brandName: 'OOeuf' }, menu: MENU, province: 'QC', screen: SCREEN, enteredBy: STAFF.name });
+  if ('error' in built) throw new Error(built.error);
+  const { order } = await getRepo().insertOrderIfNew({ ...built.order, externalOrderId: 'screen-A1B2C3', locationCode: SCREEN.locationCode });
+  return order;
+}
+
 describe('building the order from what the screen shows', () => {
   it('platform prices (menu + DoorDash markup), options, a dish not in the menu, QC taxes, the ticket header', () => {
     const r = buildScreenEntryOrder(INPUT, { channel: 'doordash', store: { channelStoreId: 'dd-ooeuf', brandName: 'OOeuf' }, menu: MENU, province: 'QC', screen: SCREEN, enteredBy: 'Cook', now: Date.parse('2026-11-05T15:00:00Z') });
     if ('error' in r) throw new Error(r.error);
     const o = r.order;
-    expect(o).toMatchObject({ channel: 'doordash', marketplace: 'doordash', externalOrderId: 'screen-A1B2C3', displayId: 'A1B2C3', viaHub: 'screen', customerName: 'Marie', channelStoreId: 'dd-ooeuf', brandName: 'OOeuf' });
+    expect(o).toMatchObject({ channel: 'doordash', marketplace: 'doordash', externalOrderId: expect.stringMatching(/^screen-[0-9a-f]{24}:A1B2C3$/), displayId: 'A1B2C3', viaHub: 'screen', customerName: 'Marie', channelStoreId: 'dd-ooeuf', brandName: 'OOeuf' });
     // 10 $ + 20 % = 12 $, bacon 1 $ + 20 % = 1.20 $, × 2 = 26.40 $; the combo 5 $ as typed.
     expect(o.lines[0]).toMatchObject({ externalId: 'i-bene', name: 'Bénédictine', quantity: 2, unitPrice: 12, total: 26.4, notes: 'Œufs bien cuits' });
     expect(o.lines[0].modifiers).toEqual([{ externalId: 'm-bacon', name: 'Bacon', quantity: 1, unitPrice: 1.2 }]);
@@ -158,11 +176,49 @@ describe('entered from the screen → Clover, paid, printed — the platform is 
     expect(events).toEqual(expect.arrayContaining(['received', 'printed', 'accepted', 'pos_paid', 'screen_entry']));
   });
 
-  it('the same platform order number twice never makes a second order, ticket or payment', async () => {
+  it('the same store and platform order number across two screens produces one order, ticket and payment', async () => {
     await setup();
-    expect((await enterScreenOrder(SCREEN, INPUT, STAFF)).ok).toBe(true);
-    const again = await enterScreenOrder(SCREEN, { ...INPUT, orderCode: 'a1b2c3' }, STAFF);
+    const first = await enterScreenOrder(SCREEN, INPUT, STAFF);
+    if (!first.ok) throw new Error(first.error);
+    const anotherScreen = { ...SCREEN, id: 's03', name: 'Same store backup', storeIds: ['dd-ooeuf'] };
+    const again = await enterScreenOrder(anotherScreen, { ...INPUT, orderCode: 'a1b2c3' }, STAFF);
     expect(again).toMatchObject({ ok: false, status: 409 });
+    expect(await getRepo().listOrders({})).toMatchObject([{ id: first.order.id }]);
+    expect(sent('POST', /\/atomic_order\/orders$/)).toHaveLength(1);
+    expect(sent('POST', /\/print_event$/)).toHaveLength(1);
+    expect(sent('POST', /\/payments$/)).toHaveLength(1);
+  });
+
+  it('keeps equal normalized display codes distinct for authorized stores in two kitchens', async () => {
+    await setup();
+    await setupSecondStore();
+    const first = await enterScreenOrder(SCREEN, { ...INPUT, channelStoreId: 'dd-ooeuf' }, STAFF);
+    const second = await enterScreenOrder(SECOND_SCREEN, { ...INPUT, orderCode: 'a1b2c3', channelStoreId: SECOND_STORE }, STAFF);
+    if (!first.ok) throw new Error(first.error);
+    if (!second.ok) throw new Error(second.error);
+    expect(first.order).toMatchObject({ displayId: 'A1B2C3', channelStoreId: 'dd-ooeuf', locationCode: SCREEN.locationCode });
+    expect(second.order).toMatchObject({ displayId: 'A1B2C3', channelStoreId: SECOND_STORE, locationCode: SECOND_SCREEN.locationCode });
+    expect(second.order.externalOrderId).not.toBe(first.order.externalOrderId);
+    expect(await getRepo().listOrders({})).toHaveLength(2);
+    expect(sent('POST', /\/atomic_order\/orders$/)).toHaveLength(2);
+    expect(sent('POST', /\/print_event$/)).toHaveLength(2);
+    expect(sent('POST', /\/payments$/)).toHaveLength(2);
+  });
+
+  it('recognizes a legacy entry for the same store without contacting Clover', async () => {
+    await setup();
+    const legacy = await saveLegacyScreenOrder();
+    expect(await enterScreenOrder(SCREEN, INPUT, STAFF)).toMatchObject({ ok: false, status: 409 });
+    expect(await getRepo().listOrders({})).toMatchObject([{ id: legacy.id }]);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('accepts a code already used by a legacy entry for a different store', async () => {
+    await setup();
+    await setupSecondStore();
+    const legacy = await saveLegacyScreenOrder();
+    const entry = await enterScreenOrder(SECOND_SCREEN, { ...INPUT, channelStoreId: SECOND_STORE }, STAFF);
+    expect(entry).toMatchObject({ ok: true, inClover: true, paid: true, printed: true, order: { displayId: legacy.displayId, channelStoreId: SECOND_STORE, locationCode: SECOND_SCREEN.locationCode } });
     expect(sent('POST', /\/atomic_order\/orders$/)).toHaveLength(1);
     expect(sent('POST', /\/print_event$/)).toHaveLength(1);
     expect(sent('POST', /\/payments$/)).toHaveLength(1);

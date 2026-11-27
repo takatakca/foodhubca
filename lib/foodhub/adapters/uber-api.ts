@@ -10,7 +10,8 @@ import { isMenuLocked } from '../menu/lock';
 import { getRepo } from '../repo';
 import type { ChannelResult, ChannelStore, OrderLine, StoredOrder } from '../types';
 import { isRelayStore } from './relay';
-import { uberBlockedResult, uberCanSend, uberGetJson, uberSend, type UberPosState } from './uber-eats';
+import { uberBlockedResult, uberCanSend, uberGetJson, uberSend } from './uber-eats';
+import { uberPosForStore } from './uber-link';
 
 const KEY = 'uber_eats' as const;
 const enc = encodeURIComponent;
@@ -26,7 +27,7 @@ export function setUberStorePrepTime(storeId: string, minutes: number): Promise<
 /** Uber stores where Food Hub takes the orders (Uber said so in pos_data): the only ones Food Hub sets a prep time on. */
 async function managedStores(locationCode?: string): Promise<ChannelStore[]> {
   return (await getRepo().listStores('uber_eats')).filter((s) => !isRelayStore(s) && (!locationCode || s.locationCode === locationCode)
-    && (s.meta?.uberPos as UberPosState | undefined)?.orderManager === 'foodhub');
+    && uberPosForStore(s)?.orderManager === 'foodhub');
 }
 
 /**

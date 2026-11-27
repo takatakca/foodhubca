@@ -1,5 +1,7 @@
 ## 2026-11-26 — Paiement Clover après déplacement d’une liaison
 
+La réconciliation locale de #183 sur `86d190c` conserve les références par magasin de #178 pour la saisie, la reprise, l’import et le paiement Clover. Les 161 essais ciblés couvrent aussi le règlement et l’impression sur la caisse confirmée et le contrôle manuel d’une liaison Uber Eats. Les réponses des fournisseurs sont simulées. La CI du SHA réconcilié et la réception marchande restent à vérifier avant publication.
+
 La paire caisse et commande confirmée reste stable dans les événements et la lecture Suite. La note de facture Clover, quand elle est activée, utilise aussi la caisse confirmée si la liaison a changé. Le repli historique garde la liaison courante pour une commande sans caisse enregistrée. Deux tests reproduisent les destinations erronées avec des fournisseurs simulés. Sur `b59c904`, 133 tests ciblés, TypeScript et ESLint passent.
 
 La cuisine enregistrée sur la commande peut marquer la remise au livreur et la commande terminée. Si la liaison actuelle désigne une autre cuisine, Food Hub affiche un paiement Clover en attente. Le contrôle intervient avant la recherche du type de paiement et l’envoi à Clover. Pour une commande déjà terminée, vérifier le paiement sur la commande de la caisse Clover d’origine et l’enregistrer dans Clover si nécessaire. Le contrôle compare les deux cuisines lorsqu’elles sont connues. La preuve marchande reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
@@ -11,6 +13,22 @@ L’impression à l’arrivée, le déclenchement planifié et la réimpression 
 L’annulation et la relève vers la tablette Skip ferment la commande sur la caisse qui l’a confirmée. Si cette caisse diffère de la caisse configurée, Food Hub y vérifie l’identifiant et le titre avant de demander une modification. Lors d’un envoi concurrent, la copie excédentaire est retirée de la caisse qui l’a créée. Une même référence sur deux caisses distingue toujours deux copies lorsque les deux caisses sont confirmées. Les 117 tests ciblés utilisent des réponses Clover simulées.
 
 Si l’annulation arrive pendant le premier envoi, Food Hub ferme la commande sur la caisse confirmée avant impression. L’arrêt s’applique aussi lorsque l’acceptation automatique est désactivée. Quand Clover renvoie un échec après l’annulation, la relève vers la tablette Skip est abandonnée. Les trois scénarios reproduisaient l’erreur avant correction. Sur `df03fc9`, les 136 tests ciblés, TypeScript et ESLint réussissent avec des fournisseurs simulés.
+
+## 2026-11-26 — Numéro de commande saisi à partir d’un écran
+
+La saisie manuelle distingue désormais deux commandes qui portent le même numéro affiché dans deux magasins. Saisir deux fois le même numéro pour le même magasin reste un doublon, même depuis un autre écran ou si la première saisie date d’une version antérieure. Clover utilise une référence de magasin dans le titre de reprise des nouvelles commandes pour retrouver la bonne commande quand plusieurs magasins partagent une caisse. L’import reconnaît ce titre sans écarter une commande native de Clover qui porte le même numéro. Le numéro affiché reste celui de la plateforme. Les preuves de réception physique restent suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+Le paiement Clover d’une nouvelle saisie utilise une référence stable de 32 caractères dérivée de l’identifiant complet de la commande, qui inclut la référence du magasin. Les essais simulés couvrent deux magasins partageant une caisse avec le même numéro long, une nouvelle tentative et la compatibilité des références de paiement antérieures.
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — Contrôle manuel d’une liaison Uber Eats
+
+« Vérifier avec Uber » consulte les liaisons accessibles au compte en utilisant un jeton OAuth distinct avec la portée `eats.store`. Si `UBER_OAUTH_SCOPE` est renseignée, elle doit inclure cette portée. Un jeton statique `UBER_ACCESS_TOKEN` reste prioritaire. L’autorisation de l’application en production et la réception réelle restent à vérifier auprès d’Uber. [Suivi marchand](https://github.com/takatakca/foodhubca/issues/46#issuecomment-7194255617) · [Référence Uber](https://developer.uber.com/docs/eats/references/api/v1/get-eats-stores-storeid-posdata)
+
+Un changement d’identifiant marchand écarte les preuves de l’ancienne liaison tout en conservant les protections locales. Une réponse reçue après un déplacement ou une déconnexion invite à relancer la vérification. Une modification des réglages du même magasin peut coexister avec le résultat. Les essais utilisent des réponses Uber et Supabase simulées.
+
+— signé : Codex @ cloud · 2026-11-26
 
 ## 2026-11-26 — Alertes d’un écran réaffecté
 

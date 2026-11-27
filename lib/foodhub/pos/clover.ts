@@ -66,7 +66,7 @@ export function cloverReadiness() {
  */
 export type InjectResult =
   | { ok: true; posOrderId: string; merchantId?: string; totalCents?: number; lineItems?: number; freeLines?: number; adopted?: boolean }
-  | { ok: false; skipped?: boolean; error: string; httpStatus?: number; uncertain?: boolean };
+  | { ok: false; skipped?: boolean; error: string; httpStatus?: number; uncertain?: boolean; mappingChanged?: true };
 
 type InjectOptions = {
   orderTypeId?: string | null;

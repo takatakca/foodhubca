@@ -1,3 +1,11 @@
+## 2026-11-26 — Arbitrage des sorties Skip et Clover
+
+Avant une confirmation, un repli JET ou une création Clover, la transaction vérifie l’état réel, le reçu attendu et les annulations Skip déjà enregistrées. Elle réserve une seule décision pour la commande. Un refus JET explicite libère la prise en charge. Un résultat incertain reste visible et bloque un nouvel envoi jusqu’à vérification. Une confirmation manuelle déjà enregistrée bloque aussi l’admission automatique devenue périmée. Un renvoi Clover expressément demandé depuis une commande déjà acceptée reste possible. Un avis de repli signé peut reprendre le traitement après un arrêt entre la confirmation du fournisseur et le journal d’activité.
+
+L’admission vérifie aussi la liaison conservée au moment de choisir la caisse. Une modification de liaison suspend le premier POST et le repli automatique. Les reprises d’un reçu déjà transmis interrogent uniquement la caisse d’origine.
+
+Avant publication de #192, vérifier sur la cible via PostgREST le contrat complet de `fh_apply_skip_lifecycle`, y compris la réservation Clover avec liaison et les opérations `prepare_jet` et `finish_jet`. Conserver l’exécution au seul rôle serveur. [Suivi de publication et preuves marchandes](https://github.com/takatakca/foodhubca/issues/155)
+
 ## 2026-11-26 — Avis Skip après la fenêtre de reprise d’une commande
 
 Une annulation signée ou un transfert signé vers la tablette peut déclencher la recherche du reçu Clover d’origine après la fin de la fenêtre de la commande. La recherche relit la caisse de la tentative et exige le marqueur Food Hub unique. Un résultat absent ou ambigu reste lié à l’avis pour vérification ou relance. Si le reçu est confirmé et que la commande demeure annulée ou transférée, la fermeture se fait sur la caisse qui l’a reçu. Une réservation temporaire empêche deux traitements simultanés de fermer de nouveau le même reçu. Cette reprise d’un avis terminal ne crée, n’imprime et ne confirme aucune commande à JET.

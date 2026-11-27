@@ -40,6 +40,8 @@ export interface OrderTimeline {
   posMerchantId?: string;
   /** Clover register and time recorded before a create request whose receipt is still pending. */
   posCreateAttempt?: { merchantId: string; at: string; id: string };
+  /** Durable JET decision. Review an unresolved result before retrying either outbound path. */
+  skipJetAttempt?: { id: string; at: string; signal: 'accept' | 'fallback'; manual?: true; outcome?: 'accepted' | 'fallback' | 'uncertain' };
   /** Clover: payment recorded with the platform tender (when the order leaves the kitchen). */
   posPaymentId?: string;
   posPaymentError?: string;

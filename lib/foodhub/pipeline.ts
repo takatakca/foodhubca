@@ -21,7 +21,7 @@ import { applyCourierUpdate, pendingKey, readPending } from './courier';
 import { getBrandMenu } from './menu/shared';
 import { prepFor } from './prep';
 import { isWaitingScheduled, scheduledInfo } from './scheduling';
-import { getRepo, type SkipLifecycleResult } from './repo';
+import { getRepo, type SkipLifecycleInput, type SkipLifecycleResult } from './repo';
 import { localTimeLabel } from './time';
 import { CANCEL_REASON_LABELS, type CancelReason, type ChannelAdapter, type ChannelKey, type ChannelResult, type ChannelStore, type NormalizedOrder, type OrderStatus, type OrderTimeline, type StoredOrder } from './types';
 
@@ -261,7 +261,7 @@ export async function processIncomingOrder(n: NormalizedOrder, opts: { holdClove
       const latest = await checkSkipBeforeClover(order);
       if (hasPendingSkipCloverAttempt(latest.order)) throw new Error(pos.error);
       if (latest.order.status === 'cancelled') return stopCancelledSkipIntake(latest.order, latest.transitioned);
-      if (latest.outcome !== 'received') return { order: latest.order, duplicate: true };
+      if (latest.outcome !== 'received' || hasPendingSkipJetAttempt(latest.order)) return { order: latest.order, duplicate: true };
       current = latest.order;
     }
     current = (await repo.updateOrder(order.id, { posError: pos.error })) ?? current;
@@ -283,37 +283,38 @@ export async function processIncomingOrder(n: NormalizedOrder, opts: { holdClove
     const r = await autoAcceptAfterClover(current, pos.ok ? pos.posOrderId : undefined);
     current = r.order;
     accept = r.accept;
+  } else if (!pos.ok && pos.mappingChanged) {
+    await repo.addEvent(order.id, 'needs_attention', { reason: pos.error });
   } else if (posBlocksAccept) {
     if (n.channel === 'skip' && !n.viaHub) {
       // Skip/JET Connect: tell JET right away so the order falls back to the Skip tablet
       // instead of waiting out the 5-minute timeout. 'failed' = handed back to the platform (still a sale).
-      if (directSkip) {
-        const latest = await checkSkipBeforeClover(current);
-        if (hasPendingSkipCloverAttempt(latest.order)) throw new Error(pos.error);
-        if (latest.order.status === 'cancelled') return stopCancelledSkipIntake(latest.order, latest.transitioned);
-        if (latest.outcome !== 'received') return { order: latest.order, duplicate: true };
-        current = latest.order;
+      const reason = 'Clover did not receive the order';
+      const channelError = 'Food Hub could not confirm the Clover order — Skip acknowledged the tablet fallback request.';
+      const decision = isDirectSkipOrder(current)
+        ? await sendSkipJetDecision(current, 'fallback', { reason, fields: { channelError } })
+        : null;
+      if (decision) {
+        current = decision.order;
+        if (!decision.finished) return { order: current, duplicate: false, pos: { ok: false, error: pos.error, skipped: pos.skipped } };
       }
-      const fallback = await getAdapter('skip').denyOrder(current, 'Clover did not receive the order');
+      const fallback = decision?.result ?? await getAdapter('skip').denyOrder(current, reason);
       const tag = `Skip #${order.displayId || order.externalOrderId.slice(0, 8)}`;
+      const uncertain = decision?.outcome === 'uncertain';
       if (fallback.ok) {
         await repo.addEvent(order.id, 'routed_to_skip_tablet', { status: fallback.status, message: fallback.message });
-        const handedOff = { status: 'failed' as const, channelError: 'Food Hub could not confirm the Clover order — Skip acknowledged the tablet fallback request.' };
-        if (directSkip) {
-          current = await repo.patchOrder(order.id, {}, handedOff, (fresh) => fresh.status === 'new' && !fresh.posOrderId && !hasPendingSkipCloverAttempt(fresh))
-            ?? (await repo.getOrder(order.id)) ?? current;
-        } else if (!(await cancelledMeanwhile())) {
-          current = (await repo.updateOrder(order.id, handedOff)) ?? current;
+        if (!decision && !(await cancelledMeanwhile())) {
+          current = (await repo.updateOrder(order.id, { status: 'failed', channelError })) ?? current;
         }
         await logActivity({ actor: 'TAKATAK automation', source: 'automation', kind: 'order', action: 'skip_tablet_fallback', status: 'info', channel: 'skip', brandName, locationCode: store?.locationCode, orderId: order.id,
           summary: `${tag}: Skip acknowledged the tablet fallback request (Food Hub could not confirm the Clover order)` });
       } else {
-        // JET did not get sent-to-pos-failed (live switch off, key missing, HTTP error): never claim it did.
-        // The order stays "new" with Accept / Send to Skip tablet available so the operator can retry.
-        await repo.addEvent(order.id, 'routed_to_skip_tablet_failed', { status: fallback.status, message: fallback.message });
-        current = (await repo.updateOrder(order.id, { channelError: `Skip tablet hand-off not sent: ${fallback.message}` })) ?? current;
+        await repo.addEvent(order.id, 'routed_to_skip_tablet_failed', { status: fallback.status, message: fallback.message, ...(uncertain ? { uncertain: true } : {}) });
+        if (!decision) current = (await repo.updateOrder(order.id, { channelError: `Skip tablet hand-off not sent: ${fallback.message}` })) ?? current;
         await logActivity({ actor: 'TAKATAK automation', source: 'automation', kind: 'order', action: 'skip_tablet_fallback', status: 'failed', channel: 'skip', brandName, locationCode: store?.locationCode, orderId: order.id,
-          summary: `${tag}: Clover did not receive it and the Skip tablet hand-off was NOT sent (${fallback.message}) — retry "Send to Skip tablet" or send it to Clover` });
+          summary: uncertain
+            ? `${tag}: Skip tablet hand-off needs review (${fallback.message})`
+            : `${tag}: Skip refused the tablet hand-off (${fallback.message})` });
       }
     } else if (!routingHold && (await scheduleCloverRetry(current, pos))) {
       current = (await repo.getOrder(order.id)) ?? current;
@@ -406,6 +407,49 @@ function hasPendingSkipCloverAttempt(order: StoredOrder): boolean {
   return isDirectSkipSource(order) && !order.posOrderId && Boolean(order.timeline?.posCreateAttempt);
 }
 
+function hasPendingSkipJetAttempt(order: StoredOrder): boolean {
+  const decision = order.timeline?.skipJetAttempt;
+  return isDirectSkipSource(order) && Boolean(decision && (!decision.outcome || decision.outcome === 'uncertain'));
+}
+
+type SkipJetSignal = Extract<SkipLifecycleInput, { kind: 'prepare_jet' }>['signal'];
+type SkipJetFields = NonNullable<Extract<SkipLifecycleInput, { kind: 'finish_jet' }>['fields']>;
+
+async function sendSkipJetDecision(order: StoredOrder, signal: SkipJetSignal, opts: { manual?: true; reason?: string; fields?: SkipJetFields } = {}) {
+  const repo = getRepo();
+  const identity = { externalOrderId: order.externalOrderId, orderId: order.id };
+  const reservation = await repo.applySkipLifecycle({ kind: 'prepare_jet', ...identity, signal, manual: opts.manual });
+  if (!reservation.order) throw new Error('Skip order changed before a JET decision could be reserved.');
+  let current = reservation.order;
+  if (reservation.transitioned) await logSkipReceiptCancellation(current);
+  if (current.status === 'cancelled' || current.status === 'failed') current = (await settleInClover(current)) ?? current;
+  const attempt = current.timeline?.skipJetAttempt;
+  if (reservation.outcome !== 'jet_prepared' || !attempt?.id) {
+    const message = hasPendingSkipCloverAttempt(current)
+      ? 'Check the pending receipt on the original Clover register before responding to Skip.'
+      : hasPendingSkipJetAttempt(current)
+        ? 'A Skip response is already pending. Verify its result in Skip before sending this order again.'
+        : 'Skip order changed before a response could be sent.';
+    return { order: current, result: { channel: 'skip', status: 'blocked', ok: false, message } satisfies ChannelResult, finished: false };
+  }
+
+  const adapter = getAdapter('skip');
+  const result = signal === 'accept' ? await adapter.acceptOrder(current, current.posOrderId) : await adapter.denyOrder(current, opts.reason ?? 'Rejected by restaurant');
+  const refused = result.status === 'blocked' || [400, 401, 403, 404, 405, 415, 422, 429].includes(result.httpStatus ?? 0);
+  const outcome = result.ok ? (signal === 'accept' ? 'accepted' : 'fallback') : refused ? 'refused' : 'uncertain';
+  const error = signal === 'fallback' ? `Skip tablet hand-off not sent: ${result.message}` : result.message;
+  const fields = {
+    ...opts.fields,
+    ...(!result.ok ? { channelError: outcome === 'uncertain' ? `Skip response needs review: ${result.message}` : error } : {}),
+  };
+  const saved = await repo.applySkipLifecycle({ kind: 'finish_jet', ...identity, attemptId: attempt.id, result: outcome, fields });
+  if (!saved.order) throw new Error('Skip response could not be matched to its recorded attempt.');
+  current = saved.order;
+  if (saved.transitioned) await logSkipReceiptCancellation(current);
+  if (current.status === 'cancelled' || current.status === 'failed') current = (await settleInClover(current)) ?? current;
+  return { order: current, result, outcome, finished: Boolean(saved.finished) };
+}
+
 async function checkSkipBeforeClover(order: StoredOrder): Promise<SkipLifecycleResult & { order: StoredOrder }> {
   const decision = await getRepo().applySkipLifecycle({ kind: 'check_intake', externalOrderId: order.externalOrderId });
   if (!decision.order || decision.order.id !== order.id) throw new Error('Skip order changed while checking Clover processing.');
@@ -460,8 +504,9 @@ export async function settleTerminalSkipOrder(order: StoredOrder): Promise<void>
 }
 
 /** Puts an order into Clover (the store's merchant, the right order type); its lines are already linked to the inventory. */
-export async function sendToClover(order: StoredOrder, store: ChannelStore | null): Promise<InjectResult> {
+export async function sendToClover(order: StoredOrder, store: ChannelStore | null, allowAfterManualAcceptance?: true): Promise<InjectResult> {
   if (hasPendingSkipCloverAttempt(order)) return recoverSkipCloverAttempt(order);
+  if (hasPendingSkipJetAttempt(order)) return { ok: false, skipped: true, error: 'A Skip response is already pending. Verify its result before sending to Clover.' };
   const mid = store?.cloverMerchantId || (await defaultCloverMerchant());
   const token = mid ? await cloverToken(mid).catch(() => null) : null;
   const orderTypeId = await cloverOrderTypeForOrder(mid, order, { token, base: cloverBaseUrl() }).catch(() => null);
@@ -471,9 +516,13 @@ export async function sendToClover(order: StoredOrder, store: ChannelStore | nul
   const pos = await injectOrder(order, mid, {
     orderTypeId,
     beforeCreate: async (merchantId) => {
-      prepare.result = await repo.applySkipLifecycle({ kind: 'prepare_clover', externalOrderId: order.externalOrderId, orderId: order.id, merchantId });
+      prepare.result = await repo.applySkipLifecycle({ kind: 'prepare_clover', externalOrderId: order.externalOrderId, orderId: order.id,
+        merchantId, storeMapping: store, allowAfterManualAcceptance });
       if (!prepare.result.order) throw new Error('Skip Clover posting could not reserve its originating register.');
       if (prepare.result.outcome === 'prepared') return;
+      if (prepare.result.outcome === 'mapping_changed') {
+        return { ok: false, skipped: true, mappingChanged: true, error: 'The Skip store mapping changed before Clover received the order. Review the kitchen and register before sending.' };
+      }
       return { ok: false, skipped: true, error: 'Skip order changed before a Clover request could be sent.' };
     },
   });
@@ -554,6 +603,20 @@ export async function autoAcceptAfterClover(order: StoredOrder, posOrderId?: str
   if (isDirectSkipOrder(order) && !posOrderId?.trim() && !current.posOrderId?.trim()) {
     return { order: current, accept: { channel: 'skip', status: 'blocked', ok: false, message: 'Skip requires a Clover order ID for automatic confirmation.' } };
   }
+  if (isDirectSkipOrder(current)) {
+    const decision = await sendSkipJetDecision(current, 'accept', { fields: { acceptedBy: 'auto' } });
+    current = decision.order;
+    const accept = decision.result;
+    if (decision.finished && accept.ok && current.status === 'accepted') {
+      await repo.addEvent(order.id, 'accepted', { auto: true, response: summarize(accept) });
+      await mevOnOrderChange(current);
+    } else if (decision.finished && !accept.ok) {
+      await repo.addEvent(order.id, 'accept_failed', { auto: true, status: accept.status, message: accept.message, ...(decision.outcome === 'uncertain' ? { uncertain: true } : {}) });
+    } else if (accept.ok && current.status === 'cancelled') {
+      await repo.addEvent(order.id, 'needs_attention', { reason: 'Skip confirmed the order while it was being cancelled. The receipt remains linked for settlement.' });
+    }
+    return { order: current, accept };
+  }
   const accept = await actionsFor(current).acceptOrder(current, recordedSkip ? current.posOrderId : posOrderId);
   if (accept.ok) {
     const latest = recordedSkip ? await checkRecordedSkipReceipt(current) : ((await repo.getOrder(order.id)) ?? current);
@@ -607,7 +670,7 @@ export async function resendToClover(order: StoredOrder, opts: { manual?: boolea
   if (!(await claimCloverSending(order.id))) return { order, pos: { ok: false, skipped: true, error: 'Food Hub is already sending this order to Clover — check again in a few seconds.' }, store: null };
   try {
     const current = (await getRepo().getOrder(order.id)) ?? order;
-    return await resendNow(current, opts);
+    return await resendNow(current, opts, opts.manual && order.status !== 'new' ? true : undefined);
   } finally {
     await releaseCloverSending(order.id);
   }
@@ -655,7 +718,7 @@ export async function isSendingToClover(orderId: string): Promise<boolean> {
   return !Number.isFinite(at) || Date.now() - at <= CLOVER_SEND_CLAIM_STUCK_MS;
 }
 
-async function resendNow(order: StoredOrder, opts: { manual?: boolean; by?: string; attempt?: number }): Promise<CloverResendOutcome> {
+async function resendNow(order: StoredOrder, opts: { manual?: boolean; by?: string; attempt?: number }, allowAfterManualAcceptance?: true): Promise<CloverResendOutcome> {
   const repo = getRepo();
   const store = await repo.findStore(order.channel, order.channelStoreId);
   const tag = { ...(opts.manual ? { manual: true } : {}), ...(opts.by ? { by: opts.by } : {}), ...(opts.attempt ? { attempt: opts.attempt } : {}) };
@@ -663,6 +726,9 @@ async function resendNow(order: StoredOrder, opts: { manual?: boolean; by?: stri
     const pos = await recoverSkipCloverAttempt(order);
     const current = pos.ok ? await recordCloverSuccess(order, store, pos, tag) : (await repo.getOrder(order.id)) ?? order;
     return { order: current, pos, store };
+  }
+  if (hasPendingSkipJetAttempt(order)) {
+    return { order, pos: { ok: false, skipped: true, error: 'A Skip response is already pending. Verify its result before sending to Clover.' }, store };
   }
   if (cloverKitchenChanged(order, store)) {
     const error = 'This store is now mapped to a different kitchen. Review the order and store mapping before using "Send to Clover".';
@@ -724,7 +790,7 @@ async function resendNow(order: StoredOrder, opts: { manual?: boolean; by?: stri
       return { order: current, pos: { ok: false, skipped: true, error: 'Skip order changed before a Clover retry.' }, store };
     }
   }
-  pos ??= await sendToClover(current, store);
+  pos ??= await sendToClover(current, store, allowAfterManualAcceptance);
   if (pos.ok) {
     // Read again: another server or a person may have put it in Clover meanwhile, or the platform cancelled it.
     const latest = (await repo.getOrder(order.id)) ?? current;
@@ -756,7 +822,12 @@ async function resendNow(order: StoredOrder, opts: { manual?: boolean; by?: stri
     return { order: await recordCloverSuccess(latest, store, pos, tag), pos, store };
   }
   const latest = isDirectSkipSource(current) ? await repo.getOrder(order.id) : null;
-  if (latest && hasPendingSkipCloverAttempt(latest)) return { order: latest, pos, store };
+  if (latest && (hasPendingSkipCloverAttempt(latest) || hasPendingSkipJetAttempt(latest))) return { order: latest, pos, store };
+  if (pos.mappingChanged) {
+    current = (await repo.updateOrder(order.id, { posError: pos.error })) ?? current;
+    await repo.addEvent(order.id, 'needs_attention', { reason: pos.error, ...tag });
+    return { order: current, pos, store, mappingChanged: true };
+  }
   const priorRetry = current.timeline?.posRetry;
   if (routingHold && pos.uncertain && !priorRetry?.uncertain) {
     // Keep an earlier lost response trace after the routing error replaces the old POS error.
@@ -798,7 +869,7 @@ export function allowedActions(order: StoredOrder): OrderAction[] {
     if (order.posOrderId) a.push('print');
     return a;
   }
-  if (order.status === 'new' && !hasPendingSkipCloverAttempt(order)) a.push(acceptNeedsClover(order) ? 'accept_no_pos' : 'accept', 'deny');
+  if (order.status === 'new' && !hasPendingSkipCloverAttempt(order) && !hasPendingSkipJetAttempt(order)) a.push(acceptNeedsClover(order) ? 'accept_no_pos' : 'accept', 'deny');
   // Uber Eats lets a store cancel an accepted order by API; DoorDash too once it allowlisted the integration. Skip (and
   // DoorDash otherwise) cancellations are done in their merchant portal / tablet and arrive back here through webhooks.
   // DoorDash only when DoorDash allowlisted merchant cancellations for this integration (DOORDASH_MERCHANT_CANCEL=true).
@@ -808,7 +879,7 @@ export function allowedActions(order: StoredOrder): OrderAction[] {
   if (order.status === 'ready') a.push('dispatch', 'complete', ...(canCancel ? (['cancel'] as const) : []));
   if (order.status === 'dispatched') a.push('complete');
   // "Send to Clover" only while the order is still ours to make — never for orders on the Skip tablet, cancelled or closed.
-  if (!order.posOrderId && ['new', 'accepted', 'ready', 'dispatched'].includes(order.status)) a.push('retry_pos');
+  if (!order.posOrderId && !hasPendingSkipJetAttempt(order) && ['new', 'accepted', 'ready', 'dispatched'].includes(order.status)) a.push('retry_pos');
   if (order.posOrderId) a.push('print');
   // SkipTheDishes (JET Connect) lets the store report an out-of-stock item after accepting; Skip adjusts the customer's bill.
   // (Not for Skip orders that came through the relay: Skip's API does not know them.)
@@ -839,6 +910,9 @@ export async function runOrderAction(orderId: string, action: OrderAction, opts:
 
   if ((action === 'accept' || action === 'accept_no_pos' || action === 'deny') && hasPendingSkipCloverAttempt(order)) {
     return { order, result: { ok: false, message: 'Check the pending receipt on the original Clover register before responding to Skip.' } };
+  }
+  if ((action === 'accept' || action === 'accept_no_pos' || action === 'deny') && hasPendingSkipJetAttempt(order)) {
+    return { order, result: { ok: false, message: 'A Skip response is already pending. Verify its result in Skip before responding again.' } };
   }
   if (action === 'accept' && order.status === 'new' && acceptNeedsClover(order)) {
     // Nothing is sent to the platform: the kitchen has no Clover order yet.
@@ -961,6 +1035,26 @@ export async function runOrderAction(orderId: string, action: OrderAction, opts:
   if ((action === 'accept' || action === 'accept_no_pos') && opts.prepMinutes && opts.prepMinutes >= 5 && opts.prepMinutes <= 120) {
     // The cook's estimate from the pop-up becomes the ready-by target (DoorDash receives it as prep_time).
     working = await patchTimeline(order, { readyTarget: new Date(Date.now() + Math.round(opts.prepMinutes) * 60_000).toISOString() });
+  }
+  if (isDirectSkipOrder(working) && (action === 'accept' || action === 'accept_no_pos' || action === 'deny')) {
+    const fallback = action === 'deny';
+    const decision = await sendSkipJetDecision(working, fallback ? 'fallback' : 'accept', { manual: true, reason: reasonText, fields: {
+      acceptedBy: actor.username, seenAt: nowIso(), seenBy: actor.name, approvedBy: opts.approvedBy,
+      channelError: fallback ? 'Sent to the Skip tablet (backup flow).' : undefined,
+    } });
+    const { result, order: updated } = decision;
+    if (decision.finished) {
+      const eventType = action === 'accept_no_pos' ? 'accept_without_pos' : action;
+      await repo.addEvent(order.id, result.ok ? eventType : `${eventType}_failed`, {
+        message: result.message, reason: reasonText, by: actor.name,
+        ...(action === 'accept_no_pos' ? { note: 'Operator confirmed the order was entered in Clover by hand.' } : {}),
+        ...(opts.approvedBy ? { approvedBy: opts.approvedBy } : {}),
+        ...(decision.outcome === 'uncertain' ? { uncertain: true } : {}),
+      });
+      if (result.ok && updated.status === 'accepted') await mevOnOrderChange(updated);
+    }
+    await log(result.ok ? 'success' : 'failed', result.message);
+    return { order: updated, result };
   }
   if (order.viaPos) res = { ok: true, message: action === 'ready' ? 'Marked ready in Food Hub only — this order is handled by Clover’s own platform integration.' : 'Marked completed in Food Hub.' };
   else if (action === 'accept' || action === 'accept_no_pos') res = await adapter.acceptOrder(working, order.posOrderId);

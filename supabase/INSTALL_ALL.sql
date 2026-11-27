@@ -161,6 +161,8 @@ as $skip_lifecycle$
 declare
   current_order public.fh_orders%rowtype;
   seed public.fh_orders%rowtype;
+  current_mapping public.fh_channel_stores%rowtype;
+  expected_mapping jsonb := p_detail->'storeMapping';
   pending jsonb;
   cancellation jsonb;
   inbox_notice jsonb;
@@ -178,6 +180,16 @@ declare
   transitioned boolean := false;
   receipt_mode boolean := p_kind in ('record_receipt', 'check_receipt');
   prepare_mode boolean := p_kind = 'prepare_clover';
+  jet_mode boolean := p_kind in ('prepare_jet', 'finish_jet');
+  jet_attempt jsonb;
+  invalid_jet_attempt boolean;
+  jet_signal text := p_detail->>'signal';
+  jet_manual boolean := coalesce(p_detail->'manual' = 'true'::jsonb, false);
+  jet_result text := p_detail->>'result';
+  jet_fields jsonb := p_detail->'fields';
+  jet_timeline jsonb;
+  has_pos_order boolean;
+  known_pos_order boolean;
   receipt_pos_id text := p_detail->>'posOrderId';
   clover_merchant text := p_detail->>'merchantId';
   stored_merchant text;
@@ -191,7 +203,7 @@ declare
   recorded boolean := false;
 begin
   if p_kind is null or p_kind not in ('backup', 'cancel', 'intake', 'check_intake', 'record_receipt', 'check_receipt',
-      'prepare_clover', 'clear_clover_attempt')
+      'prepare_clover', 'clear_clover_attempt', 'prepare_jet', 'finish_jet')
       or p_external_id is null or p_external_id = '' then
     raise exception 'Invalid Skip lifecycle notice' using errcode = '22023';
   end if;
@@ -218,6 +230,21 @@ begin
     or coalesce(btrim(clover_attempt->>'merchantId', blank_store_chars), '') = '');
   active_order := current_order.status in ('new', 'accepted', 'ready', 'dispatched');
   active_attempt_check := active_order and clover_attempt is not null and not invalid_attempt;
+  jet_attempt := current_order.timeline->'skipJetAttempt';
+  invalid_jet_attempt := jet_attempt is not null and (jsonb_typeof(jet_attempt) <> 'object'
+    or jsonb_typeof(jet_attempt->'id') is distinct from 'string' or coalesce(jet_attempt->>'id', '') = ''
+    or jsonb_typeof(jet_attempt->'at') is distinct from 'string' or coalesce(jet_attempt->>'at', '') = ''
+    or coalesce(jet_attempt->>'signal', '') not in ('accept', 'fallback')
+    or (jet_attempt ? 'outcome' and coalesce(jet_attempt->>'outcome', '') not in ('accepted', 'fallback', 'uncertain')));
+  if jet_mode and (current_order.id is null or current_order.id::text is distinct from p_detail->>'orderId'
+      or coalesce(current_order.data->>'viaHub', '') <> '' or coalesce(current_order.data->>'viaPos', '') <> ''
+      or (p_kind = 'prepare_jet' and coalesce(jet_signal, '') not in ('accept', 'fallback'))
+      or (p_kind = 'finish_jet' and (invalid_jet_attempt or jet_attempt is null
+        or jet_attempt->>'id' is distinct from p_detail->>'attemptId' or coalesce(jet_result, '') not in ('accepted', 'fallback', 'refused', 'uncertain')
+        or (jet_result = 'accepted' and jet_attempt->>'signal' <> 'accept')
+        or (jet_result = 'fallback' and jet_attempt->>'signal' <> 'fallback')))) then
+    return jsonb_build_object('order', null, 'isNew', false, 'outcome', 'conflicting_jet');
+  end if;
   if prepare_mode or p_kind = 'clear_clover_attempt' then
     if current_order.id is null or current_order.id::text is distinct from p_detail->>'orderId'
         or coalesce(current_order.data->>'viaHub', '') <> '' or coalesce(current_order.data->>'viaPos', '') <> ''
@@ -330,6 +357,71 @@ begin
     if cancellation is not null then desired_status := 'cancelled'; end if;
   end if;
 
+  if jet_mode and cancellation is null then
+    if current_order.status = 'cancelled' then
+      return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'cancelled');
+    end if;
+    if p_kind = 'prepare_jet' then
+      if current_order.status <> 'new' then
+        return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'ignored');
+      end if;
+      if jet_attempt is not null then
+        if invalid_jet_attempt then
+          return jsonb_build_object('order', null, 'isNew', false, 'outcome', 'conflicting_jet');
+        end if;
+        return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'jet_pending');
+      end if;
+      has_pos_order := coalesce(btrim(current_order.pos_order_id, blank_store_chars), '') <> '';
+      known_pos_order := has_pos_order and coalesce(btrim(stored_merchant, blank_store_chars), '') <> '';
+      if not has_pos_order and clover_attempt is not null then
+        return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'attempt_pending');
+      end if;
+      if (jet_signal = 'accept' and not jet_manual and not known_pos_order)
+          or (jet_signal = 'fallback' and has_pos_order and (not jet_manual or not known_pos_order)) then
+        return jsonb_build_object('order', null, 'isNew', false, 'outcome', 'conflicting_jet');
+      end if;
+      jet_attempt := jsonb_build_object('id', gen_random_uuid(), 'at', event_at, 'signal', jet_signal)
+        || case when jet_manual then '{"manual":true}'::jsonb else '{}'::jsonb end;
+      update public.fh_orders set timeline = timeline || jsonb_build_object('skipJetAttempt', jet_attempt), updated_at = observed_at
+        where id = current_order.id returning * into current_order;
+      return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'jet_prepared');
+    end if;
+    if jet_attempt->>'outcome' in ('accepted', 'fallback') then
+      if jet_attempt->>'outcome' is distinct from jet_result then
+        return jsonb_build_object('order', null, 'isNew', false, 'outcome', 'conflicting_jet');
+      end if;
+      return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'jet_finished');
+    end if;
+    if current_order.status <> 'new' then
+      return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'ignored');
+    end if;
+    if jet_attempt->>'outcome' = 'uncertain' and jet_result = 'uncertain' then
+      return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'jet_pending');
+    end if;
+    jet_timeline := current_order.timeline - 'skipJetAttempt';
+    if jet_result <> 'refused' then
+      jet_timeline := jet_timeline || jsonb_build_object('skipJetAttempt', jet_attempt || jsonb_build_object('outcome', jet_result));
+    end if;
+    if jet_result = 'accepted' then
+      jet_timeline := (jet_timeline - 'acceptedBy') || jsonb_strip_nulls(jsonb_build_object('acceptedAt', event_at,
+        'acceptedBy', coalesce(nullif(jet_fields->>'acceptedBy', ''), case when jet_attempt->'manual' is distinct from 'true'::jsonb then 'auto' end)));
+    end if;
+    if jet_result in ('accepted', 'fallback') then
+      jet_timeline := jet_timeline || jsonb_strip_nulls(jsonb_build_object(
+        'seenAt', coalesce(nullif(jet_timeline->>'seenAt', ''), nullif(jet_fields->>'seenAt', '')),
+        'seenBy', coalesce(nullif(jet_timeline->>'seenBy', ''), nullif(jet_fields->>'seenBy', '')),
+        'approvedBy', nullif(jet_fields->>'approvedBy', '')));
+    end if;
+    update public.fh_orders set timeline = jet_timeline, updated_at = observed_at,
+      status = case jet_result when 'accepted' then 'accepted' when 'fallback' then 'failed' else current_order.status end,
+      channel_error = case jet_result when 'accepted' then null
+        when 'fallback' then coalesce(jet_fields->>'channelError', 'Sent to the Skip tablet (backup flow).')
+        else coalesce(jet_fields->>'channelError', current_order.channel_error) end
+      where id = current_order.id returning * into current_order;
+    return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'finished', true,
+      'outcome', case when jet_result = 'uncertain' then 'jet_pending' else 'jet_finished' end);
+  end if;
+
   if prepare_mode and cancellation is null then
     if current_order.status = 'cancelled' then
       return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'cancelled');
@@ -339,6 +431,26 @@ begin
     end if;
     if clover_attempt is not null then
       return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'attempt_pending');
+    end if;
+    if jet_attempt is not null and not coalesce(not invalid_jet_attempt and jet_attempt->'manual' = 'true'::jsonb
+        and jet_attempt->>'signal' = 'accept' and jet_attempt->>'outcome' = 'accepted' and current_order.status <> 'new'
+        and p_detail->'allowAfterManualAcceptance' = 'true'::jsonb, false) then
+      return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'jet_pending');
+    end if;
+    -- Check only before taking a new attempt. An existing receipt is always reconciled on its saved register.
+    select * into current_mapping from public.fh_channel_stores
+      where channel = 'skip' and channel_store_id = current_order.channel_store_id for share;
+    if (case when expected_mapping = 'null'::jsonb then current_mapping.id is not null else
+      jsonb_typeof(expected_mapping) is distinct from 'object'
+      or current_mapping.id is null or current_mapping.id::text is distinct from expected_mapping->>'id'
+      or current_mapping.channel_store_id is distinct from expected_mapping->>'channelStoreId'
+      or current_mapping.location_code is distinct from expected_mapping->>'locationCode'
+      or current_mapping.location_code is distinct from current_order.location_code
+      or current_mapping.updated_at is distinct from (expected_mapping->>'updatedAt')::timestamptz
+      or current_mapping.clover_merchant_id is distinct from expected_mapping->>'cloverMerchantId'
+      or (coalesce(current_mapping.clover_merchant_id, '') <> '' and current_mapping.clover_merchant_id <> clover_merchant)
+    end) then
+      return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'mapping_changed');
     end if;
     update public.fh_orders set timeline = timeline || jsonb_build_object('posCreateAttempt',
       jsonb_build_object('merchantId', clover_merchant, 'at', event_at, 'id', gen_random_uuid())), updated_at = observed_at
@@ -392,8 +504,9 @@ begin
       disposition := 'ignored';
     elsif desired_status = 'cancelled' and current_order.status = 'cancelled' then
       disposition := 'cancelled';
-    elsif p_kind = 'backup' and desired_status = 'failed' and current_order.status = 'failed' and exists (
-      select 1 from public.fh_order_events where order_id = current_order.id and type = 'routed_to_skip_tablet'
+    elsif p_kind = 'backup' and desired_status = 'failed' and current_order.status = 'failed' and (
+      (not invalid_jet_attempt and jet_attempt->>'signal' = 'fallback' and jet_attempt->>'outcome' = 'fallback')
+      or exists (select 1 from public.fh_order_events where order_id = current_order.id and type = 'routed_to_skip_tablet')
     ) then
       disposition := 'backed_up';
     elsif p_kind = 'backup' and current_order.status not in ('new', 'accepted', 'ready')

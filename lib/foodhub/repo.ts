@@ -12,26 +12,37 @@ export interface Doc<T = Record<string, unknown>> { id: string; key?: string | n
 export interface DocFilter { since?: string; until?: string; keys?: string[]; limit?: number }
 
 type StoreSnapshot = Pick<ChannelStore, 'channel' | 'channelStoreId' | 'locationCode' | 'updatedAt' | 'meta'>;
-type SkipCloverIdentity = { externalOrderId: string; orderId: string; merchantId: string };
+type SkipCloverStoreSnapshot = Pick<ChannelStore, 'id' | 'channelStoreId' | 'locationCode' | 'cloverMerchantId' | 'updatedAt'>;
+type SkipOrderIdentity = { externalOrderId: string; orderId: string };
+type SkipCloverIdentity = SkipOrderIdentity & { merchantId: string };
 type SkipReceiptIdentity = SkipCloverIdentity & { posOrderId: string };
+type SkipJetAttempt = NonNullable<OrderTimeline['skipJetAttempt']>;
+type SkipJetSignal = SkipJetAttempt['signal'];
+type SkipJetOutcome = NonNullable<SkipJetAttempt['outcome']>;
+type SkipJetInput =
+  | ({ kind: 'prepare_jet'; signal: SkipJetSignal; manual?: true } & SkipOrderIdentity)
+  | ({ kind: 'finish_jet'; attemptId: string; result: SkipJetOutcome | 'refused';
+    fields?: Pick<OrderTimeline, 'acceptedBy' | 'seenAt' | 'seenBy' | 'approvedBy'> & { channelError?: string } } & SkipOrderIdentity);
 
 export type SkipLifecycleInput =
   | { kind: 'backup'; order: NormalizedOrder & { locationCode?: string }; mappedStore: boolean; message: string; detail: Record<string, unknown> }
   | { kind: 'cancel'; externalOrderId: string; detail: Record<string, unknown> }
   | { kind: 'intake'; order: NormalizedOrder & { locationCode?: string } }
   | { kind: 'check_intake'; externalOrderId: string }
-  | ({ kind: 'prepare_clover' } & SkipCloverIdentity)
+  | ({ kind: 'prepare_clover'; storeMapping?: SkipCloverStoreSnapshot | null; allowAfterManualAcceptance?: true } & SkipCloverIdentity)
   | ({ kind: 'clear_clover_attempt'; attemptId: string } & SkipCloverIdentity)
   | ({ kind: 'record_receipt'; adopted: boolean; evidence?: Record<string, unknown> } & SkipReceiptIdentity)
-  | ({ kind: 'check_receipt' } & SkipReceiptIdentity);
+  | ({ kind: 'check_receipt' } & SkipReceiptIdentity)
+  | SkipJetInput;
 
 export interface SkipLifecycleResult {
   order: StoredOrder | null;
   isNew: boolean;
   outcome: 'conflicting_store' | 'conflicting_receipt' | 'conflicting_attempt' | 'ignored' | 'cancelled' | 'parked' | 'backed_up' | 'received'
-    | 'prepared' | 'attempt_pending' | 'attempt_cleared';
+    | 'prepared' | 'attempt_pending' | 'attempt_cleared' | 'conflicting_jet' | 'jet_prepared' | 'jet_pending' | 'jet_finished' | 'mapping_changed';
   transitioned?: true;
   recorded?: true;
+  finished?: true;
 }
 
 export interface FoodHubRepo {
@@ -129,6 +140,54 @@ function pendingInboxCancel(state: MemState, reference: string): PendingPlatform
   return { platformState: 'cancelled', detail: { reason: reason?.code, happenedAt }, at: entry.receivedAt };
 }
 
+function validSkipJetAttempt(attempt: SkipJetAttempt | undefined): attempt is SkipJetAttempt {
+  return typeof attempt?.id === 'string' && Boolean(attempt.id) && typeof attempt.at === 'string' && Boolean(attempt.at)
+    && (attempt.signal === 'accept' || attempt.signal === 'fallback')
+    && (attempt.outcome === undefined || ['accepted', 'fallback', 'uncertain'].includes(attempt.outcome));
+}
+
+function skipJetResult(order: StoredOrder, input: SkipJetInput, now: string): SkipLifecycleResult {
+  const timeline = (order.timeline ?? {});
+  const { skipJetAttempt: attempt, ...unclaimed } = timeline;
+  const conflict = { order: null, isNew: false, outcome: 'conflicting_jet' } as const;
+  const current = { order, isNew: false };
+  if (order.status === 'cancelled') return { ...current, outcome: 'cancelled' };
+  if (input.kind === 'prepare_jet') {
+    if (order.status !== 'new') return { ...current, outcome: 'ignored' };
+    if (attempt !== undefined) return validSkipJetAttempt(attempt) ? { ...current, outcome: 'jet_pending' } : conflict;
+    const pos = Boolean(order.posOrderId?.trim());
+    const knownReceipt = pos && Boolean(timeline.posMerchantId?.trim());
+    if (!pos && timeline.posCreateAttempt !== undefined) return { ...current, outcome: 'attempt_pending' };
+    if ((input.signal === 'accept' && input.manual !== true && !knownReceipt)
+      || (input.signal === 'fallback' && pos && (input.manual !== true || !knownReceipt))) return conflict;
+    const skipJetAttempt: SkipJetAttempt = { id: crypto.randomUUID(), at: now, signal: input.signal, ...(input.manual === true ? { manual: true } : {}) };
+    const claimed: OrderTimeline = { ...timeline, skipJetAttempt };
+    return { order: { ...order, timeline: claimed, updatedAt: now }, isNew: false, outcome: 'jet_prepared' };
+  }
+  if (!validSkipJetAttempt(attempt) || input.attemptId !== attempt.id) return conflict;
+  if (attempt.outcome === 'accepted' || attempt.outcome === 'fallback') {
+    return attempt.outcome === input.result ? { ...current, outcome: 'jet_finished' } : conflict;
+  }
+  if (order.status !== 'new') return { ...current, outcome: 'ignored' };
+  if (attempt.outcome === 'uncertain' && input.result === 'uncertain') return { ...current, outcome: 'jet_pending' };
+  const fields = input.fields ?? {};
+  const status = input.result === 'accepted' ? 'accepted' : input.result === 'fallback' ? 'failed' : order.status;
+  const nextTimeline: OrderTimeline = input.result === 'refused' ? unclaimed : { ...timeline, skipJetAttempt: { ...attempt, outcome: input.result } };
+  if (input.result === 'accepted') {
+    nextTimeline.acceptedAt = now;
+    nextTimeline.acceptedBy = fields.acceptedBy || (attempt.manual ? undefined : 'auto');
+  }
+  if (input.result === 'accepted' || input.result === 'fallback') {
+    if (!nextTimeline.seenAt && fields.seenAt) nextTimeline.seenAt = fields.seenAt;
+    if (!nextTimeline.seenBy && fields.seenBy) nextTimeline.seenBy = fields.seenBy;
+    if (fields.approvedBy) nextTimeline.approvedBy = fields.approvedBy;
+  }
+  const channelError = input.result === 'accepted' ? undefined
+    : fields.channelError ?? (input.result === 'fallback' ? 'Sent to the Skip tablet (backup flow).' : order.channelError);
+  return { order: { ...order, status, timeline: nextTimeline, channelError, updatedAt: now }, isNew: false,
+    outcome: input.result === 'uncertain' ? 'jet_pending' : 'jet_finished', finished: true };
+}
+
 // No asynchronous boundary between the memory decision, order write and event append, mirroring the SQL atom.
 function applySkipLifecycleInMemory(input: SkipLifecycleInput): SkipLifecycleResult {
   const state = memState();
@@ -139,12 +198,21 @@ function applySkipLifecycleInMemory(input: SkipLifecycleInput): SkipLifecycleRes
   let existing = [...state.orders.values()].find((order) => order.channel === 'skip' && order.externalOrderId === externalOrderId);
   const direct = existing && !existing.viaHub && !existing.viaPos;
   const receipt = 'posOrderId' in input ? input : null;
-  const timeline = existing?.timeline as OrderTimeline | undefined;
+  const timeline = existing?.timeline;
   const knownMerchant = timeline?.posMerchantId;
   const attempt = timeline?.posCreateAttempt;
   const invalidAttempt = attempt !== undefined && (typeof attempt?.id !== 'string' || !attempt.id
     || typeof attempt.at !== 'string' || !attempt.at || typeof attempt.merchantId !== 'string' || !attempt.merchantId.trim());
   const active = existing && ['new', 'accepted', 'ready', 'dispatched'].includes(existing.status);
+  const jet = input.kind === 'prepare_jet' || input.kind === 'finish_jet' ? input : null;
+  const jetAttempt = timeline?.skipJetAttempt;
+  if (jet && (!existing || !direct || existing.id !== jet.orderId
+    || (jet.kind === 'prepare_jet' && !['accept', 'fallback'].includes(jet.signal))
+    || (jet.kind === 'finish_jet' && (!validSkipJetAttempt(jetAttempt) || jetAttempt.id !== jet.attemptId
+      || !['accepted', 'fallback', 'refused', 'uncertain'].includes(jet.result)
+      || (jet.result === 'accepted' && jetAttempt.signal !== 'accept') || (jet.result === 'fallback' && jetAttempt.signal !== 'fallback'))))) {
+    return { order: null, isNew: false, outcome: 'conflicting_jet' };
+  }
   if (receipt && (!existing || !direct || existing.id !== receipt.orderId || !receipt.posOrderId.trim() || !receipt.merchantId.trim()
     || invalidAttempt || (attempt && attempt.merchantId !== receipt.merchantId)
     || (existing.posOrderId && existing.posOrderId !== receipt.posOrderId) || (knownMerchant && knownMerchant !== receipt.merchantId)
@@ -188,10 +256,32 @@ function applySkipLifecycleInMemory(input: SkipLifecycleInput): SkipLifecycleRes
     ? { platformState: 'cancelled', detail: input.detail, at: now }
     : parked?.status ?? pendingInboxCancel(state, externalOrderId);
 
+  if (jet && existing && !cancellation) {
+    const result = skipJetResult(existing, jet, now);
+    if (result.order && (result.finished || result.outcome === 'jet_prepared')) state.orders.set(existing.id, result.order);
+    return result;
+  }
+
   if (preparing && existing && !cancellation) {
     if (existing.status === 'cancelled') return { order: existing, isNew: false, outcome: 'cancelled' };
     if (invalidAttempt || knownMerchant) return { order: null, isNew: false, outcome: 'conflicting_attempt' };
     if (attempt) return { order: existing, isNew: false, outcome: 'attempt_pending' };
+    // A confirmed, explicit manual accept may legitimately be followed by a later POS hand-entry/resend.
+    if (jetAttempt !== undefined && !(validSkipJetAttempt(jetAttempt) && jetAttempt.manual === true && jetAttempt.signal === 'accept'
+      && jetAttempt.outcome === 'accepted' && existing.status !== 'new' && input.allowAfterManualAcceptance === true)) {
+      return { order: existing, isNew: false, outcome: 'jet_pending' };
+    }
+    // A saved cancellation or attempt takes precedence. Check the mapping only before authorizing a new POST.
+    const expected = input.storeMapping;
+    const storeId = existing.channelStoreId;
+    const mapping = [...state.stores.values()].find((store) => store.channel === 'skip' && store.channelStoreId === storeId);
+    const matches = expected === null ? !mapping : Boolean(expected?.updatedAt && mapping
+      && expected.id === mapping.id && expected.channelStoreId === mapping.channelStoreId
+      && expected.locationCode === mapping.locationCode && mapping.locationCode === existing.locationCode
+      && expected.updatedAt === mapping.updatedAt
+      && (expected.cloverMerchantId ?? null) === (mapping.cloverMerchantId ?? null)
+      && (!mapping.cloverMerchantId || mapping.cloverMerchantId === input.merchantId));
+    if (!matches) return { order: existing, isNew: false, outcome: 'mapping_changed' };
     const nextTimeline: OrderTimeline = {
       ...timeline, posCreateAttempt: { merchantId: input.merchantId, at: now, id: crypto.randomUUID() },
     };
@@ -249,7 +339,8 @@ function applySkipLifecycleInMemory(input: SkipLifecycleInput): SkipLifecycleRes
 
   if (existing) {
     if (direct && input.kind === 'backup' && !cancellation && existing.status === 'failed'
-      && state.events.some((event) => event.orderId === order.id && event.type === 'routed_to_skip_tablet')) {
+      && ((validSkipJetAttempt(jetAttempt) && jetAttempt.signal === 'fallback' && jetAttempt.outcome === 'fallback')
+        || state.events.some((event) => event.orderId === order.id && event.type === 'routed_to_skip_tablet'))) {
       return { order: existing, isNew: false, outcome: 'backed_up' };
     }
     if ((input.kind === 'cancel' || direct) && cancellation && existing.status === 'cancelled') {
@@ -543,10 +634,21 @@ function supabaseRepo(): FoodHubRepo {
       const seed = 'order' in input ? input.order : null;
       let detail: Record<string, unknown> = 'detail' in input ? input.detail : {};
       if ('orderId' in input) {
-        detail = { orderId: input.orderId, merchantId: input.merchantId };
+        detail = { orderId: input.orderId };
+        if ('merchantId' in input) detail.merchantId = input.merchantId;
         if ('posOrderId' in input) detail.posOrderId = input.posOrderId;
         if (input.kind === 'record_receipt') Object.assign(detail, { adopted: input.adopted, evidence: input.evidence });
         if (input.kind === 'clear_clover_attempt') detail.attemptId = input.attemptId;
+        if (input.kind === 'prepare_jet') Object.assign(detail, { signal: input.signal, manual: input.manual });
+        if (input.kind === 'finish_jet') Object.assign(detail, { attemptId: input.attemptId, result: input.result, fields: input.fields });
+        if (input.kind === 'prepare_clover') {
+          if (input.allowAfterManualAcceptance) detail.allowAfterManualAcceptance = true;
+          const store = input.storeMapping;
+          detail.storeMapping = store ? {
+            id: store.id, channelStoreId: store.channelStoreId, locationCode: store.locationCode,
+            cloverMerchantId: store.cloverMerchantId ?? null, updatedAt: store.updatedAt,
+          } : store;
+        }
       }
       const result = must(await db.rpc('fh_apply_skip_lifecycle', {
         p_kind: input.kind, p_external_id: skipNoticeReference(input),

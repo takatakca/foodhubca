@@ -38,6 +38,12 @@ function outbound() {
 
 const jetRequest = (id: string, result: 'success' | 'failed') => `${JET}/order/${id}/sent-to-pos-${result}`;
 
+function barrier() {
+  let open!: () => void;
+  const wait = new Promise<void>((resolve) => { open = resolve; });
+  return { wait, open };
+}
+
 async function handleSignedOrder(body = event(), secret = SECRET) {
   const raw = JSON.stringify(body);
   const sig = crypto.createHmac('sha256', secret).update(raw).digest('base64');
@@ -336,12 +342,51 @@ describe('automatic receipt of direct Skip orders', () => {
   });
 
   it('keeps the order new and describes a refused tablet handoff without claiming success', async () => {
-    fallbackStatus = 503;
+    fallbackStatus = 422;
     const stored = await processQueuedOrder();
     expect(stored).toMatchObject({ status: 'new', channelError: expect.stringContaining('tablet hand-off not sent') });
+    expect(stored.timeline?.skipJetAttempt).toBeUndefined();
     const events = (await getRepo().listEvents(stored.id)).map((e) => e.type);
     expect(events).toContain('routed_to_skip_tablet_failed');
     expect(events).not.toContain('routed_to_skip_tablet');
+    expect(outbound()).toEqual([jetRequest(event().id, 'failed')]);
+    const operator = await runOrderAction(stored.id, 'accept_no_pos');
+    expect(operator.order).toMatchObject({ status: 'accepted', timeline: { skipJetAttempt: { outcome: 'accepted', manual: true } } });
+    expect(outbound()).toEqual([jetRequest(event().id, 'failed'), jetRequest(event().id, 'success')]);
+  });
+
+  it('holds both outbound paths when the tablet handoff may have reached Skip', async () => {
+    fallbackStatus = 503;
+    const stored = await processQueuedOrder();
+    expect(stored).toMatchObject({
+      status: 'new',
+      channelError: expect.stringContaining('response needs review'),
+      timeline: { skipJetAttempt: { signal: 'fallback', outcome: 'uncertain' } },
+    });
+    expect((await getRepo().listEvents(stored.id)).filter((e) => e.type === 'routed_to_skip_tablet_failed'))
+      .toEqual([expect.objectContaining({ detail: expect.objectContaining({ uncertain: true }) })]);
+    vi.stubEnv('FOODHUB_POS_INJECTION', undefined);
+    for (const action of ['accept_no_pos', 'deny', 'retry_pos'] as const) {
+      expect((await runOrderAction(stored.id, action)).result.ok).toBe(false);
+    }
+    expect((await handleSignedOrder(event())).status).toBe(202);
+    for (const callback of afterCallbacks.splice(0)) await callback();
+    expect(outbound()).toEqual([jetRequest(event().id, 'failed')]);
+  });
+
+  it('still handles the signed tablet backup after recording JET fallback but losing the local audit event', async () => {
+    const repo = getRepo();
+    const add = repo.addEvent.bind(repo);
+    vi.spyOn(repo, 'addEvent').mockImplementation(async (...args) => {
+      if (args[1] === 'routed_to_skip_tablet') throw new Error('Synthetic worker exit before fallback audit');
+      return add(...args);
+    });
+    const order = await processQueuedOrder();
+    expect(order).toMatchObject({ status: 'failed', timeline: { skipJetAttempt: { signal: 'fallback', outcome: 'fallback' } } });
+    expect((await repo.listEvents(order.id)).some(({ type }) => type === 'routed_to_skip_tablet')).toBe(false);
+    await processSignedBackup(event().id);
+    const backup = (await repo.listDocs<InboxEntry>(INBOX)).find(({ data }) => data.kind === 'skip_backup');
+    expect(backup?.data).toMatchObject({ status: 'done', result: 'Skip tablet backup recorded.', orderId: order.id });
     expect(outbound()).toEqual([jetRequest(event().id, 'failed')]);
   });
 
@@ -731,6 +776,238 @@ describe('automatic receipt of direct Skip orders', () => {
     const confirmed = await runOrderAction(held.order.id, 'accept_no_pos');
     expect(confirmed.order?.status).toBe('accepted');
     expect(outbound()).toEqual([jetRequest(event().id, 'success')]);
+  });
+
+  it('does not send an operator Skip confirmation while the signed order is still awaiting its Clover receipt', async () => {
+    vi.stubEnv('FOODHUB_POS_INJECTION', undefined);
+    const repo = getRepo();
+    const incoming = event();
+    const create = `${CLOVER}/v3/merchants/${MERCHANT}/atomic_order/orders`;
+    const prepped = barrier();
+    const proceedWithCreate = barrier();
+    const manualPassedGate = barrier();
+    const proceedWithManual = barrier();
+    const posting = barrier();
+    const replyWithReceipt = barrier();
+    let readyTargetWrites = 0;
+    let inFlightTimeline: unknown;
+    const patchOrder = repo.patchOrder.bind(repo);
+    vi.spyOn(repo, 'patchOrder').mockImplementation(async (...args) => {
+      if (args[1].readyTarget) {
+        readyTargetWrites += 1;
+        if (readyTargetWrites === 1) {
+          const saved = await patchOrder(...args);
+          prepped.open();
+          await proceedWithCreate.wait;
+          return saved;
+        }
+        if (readyTargetWrites === 2) {
+          manualPassedGate.open();
+          await proceedWithManual.wait;
+        }
+      }
+      return patchOrder(...args);
+    });
+    const respond = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (url, init) => {
+      if (String(url) === create && init?.method === 'POST') {
+        inFlightTimeline = structuredClone((await repo.findOrder('skip', incoming.id))?.timeline);
+        posting.open();
+        await replyWithReceipt.wait;
+      }
+      return respond(url, init);
+    });
+
+    expect((await handleSignedOrder(incoming)).status).toBe(202);
+    const process = afterCallbacks.shift();
+    if (!process) throw new Error('The signed Skip order did not schedule its worker');
+    const processing = process();
+    let manual: ReturnType<typeof runOrderAction> | undefined;
+    try {
+      await Promise.race([prepped.wait, processing.then(() => { throw new Error('The signed order ended before preparation'); })]);
+      const order = await repo.findOrder('skip', incoming.id);
+      if (!order) throw new Error('The signed Skip order did not save');
+      manual = runOrderAction(order.id, 'accept_no_pos', { prepMinutes: 20 });
+      await Promise.race([manualPassedGate.wait, manual]);
+      proceedWithCreate.open();
+      const cloverStarted = await Promise.race([posting.wait.then(() => true), processing.then(() => false)]);
+      proceedWithManual.open();
+      const operator = await manual;
+      if (cloverStarted) {
+        expect(inFlightTimeline).toMatchObject({ posCreateAttempt: { merchantId: MERCHANT } });
+        expect({ manualAccepted: operator.result.ok, callsBeforeCloverReply: outbound() })
+          .toEqual({ manualAccepted: false, callsBeforeCloverReply: [create] });
+      } else {
+        expect({ manualAccepted: operator.result.ok, providerRequests: outbound() })
+          .toEqual({ manualAccepted: true, providerRequests: [jetRequest(incoming.id, 'success')] });
+      }
+    } finally {
+      proceedWithCreate.open();
+      proceedWithManual.open();
+      replyWithReceipt.open();
+      await Promise.allSettled([processing, manual]);
+    }
+  });
+
+  it('does not create a Clover copy while an operator confirmation is already in flight', async () => {
+    vi.stubEnv('FOODHUB_POS_INJECTION', undefined);
+    const incoming = event();
+    const create = `${CLOVER}/v3/merchants/${MERCHANT}/atomic_order/orders`;
+    const confirmed = jetRequest(incoming.id, 'success');
+    const repo = getRepo();
+    const prepared = barrier();
+    const resumeIntake = barrier();
+    const jetPosting = barrier();
+    const finishJet = barrier();
+    const cloverPosting = barrier();
+    const finishClover = barrier();
+    const patchOrder = repo.patchOrder.bind(repo);
+    let heldPrep = false;
+    vi.spyOn(repo, 'patchOrder').mockImplementation(async (...args) => {
+      const order = await patchOrder(...args);
+      if (!heldPrep && args[1].readyTarget) {
+        heldPrep = true;
+        prepared.open();
+        await resumeIntake.wait;
+      }
+      return order;
+    });
+    const respond = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (url, init) => {
+      if (String(url) === confirmed && init?.method === 'POST') {
+        jetPosting.open();
+        await finishJet.wait;
+      }
+      if (String(url) === create && init?.method === 'POST') {
+        cloverPosting.open();
+        await finishClover.wait;
+      }
+      return respond(url, init);
+    });
+
+    expect((await handleSignedOrder(incoming)).status).toBe(202);
+    const process = afterCallbacks.shift();
+    if (!process) throw new Error('The signed Skip order did not schedule its worker');
+    const processing = process();
+    let manual: ReturnType<typeof runOrderAction> | undefined;
+    try {
+      await Promise.race([prepared.wait, processing.then(() => { throw new Error('Signed intake ended before local preparation'); })]);
+      const order = await repo.findOrder('skip', incoming.id);
+      if (!order) throw new Error('The signed Skip order did not save');
+      manual = runOrderAction(order.id, 'accept_no_pos');
+      await Promise.race([jetPosting.wait, manual.then(() => { throw new Error('Operator did not start its confirmation'); })]);
+      resumeIntake.open();
+      await Promise.race([cloverPosting.wait, processing]);
+      expect(outbound()).toEqual([confirmed]);
+      finishJet.open();
+      expect((await manual).result.ok).toBe(true);
+      expect(await repo.getOrder(order.id)).toMatchObject({ status: 'accepted' });
+    } finally {
+      resumeIntake.open();
+      finishJet.open();
+      finishClover.open();
+      await Promise.allSettled([processing, manual]);
+    }
+  });
+
+  it('blocks intake with a stale new status after an operator has already confirmed in Skip', async () => {
+    vi.stubEnv('FOODHUB_POS_INJECTION', undefined);
+    const repo = getRepo();
+    const incoming = event();
+    const beforeReservation = barrier();
+    const resumeIntake = barrier();
+    const apply = repo.applySkipLifecycle.bind(repo);
+    let held = false;
+    vi.spyOn(repo, 'applySkipLifecycle').mockImplementation(async (input) => {
+      if (input.kind === 'prepare_clover' && !held) {
+        held = true;
+        beforeReservation.open();
+        await resumeIntake.wait;
+      }
+      return apply(input);
+    });
+    expect((await handleSignedOrder(incoming)).status).toBe(202);
+    const process = afterCallbacks.shift();
+    if (!process) throw new Error('The signed Skip order did not schedule its worker');
+    const processing = process();
+    try {
+      await Promise.race([beforeReservation.wait, processing.then(() => { throw new Error('Signed intake did not reach Clover reservation'); })]);
+      const order = (await repo.findOrder('skip', incoming.id))!;
+      const operator = await runOrderAction(order.id, 'accept_no_pos');
+      expect(operator.order).toMatchObject({ status: 'accepted', timeline: { skipJetAttempt: { outcome: 'accepted', manual: true } } });
+      resumeIntake.open();
+      await processing;
+      expect(outbound()).toEqual([jetRequest(incoming.id, 'success')]);
+      const resend = await runOrderAction(order.id, 'retry_pos');
+      expect(resend.order).toMatchObject({ status: 'accepted', posOrderId: POS });
+      expect(outbound()).toEqual([jetRequest(incoming.id, 'success'), `${CLOVER}/v3/merchants/${MERCHANT}/atomic_order/orders`]);
+    } finally {
+      resumeIntake.open();
+      await Promise.allSettled([processing]);
+    }
+  });
+
+  it('holds the first Skip Clover send when the mapping changes before reservation', async () => {
+    vi.stubEnv('FOODHUB_POS_INJECTION', undefined);
+    const repo = getRepo();
+    const incoming = event();
+    const apply = repo.applySkipLifecycle.bind(repo);
+    let moved = false;
+    vi.spyOn(repo, 'applySkipLifecycle').mockImplementation(async (input) => {
+      if (input.kind === 'prepare_clover' && !moved) {
+        const store = (await repo.findStore('skip', STORE))!;
+        await repo.upsertStore({ ...store, locationCode: 'OTHER_KITCHEN', cloverMerchantId: 'OTHER_REGISTER' });
+        moved = true;
+      }
+      return apply(input);
+    });
+    const order = await processQueuedOrder(incoming);
+    expect(moved).toBe(true);
+    expect(order).toMatchObject({ status: 'new', locationCode: 'TEST', posError: expect.stringContaining('mapping changed') });
+    expect(order.timeline?.posCreateAttempt).toBeUndefined();
+    expect(order.timeline?.skipJetAttempt).toBeUndefined();
+    expect((await repo.listEvents(order.id)).filter(({ type }) => type === 'needs_attention')).toHaveLength(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('does not send an operator confirmation while a definite Clover refusal is being handed to the Skip tablet', async () => {
+    vi.stubEnv('FOODHUB_POS_INJECTION', undefined);
+    const incoming = event();
+    const create = `${CLOVER}/v3/merchants/${MERCHANT}/atomic_order/orders`;
+    const failed = jetRequest(incoming.id, 'failed');
+    const repo = getRepo();
+    const tabletPosting = barrier();
+    const finishTablet = barrier();
+    const respond = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (url, init) => {
+      if (String(url) === create && init?.method === 'POST') return Response.json({ message: 'Synthetic validation refusal' }, { status: 400 });
+      if (String(url) === failed && init?.method === 'POST') {
+        tabletPosting.open();
+        await finishTablet.wait;
+      }
+      return respond(url, init);
+    });
+
+    expect((await handleSignedOrder(incoming)).status).toBe(202);
+    const process = afterCallbacks.shift();
+    if (!process) throw new Error('The signed Skip order did not schedule its worker');
+    const processing = process();
+    try {
+      await Promise.race([tabletPosting.wait, processing.then(() => { throw new Error('Explicit Clover refusal did not start a tablet fallback'); })]);
+      const order = await repo.findOrder('skip', incoming.id);
+      if (!order) throw new Error('The signed Skip order did not save');
+      expect(order).toMatchObject({ status: 'new' });
+      expect(order.timeline?.posCreateAttempt).toBeUndefined();
+      const operator = await runOrderAction(order.id, 'accept_no_pos');
+      expect({ manualAccepted: operator.result.ok, requestsBeforeTabletReply: outbound() })
+        .toEqual({ manualAccepted: false, requestsBeforeTabletReply: [create, failed] });
+      finishTablet.open();
+      await processing;
+      expect(await repo.getOrder(order.id)).toMatchObject({ status: 'failed' });
+    } finally {
+      finishTablet.open();
+      await processing;
+    }
   });
 
   it('keeps manual-accept and unmapped orders pending when Clover is optional', async () => {

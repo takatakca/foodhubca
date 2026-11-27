@@ -20,6 +20,7 @@ import { useScopeLabel } from '@/components/shell/scope-switcher';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { api, ApiError, ago, timeOf } from '@/lib/ui/api';
 import { useI18n, useProduct } from '@/lib/i18n/client';
+import type { WatchReport } from '@/lib/foodhub/watch/engine';
 import { INACTIVE_KITCHEN_CLOSURE, type Incident } from '@/lib/foodhub/watch/types';
 import type { OutboxEntry } from '@/lib/foodhub/notify';
 import { watchtowerCallSid, type CallStatus } from '@/lib/foodhub/notify/call-status';
@@ -52,8 +53,22 @@ export function AlertsView() {
 
   async function checkNow() {
     setBusy(true);
-    try { const r = await api<{ report: { opened: number; resolved: number; open: number } }>('/api/foodhub/watch/run', { method: 'POST' }); toast.success(t('Vérification faite', 'Checked'), checkSummary(t, r.report)); await load(); refreshEverything(); }
-    catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+    try {
+      const { report } = await api<{ report: Pick<WatchReport, 'ran' | 'relayUnavailable' | 'opened' | 'resolved' | 'open'> }>('/api/foodhub/watch/run', { method: 'POST' });
+      if (report.relayUnavailable) {
+        const detail = t(
+          'État des écrans relais indisponible. Les contrôles des tablettes de cuisine et les autres contrôles ont été effectués. Relancez la vérification.',
+          'Relay screen status was unavailable. Kitchen tablets and the other checks ran. Run the check again.',
+        );
+        toast.warn(t('Vérification partielle', 'Partial check'), `${detail}\n${checkSummary(t, report)}`);
+      } else if (report.ran) {
+        toast.success(t('Vérification faite', 'Checked'), checkSummary(t, report));
+      } else {
+        toast.info(t('Vérification non lancée', 'Check did not run'));
+      }
+      await load();
+      refreshEverything();
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
 
   const open = (list ?? []).filter((i) => i.status !== 'resolved');

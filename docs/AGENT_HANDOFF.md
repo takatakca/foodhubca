@@ -1,3 +1,9 @@
+## 2026-11-26 — Résultat partiel d’une vérification Watchtower
+
+Dans Alertes, « Vérifier maintenant » signale une lecture indisponible du relais tout en affichant les compteurs des contrôles effectués. Une vérification qui n’a pas démarré reçoit son propre avis. Un passage complet conserve le message habituel.
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — État de l’appareil entre deux notifications
 
 La relève vérifie l’appareil et sa cuisine avant les envois, puis les vérifie de nouveau après une réponse du fournisseur. Un changement de jumelage, une révocation ou la fin de l’attente suspend les envois de l’alerte précédente. Le reçu du premier appel reste consultable. Si l’appareil déplacé remplit les conditions d’alerte au prochain passage, sa nouvelle cuisine reçoit son propre incident. Une lecture momentanément impossible reporte les paliers qui n’ont pas commencé.

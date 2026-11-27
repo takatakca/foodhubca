@@ -1,3 +1,7 @@
+## 2026-11-26 — Note fiscale facultative et reçu Clover historique incertain
+
+Le rapprochement MEV continue de conserver le reçu fiscal. La note Clover facultative est suspendue quand la commande Skip comporte un ancien résultat incertain sans caisse attestée. La décision utilise la commande effectivement enregistrée après la mise à jour fiscale. Un reçu confirmé garde le parcours normal.
+
 ## 2026-11-26 — Ancien résultat Clover sans caisse attestée
 
 Un ancien refus incertain ou un ancien verrou de reprise sans attestation avant envoi met la commande directe Skip en vérification. La mise en attente conserve l’erreur d’origine, signale une fois le besoin de vérification et suspend les relances automatiques. Elle bloque la recherche dans une caisse déduite de la liaison actuelle, une nouvelle création Clover, une impression et les sorties JET. Les avis signés conservent leur état terminal. Un reçu avec sa caisse attestée reste conciliable sur cette caisse. Un refus définitif reconnu et une nouvelle préparation déclarée avant envoi gardent leur parcours habituel.

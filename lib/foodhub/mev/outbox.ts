@@ -12,7 +12,7 @@
 import crypto from 'node:crypto';
 import { logActivity, type Actor } from '../activity';
 import { nowIso } from '../config';
-import { getRepo } from '../repo';
+import { getRepo, hasUnresolvedLegacySkipCloverReceipt } from '../repo';
 import { tenantId } from '../tenant';
 import { fetchMevHealth, mevRequest, type MevHealth, type MevOutcome } from './client';
 import { healthRefusal, mevMode, mevRetryDelaysS } from './config';
@@ -121,8 +121,11 @@ export async function syncOrderMev(ref: MevJob['order'], baseKey: string): Promi
     const rec = recordFromJobs(jobs, o.timeline?.mev);
     if (!rec) return null;
     if (!rec.token && ['accepted', 'offline'].includes(rec.status) && isElectronic(rec)) rec.token = await newReceiptToken(ref);
-    await repo.patchOrder(o.id, { mev: rec });
-    await noteCloverInvoice(o.posOrderId && !o.viaPos ? { mid: (await repo.findStore(o.channel, o.channelStoreId))?.cloverMerchantId ?? null, posOrderId: o.posOrderId, notes: o.notes } : null, rec, o.timeline?.mev);
+    const saved = await repo.patchOrder(o.id, { mev: rec });
+    if (saved?.posOrderId && !saved.viaPos && !hasUnresolvedLegacySkipCloverReceipt(saved)) {
+      const store = await repo.findStore(saved.channel, saved.channelStoreId);
+      await noteCloverInvoice({ mid: store?.cloverMerchantId ?? null, posOrderId: saved.posOrderId, notes: saved.notes }, rec, o.timeline?.mev);
+    }
     return rec;
   }
   if (ref.model === 'pos') {

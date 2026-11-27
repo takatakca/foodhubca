@@ -59,7 +59,7 @@ describe('screens', () => {
     const u = await updateScreen(s.id, { name: 'Uber 1', platform: 'doordash' }, ACTOR);
     expect(u && !('error' in u) && u.platform).toBe('doordash');
     expect((await listScreens()).map((x) => x.name)).toEqual(['Uber 1']);
-    expect(await removeScreen(s.id, ACTOR)).toBe(true);
+    expect(await removeScreen(s.id, ACTOR, () => true)).toBe(true);
     expect(await listScreens()).toEqual([]);
   });
 

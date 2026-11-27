@@ -98,8 +98,15 @@ function visibleIncident({ successorDetection: _reserved, ...incident }: Inciden
   return incident;
 }
 
-export async function listIncidents(filter: { status?: IncidentStatus[]; since?: string; limit?: number; locationCodes?: string[] } = {}): Promise<Incident[]> {
-  let list = (await getRepo().listDocs<Incident>(INCIDENTS, { since: filter.since, limit: filter.limit ?? 500 })).map((d) => d.data);
+export async function listIncidents(filter: { id?: string; status?: IncidentStatus[]; since?: string; limit?: number; locationCodes?: string[] } = {}): Promise<Incident[]> {
+  const repo = getRepo();
+  let list: Incident[];
+  if (filter.id) {
+    const doc = await repo.getDoc<Incident>(INCIDENTS, filter.id);
+    list = doc && doc.data.id === filter.id && (!filter.since || Date.parse(doc.at ?? '') >= Date.parse(filter.since)) ? [doc.data] : [];
+  } else {
+    list = (await repo.listDocs<Incident>(INCIDENTS, { since: filter.since, limit: filter.limit ?? 500 })).map((d) => d.data);
+  }
   if (filter.status?.length) list = list.filter((i) => filter.status!.includes(i.status));
   if (filter.locationCodes?.length) list = list.filter((i) => !i.locationCode || filter.locationCodes!.includes(i.locationCode));
   return list.map(visibleIncident).sort((a, b) => SEV[b.severity] - SEV[a.severity] || b.openedAt.localeCompare(a.openedAt));

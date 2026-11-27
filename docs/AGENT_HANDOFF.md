@@ -1,3 +1,29 @@
+## 2026-11-26 — Compteurs de la tablette après un déplacement
+
+Le signal natif vérifie de nouveau la cuisine et le jumelage juste avant de renvoyer les compteurs. Une tablette déplacée relit sa nouvelle affectation au signal suivant. Une tablette révoquée ou absente reçoit une demande de reconnexion. Les réponses d’erreur ne contiennent ni compteur ni identifiant. Un signal normal conserve ses compteurs courants.
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — Signal natif concurrent d’un déplacement ou d’une révocation
+
+Une révision interne empêche un signal de tablette déjà en cours de restaurer une ancienne cuisine ou un jumelage révoqué. Un signal qui croise un déplacement demande une nouvelle lecture. Un signal dont le jumelage est révoqué est refusé. Le signal signé suivant peut lire la nouvelle cuisine. Les anciennes fiches de tablette continuent d’être utilisables et la révision reste interne.
+
+Les essais signés vérifient les courses avec les actions d’administration et le périmètre des compteurs. Les preuves sur les postes réels restent suivies dans [la checklist #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — Signaux concurrents du relais et lien d’alerte
+
+Les écritures concurrentes d’un écran vérifient la révision enregistrée. Un signal qui a déjà lu l’ancienne affectation et la voit changer pendant l’écriture est écarté. Un nouveau signal valide remet l’instruction en attente une seule fois et alimente la relève de la cuisine actuelle. L’ancien format d’écran reste compatible. Les scénarios simulés utilisent les requêtes d’administration et de relais ainsi que le passage Watchtower signé.
+
+Lors d’un signal groupé, si la sauvegarde d’un écran reste en conflit, ses instructions attendent le passage suivant. Le relais reçoit les instructions déjà récupérées pour les autres écrans. La suppression vérifie la portée de la cuisine et la version de la fiche cible afin de protéger un écran réaffecté ou recréé.
+
+Si une erreur de stockage survient après le retrait confirmé d’une instruction pour un autre écran, la réponse remet les instructions déjà confirmées et indique qu’elle est partielle. Le relais renverra ses prochains signaux selon son rythme habituel. Une écriture dont le résultat est inconnu n’entraîne pas de seconde remise. Les essais simulent une lecture interrompue et une réponse perdue après écriture PostgreSQL.
+
+Le lien d’alerte recherche l’incident autorisé directement par son identifiant dans la fenêtre de recherche prévue. Quand l’incident est déjà résolu, le lien ouvre l’onglet Réglées. Les vérifications d’accès, les filtres et les choix d’onglet restent appliqués. La preuve sur un écran et un téléphone réels est suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Préférences du propriétaire et preuve d’appel
 
 Au palier urgent, le profil du propriétaire choisit l’appel et le SMS indépendamment. Les personnes en garde et autorisées pour la cuisine gardent leur périmètre. La réservation du palier et l’acquittement continuent de limiter les envois.

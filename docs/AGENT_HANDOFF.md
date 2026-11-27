@@ -1,3 +1,9 @@
+## 2026-11-26 — Avis de livreur Skip pendant une décision terminale
+
+Un avis de livreur d’une commande Skip directe conserve les observations du livreur et vérifie, dans la transaction de la commande, l’annulation ou le transfert à la tablette déjà enregistré. Une commande annulée, transférée ou terminée conserve son statut. Un ramassage ou une livraison peut faire avancer une commande admissible. Le traitement revérifie le reçu exact avant d’entamer le règlement Clover afin de tenir compte d’une annulation arrivée depuis la transition.
+
+Les essais locaux couvrent les deux ordres de concurrence, les avis signés en attente de traitement, un paiement Clover simulé et une mise à niveau PostgREST. Avant publication de #192, vérifier que le rôle serveur peut exécuter `apply_driver` dans `fh_apply_skip_lifecycle` et que le contrat existant reste disponible. [Suivi #155](https://github.com/takatakca/foodhubca/issues/155)
+
 ## 2026-11-26 — Note fiscale facultative et reçu Clover historique incertain
 
 Le rapprochement MEV continue de conserver le reçu fiscal. La note Clover facultative est suspendue quand la commande Skip comporte un ancien résultat incertain sans caisse attestée. La décision utilise la commande effectivement enregistrée après la mise à jour fiscale. Un reçu confirmé garde le parcours normal.

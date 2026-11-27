@@ -1,3 +1,11 @@
+## 2026-11-26 — Relance des avis Skip Final Picked
+
+Les avis Final Picked conservés gardent leur provenance. La relance générique de la boîte de réception laisse l’avis disponible pour le rapprochement sans créer de commande. Les anciens avis portant le motif ou le libellé enregistré par le webhook reçoivent la même protection. Le webhook signé qui met à jour une commande connue et la relance d’une vraie commande initiale gardent leur comportement.
+
+Le traitement atomique d’une panne du registre d’annulations après insertion du repli reste à suivre dans [le backlog #155](https://github.com/takatakca/foodhubca/issues/155).
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Avis de repli Skip après une annulation
 
 Un avis signé de repli Skip conserve son accusé JET et ne remplace plus une commande annulée ou terminée par une instruction de préparation. Une annulation reçue avant la commande prévaut sur le repli. Une notification qui désigne un autre magasin déjà mappé est conservée pour vérification. Les commandes de repli valides restent visibles.

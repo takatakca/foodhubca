@@ -7,8 +7,11 @@ import { uberCourierState } from './courier';
 import { receiveWebhook, refuseInboxEntry, runInboxEntry, type InboxKind } from './inbox';
 import type { ActivityKind, ChannelKey, CourierStatus, NormalizedOrder } from './types';
 
+export const SKIP_FINAL_PICKED_NOTICE = 'skip_final_picked';
+type RetainedNotice = typeof SKIP_FINAL_PICKED_NOTICE;
+
 /** What to keep when deferred webhook work fails: the platform already got its 2xx and will not retry. */
-export interface BackgroundContext { channel: ChannelKey; body?: unknown; reference?: string | null; kind?: ActivityKind }
+export interface BackgroundContext { channel: ChannelKey; body?: unknown; reference?: string | null; kind?: ActivityKind; notice?: RetainedNotice }
 
 /**
  * Run work after the HTTP response is sent (platforms need a fast 200), and never let it crash silently:
@@ -31,7 +34,10 @@ export async function recordBackgroundFailure(label: string, error: unknown, ctx
   let kept = false;
   if (ctx) {
     try {
-      await getRepo().addJob({ kind: 'webhook_unparsed', channel: ctx.channel, reference: ctx.reference ?? null, status: 'error', request: { body: ctx.body as Record<string, unknown>, label }, result: { reason } });
+      await getRepo().addJob({
+        kind: 'webhook_unparsed', channel: ctx.channel, reference: ctx.reference ?? null, status: 'error',
+        request: { body: ctx.body as Record<string, unknown>, label, ...(ctx.notice ? { notice: ctx.notice } : {}) }, result: { reason },
+      });
       kept = true;
     } catch (e) { console.error(`[foodhub] could not keep failed ${label} payload:`, e); }
   }
@@ -86,6 +92,9 @@ export function uberDeliveryStatus(state: unknown): CourierStatus | null {
 }
 
 /** Keep payloads we could not parse so nothing is silently lost. */
-export async function keepUnparsed(channel: ChannelKey, body: unknown, reason: string, reference: string | null = null) {
-  await getRepo().addJob({ kind: 'webhook_unparsed', channel, reference, status: 'error', request: { body: body as Record<string, unknown> }, result: { reason } });
+export async function keepUnparsed(channel: ChannelKey, body: unknown, reason: string, reference: string | null = null, notice?: RetainedNotice) {
+  await getRepo().addJob({
+    kind: 'webhook_unparsed', channel, reference, status: 'error',
+    request: { body: body as Record<string, unknown>, ...(notice ? { notice } : {}) }, result: { reason },
+  });
 }

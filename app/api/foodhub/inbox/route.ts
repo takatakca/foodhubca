@@ -8,7 +8,8 @@ import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { inboxSummary, inboxVisibleTo, receiveWebhook, replayInboxEntry, runInboxEntry, type InboxKind } from '@/lib/foodhub/inbox';
 import { getRepo } from '@/lib/foodhub/repo';
 import { can } from '@/lib/foodhub/session';
-import type { ChannelKey } from '@/lib/foodhub/types';
+import type { ChannelKey, FoodHubJob } from '@/lib/foodhub/types';
+import { SKIP_FINAL_PICKED_NOTICE } from '@/lib/foodhub/webhook-utils';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -37,6 +38,14 @@ function asInbox(channel: ChannelKey, body: any): { kind: InboxKind; body: unkno
   return o ? { kind: 'order', body: o, reference: o.externalOrderId } : null;
 }
 
+function isSkipFinalNotice(job: FoodHubJob): boolean {
+  if (job.channel !== 'skip') return false;
+  // Earlier versions kept the same order-shaped financial notice with only a reason or a deferred-work label.
+  return job.request.notice === SKIP_FINAL_PICKED_NOTICE
+    || job.result?.reason === 'Skip final picked order for an order Food Hub does not have (yet)'
+    || Boolean(job.reference && job.request.label === `skip final order ${job.reference}`);
+}
+
 // POST { id } → process an inbox entry again now. POST { jobId } → feed a kept "unparsed" payload through the inbox
 // (after a reader was fixed, a store was mapped…). Orders are never duplicated: same platform + order id = same order.
 export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
@@ -53,6 +62,7 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
     const target = asInbox(job.channel, (job.request as { body?: unknown })?.body);
     if (!target) return fail('Food Hub still cannot read this payload — send it to your developer (nothing was lost).', 422);
     if (!(await inboxVisibleTo({ channel: job.channel, ...target }, actor.locations))) return fail('No kept payload with that id.', 404);
+    if (isSkipFinalNotice(job)) return fail('This Skip final-picked notice is kept for reconciliation and cannot be replayed as a new order.', 422);
     const entry = await receiveWebhook({ channel: job.channel, ...target });
     const done = await runInboxEntry(entry.id, { replayBy: actor.name });
     if (done?.status === 'done') await repo.updateJob(job.id, { status: 'done', result: { ...(job.result ?? {}), replayedAt: new Date().toISOString(), replayedBy: actor.name, outcome: done.result } });

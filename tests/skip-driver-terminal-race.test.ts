@@ -5,8 +5,10 @@ import { POST as receiveCancel } from '../app/api/foodhub/webhooks/skip/cancel/r
 import { POST as receiveDriver } from '../app/api/foodhub/webhooks/skip/driver/route';
 import { POST as receiveBackup } from '../app/api/foodhub/webhooks/skip/failed/route';
 import { parseSkipOrder } from '../lib/foodhub/adapters/skip';
+import { settleInClover } from '../lib/foodhub/clover-settle';
 import { CHANNEL_LABELS } from '../lib/foodhub/config';
 import { INBOX, type InboxEntry } from '../lib/foodhub/inbox';
+import { externalPaymentId } from '../lib/foodhub/pos/clover-books';
 import { getRepo } from '../lib/foodhub/repo';
 
 const deferred = vi.hoisted(() => [] as Array<() => Promise<unknown>>);
@@ -268,6 +270,204 @@ describe('Skip driver observations cannot reopen a terminal order', () => {
     expect(await repo.getOrder(id)).toMatchObject({ status: 'dispatched', timeline: { posMerchantId: MERCHANT, posPaymentId: 'fixture-payment' } });
     expect(provider.mock.calls.filter(([, init]) => init?.method === 'POST').map(([url]) => new URL(String(url)).pathname))
       .toEqual([`/v3/merchants/${MERCHANT}/orders/${POS}/payments`]);
+  });
+
+  it('does not send the same Clover receipt twice while the first payment response is pending', async () => {
+    const id = await seed();
+    const sendingPayment = gate();
+    const paymentReply = gate();
+    const mock = provider.getMockImplementation()!;
+    let posts = 0;
+    provider.mockImplementation(async (input, init) => {
+      if (String(input).endsWith('/payments') && init?.method === 'POST') {
+        posts += 1;
+        if (posts === 1) {
+          sendingPayment.release();
+          await paymentReply.waiting;
+        }
+      }
+      return mock(input, init);
+    });
+    const pickup = (await receive('driver', driver('onItsWay')))();
+    const started = await Promise.race([sendingPayment.waiting.then(() => true), pickup.then(() => false)]);
+    expect(started).toBe(true);
+    try {
+      await (await receive('driver', driver('delivered')))();
+      expect(await getRepo().getOrder(id)).toMatchObject({ status: 'completed' });
+    } finally {
+      paymentReply.release();
+      await pickup;
+    }
+    expect(await getRepo().getOrder(id)).toMatchObject({ status: 'completed', timeline: { posPaymentId: 'fixture-payment' } });
+    expect(posts).toBe(1);
+  });
+
+  it('keeps an already-started payment open through signed cancellation until the exact response is recorded', async () => {
+    const repo = getRepo();
+    const id = await seed();
+    vi.stubEnv('FOODHUB_CLOVER_DELETE_CANCELLED', 'on');
+    const sending = gate();
+    const received = gate();
+    const mock = provider.getMockImplementation()!;
+    provider.mockImplementation(async (input, init) => {
+      if (String(input).endsWith('/payments') && init?.method === 'POST') {
+        sending.release();
+        await received.waiting;
+      }
+      return mock(input, init);
+    });
+
+    const driverRun = (await receive('driver', driver('onItsWay')))();
+    expect(await Promise.race([sending.waiting.then(() => true), driverRun.then(() => false)])).toBe(true);
+    try {
+      await (await receive('cancel', cancel()))();
+      const cancelled = await repo.getOrder(id);
+      expect(cancelled).toMatchObject({ status: 'cancelled' });
+      expect(cancelled?.timeline?.posClosedAt).toBeUndefined();
+      expect(provider.mock.calls.filter(([, init]) => init?.method === 'DELETE')).toHaveLength(0);
+    } finally {
+      received.release();
+      await driverRun;
+    }
+    expect(await repo.getOrder(id)).toMatchObject({ status: 'cancelled', timeline: { posPaymentId: 'fixture-payment', posClosedAt: expect.any(String) } });
+    expect((await repo.listEvents(id)).filter(({ type }) => type === 'pos_paid')).toHaveLength(1);
+    expect((await repo.listEvents(id)).filter(({ type }) => type === 'pos_paid_then_cancelled')).toHaveLength(1);
+    expect(provider.mock.calls.filter(([, init]) => init?.method === 'DELETE')).toHaveLength(0);
+  });
+
+  it.each([409, 502, 200, 'timeout', 'wrong reference'] as const)('holds the same physical receipt when the payment outcome is %s', async (status) => {
+    const repo = getRepo();
+    const id = await seed();
+    vi.stubEnv('FOODHUB_CLOVER_DELETE_CANCELLED', 'on');
+    const mock = provider.getMockImplementation()!;
+    let posts = 0;
+    provider.mockImplementation(async (input, init) => {
+      if (new URL(String(input)).pathname.endsWith('/payments')) {
+        if (init?.method !== 'POST') return Response.json({ elements: [] });
+        posts += 1;
+        if (status === 'timeout') throw new Error('fixture timeout');
+        if (status === 'wrong reference') return Response.json({ id: 'fixture-other-payment', externalPaymentId: 'fixture-other-reference' });
+        return Response.json({}, { status });
+      }
+      return mock(input, init);
+    });
+    await (await receive('driver', driver('onItsWay')))();
+    await (await receive('driver', driver('delivered')))();
+    await (await receive('cancel', cancel()))();
+    const order = (await repo.getOrder(id))!;
+    expect(order.status).toBe('cancelled');
+    expect(order.timeline?.posPaymentError).toContain('payment needs review');
+    expect(order.timeline?.posPaymentId).toBeUndefined();
+    expect(order.timeline?.posClosedAt).toBeUndefined();
+    expect(provider.mock.calls.filter(([, init]) => init?.method === 'DELETE')).toHaveLength(0);
+    expect(posts).toBe(1);
+    expect((await repo.listEvents(id)).filter(({ type }) => type === 'needs_attention')).toHaveLength(1);
+  });
+
+  it('reconciles one exact successful Clover payment on a replay without another POST', async () => {
+    const repo = getRepo();
+    const id = await seed();
+    const reference = externalPaymentId((await repo.getOrder(id))!);
+    const mock = provider.getMockImplementation()!;
+    let proof = false;
+    let posts = 0;
+    provider.mockImplementation(async (input, init) => {
+      if (new URL(String(input)).pathname.endsWith('/payments')) {
+        expect(new URL(String(input)).pathname).toBe(`/v3/merchants/${MERCHANT}/orders/${POS}/payments`);
+        if (init?.method === 'POST') {
+          posts += 1;
+          throw new Error('fixture lost response');
+        }
+        return Response.json({ elements: [
+          { id: 'fixture-wrong-order', externalPaymentId: reference, result: 'SUCCESS', order: { id: 'different-order' } },
+          ...(proof ? [{ id: 'fixture-recovered', externalPaymentId: reference, result: 'SUCCESS', order: { id: POS } }] : []),
+        ] });
+      }
+      return mock(input, init);
+    });
+    await (await receive('driver', driver('onItsWay')))();
+    await (await receive('driver', driver('onItsWay')))();
+    expect((await repo.getOrder(id))?.timeline?.posPaymentId).toBeUndefined();
+    proof = true;
+    await (await receive('driver', driver('onItsWay')))();
+    await (await receive('driver', driver('delivered')))();
+    expect(await repo.getOrder(id)).toMatchObject({ status: 'completed', timeline: { posPaymentId: 'fixture-recovered' } });
+    expect((await repo.getOrder(id))?.timeline?.posPaymentError).toBeUndefined();
+    expect((await repo.listEvents(id)).filter(({ type }) => type === 'pos_paid')).toHaveLength(1);
+    expect(posts).toBe(1);
+  });
+
+  it('releases a definite payment rejection only for a subsequent eligible attempt', async () => {
+    const repo = getRepo();
+    const id = await seed();
+    const mock = provider.getMockImplementation()!;
+    let posts = 0;
+    provider.mockImplementation(async (input, init) => {
+      if (String(input).endsWith('/payments') && init?.method === 'POST' && ++posts === 1) {
+        return Response.json({ message: 'Payment was rejected' }, { status: 422 });
+      }
+      return mock(input, init);
+    });
+    await (await receive('driver', driver('onItsWay')))();
+    expect((await repo.getOrder(id))?.timeline?.posPaymentError).toContain('HTTP 422');
+    await (await receive('driver', driver('delivered')))();
+    expect(await repo.getOrder(id)).toMatchObject({ status: 'completed', timeline: { posPaymentId: 'fixture-payment' } });
+    expect(posts).toBe(2);
+  });
+
+  it.each([
+    { posPaymentId: 'fixture-legacy-paid' },
+    { posPaymentError: 'Clover payment error: fixture historical timeout' },
+  ])('holds other local orders with positively known or uncertain proof for the same physical receipt', async (history) => {
+    const repo = getRepo();
+    const id = await seed();
+    const local = (await repo.getOrder(id))!;
+    const { order: earlier } = await repo.insertOrderIfNew({ ...local, externalOrderId: 'older-fixture-order' });
+    await repo.patchOrder(earlier.id, { posMerchantId: MERCHANT, ...history }, { status: 'completed', posOrderId: POS });
+    vi.stubEnv('FOODHUB_CLOVER_DELETE_CANCELLED', 'on');
+    await (await receive('driver', driver('onItsWay')))();
+    await (await receive('cancel', cancel()))();
+    const cancelled = (await repo.getOrder(id))!;
+    expect(cancelled.status).toBe('cancelled');
+    expect(cancelled.timeline?.posPaymentId).toBeUndefined();
+    expect(cancelled.timeline?.posClosedAt).toBeUndefined();
+    expect(provider).not.toHaveBeenCalled();
+  });
+
+  it('keeps an exact legacy receipt open on cancellation when the previous payment is uncertain', async () => {
+    const repo = getRepo();
+    const id = await seed();
+    vi.stubEnv('FOODHUB_CLOVER_DELETE_CANCELLED', 'on');
+    await repo.patchOrder(id, { posPaymentError: 'Clover payment HTTP 502: legacy interrupted response' });
+    provider.mockImplementation(async (input, init) => {
+      expect(new URL(String(input)).pathname).toBe(`/v3/merchants/${MERCHANT}/orders/${POS}/payments`);
+      expect(init?.method ?? 'GET').toBe('GET');
+      return Response.json({ elements: [] });
+    });
+    await (await receive('cancel', cancel()))();
+    const cancelled = (await repo.getOrder(id))!;
+    expect(cancelled.status).toBe('cancelled');
+    expect(cancelled.timeline?.posPaymentError).toContain('payment needs review');
+    expect(cancelled.timeline?.posPaymentId).toBeUndefined();
+    expect(cancelled.timeline?.posClosedAt).toBeUndefined();
+    expect(provider.mock.calls.map(([url, init]) => [new URL(String(url)).pathname, init?.method ?? 'GET']))
+      .toEqual([[`/v3/merchants/${MERCHANT}/orders/${POS}/payments`, 'GET']]);
+  });
+
+  it('holds a legacy Skip receipt without a proven merchant even after a signed cancellation', async () => {
+    const repo = getRepo();
+    const id = await seed();
+    vi.stubEnv('FOODHUB_CLOVER_DELETE_CANCELLED', 'on');
+    await repo.patchOrder(id, { posMerchantId: undefined });
+    await (await receive('driver', driver('onItsWay')))();
+    await (await receive('cancel', cancel()))();
+    const order = (await repo.getOrder(id))!;
+    expect(order.status).toBe('cancelled');
+    expect(order.timeline?.posPaymentError).toContain('Confirm the original register');
+    expect(order.timeline?.posClosedAt).toBeUndefined();
+    expect(provider).not.toHaveBeenCalled();
+    expect((await settleInClover(order))?.status).toBe('cancelled');
+    expect((await repo.listEvents(id)).filter(({ type }) => type === 'needs_attention')).toHaveLength(1);
   });
 
   it('keeps existing driver details and records a real progress update once in the simulated Clover ledger', async () => {

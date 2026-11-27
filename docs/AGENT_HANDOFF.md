@@ -1,3 +1,11 @@
+## 2026-11-27 — Réservation du règlement Skip sur le reçu Clover
+
+Les avis signés de ramassage et de livraison peuvent arriver pendant la même réponse Clover. Le règlement direct Skip réserve le reçu et sa caisse attestée avant le POST de paiement. La base limite le règlement à une tentative par commande et par reçu. Le même agent peut reprendre après un refus HTTP 429 tant que la commande demeure admissible. Un refus certain libère la tentative. Une réponse perdue, ambiguë ou contradictoire conserve la réservation.
+
+Une annulation devient terminale dans Food Hub pendant que Clover traite le règlement. Le reçu reste ouvert jusqu’à confirmation. Un paiement confirmé sur ce même reçu suit le parcours existant de vérification du paiement après annulation. Un ancien reçu sans caisse attestée reste en vérification. Une lecture ultérieure peut rapprocher un paiement confirmé sur la caisse d’origine avec la référence exacte.
+
+Avant publication de #192, vérifier via PostgREST le contrat complet de `fh_apply_skip_lifecycle`, dont `prepare_payment`, `check_payment` et `finish_payment`. La table `fh_skip_clover_payments` et les opérations restent réservées au rôle serveur. Conserver les tentatives quand une version est remplacée. Une version qui précède la réservation ne doit pas reprendre les règlements encore en vérification. [Suivi #155](https://github.com/takatakca/foodhubca/issues/155)
+
 ## 2026-11-26 — Avis de livreur Skip pendant une décision terminale
 
 Un avis de livreur d’une commande Skip directe conserve les observations du livreur et vérifie, dans la transaction de la commande, l’annulation ou le transfert à la tablette déjà enregistré. Une commande annulée, transférée ou terminée conserve son statut. Un ramassage ou une livraison peut faire avancer une commande admissible.

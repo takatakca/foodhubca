@@ -133,7 +133,10 @@ async function applyDirectSkipDriver(order: StoredOrder, update: Partial<Courier
   }
   const terminal = current.status === 'cancelled' || current.status === 'failed';
   const advanced = observed.driverAdvanced && current.status === observed.order.status;
-  if ((terminal && (observed.outcome === 'cancelled' || observed.outcome === 'backed_up' || observed.driverAdvanced)) || advanced) {
+  // A replayed dispatch/delivery can resolve an outstanding settlement after a restart.
+  const needsPayment = (status === 'picked_up' || status === 'delivered') && !current.timeline?.posPaymentId
+    && (current.status === 'dispatched' || current.status === 'completed');
+  if ((terminal && (observed.outcome === 'cancelled' || observed.outcome === 'backed_up' || observed.driverAdvanced)) || advanced || needsPayment) {
     current = (await settleInClover(current)) ?? current;
   }
   const courier = observed.order.timeline?.courier;

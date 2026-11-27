@@ -16,6 +16,36 @@ type SkipCloverStoreSnapshot = Pick<ChannelStore, 'id' | 'channelStoreId' | 'loc
 type SkipOrderIdentity = { externalOrderId: string; orderId: string };
 type SkipCloverIdentity = SkipOrderIdentity & { merchantId: string };
 type SkipReceiptIdentity = SkipCloverIdentity & { posOrderId: string };
+type SkipPaymentIdentity = SkipReceiptIdentity & { paymentReference: string };
+type SkipPaymentInput =
+  | ({ kind: 'check_payment' } & SkipPaymentIdentity)
+  | ({ kind: 'prepare_payment'; attemptId?: string } & SkipPaymentIdentity)
+  | ({ kind: 'finish_payment'; attemptId: string } & (
+    | { result: 'paid'; paymentId: string }
+    | { result: 'refused'; error?: string }
+    | { result: 'uncertain' }
+  ) & SkipPaymentIdentity);
+
+export interface SkipPaymentAttempt {
+  id: string;
+  at: string;
+  merchantId: string;
+  posOrderId: string;
+  paymentReference: string;
+  state: 'sending' | 'uncertain' | 'paid';
+  paymentId?: string;
+}
+
+const SKIP_PAYMENT_REVIEW = 'Skip Clover payment needs review: Verify the outcome on the recorded register before retrying.';
+const DEFINITE_PAYMENT_REFUSAL = /^(?:0|400|401|403|404|405|415|422|429)$/;
+
+function hasUncertainEarlierPayment(error: string | undefined): boolean {
+  if (!error) return false;
+  if (error.startsWith('Skip Clover payment needs review:') || error.startsWith('Clover payment error:')) return true;
+  const httpStatus = /^Clover payment HTTP (\d+):/.exec(error)?.[1];
+  return Boolean(httpStatus && !DEFINITE_PAYMENT_REFUSAL.test(httpStatus));
+}
+
 type SkipDriverUpdate = Pick<CourierInfo, 'status'> & Partial<Pick<CourierInfo, 'name' | 'phone' | 'vehicle' | 'etaAt'>>;
 const SKIP_DRIVER_STATES: CourierStatus[] = ['assigned', 'arriving', 'at_store', 'picked_up', 'delivered', 'unassigned'];
 type SkipJetAttempt = NonNullable<OrderTimeline['skipJetAttempt']>;
@@ -37,14 +67,16 @@ export type SkipLifecycleInput =
   | ({ kind: 'record_receipt'; adopted: boolean; evidence?: Record<string, unknown> } & SkipReceiptIdentity)
   | ({ kind: 'check_receipt' } & SkipReceiptIdentity)
   | ({ kind: 'apply_driver'; driver: SkipDriverUpdate } & SkipOrderIdentity)
-  | SkipJetInput;
+  | SkipJetInput
+  | SkipPaymentInput;
 
 export interface SkipLifecycleResult {
   order: StoredOrder | null;
   isNew: boolean;
   outcome: 'conflicting_store' | 'conflicting_receipt' | 'conflicting_attempt' | 'ignored' | 'cancelled' | 'parked' | 'backed_up' | 'received'
     | 'prepared' | 'attempt_pending' | 'attempt_cleared' | 'conflicting_jet' | 'jet_prepared' | 'jet_pending' | 'jet_finished' | 'mapping_changed'
-    | 'legacy_clover_uncertain';
+    | 'legacy_clover_uncertain' | 'conflicting_payment' | 'payment_prepared' | 'payment_pending' | 'payment_finished';
+  paymentAttempt?: SkipPaymentAttempt;
   transitioned?: true;
   recorded?: true;
   finished?: true;
@@ -111,6 +143,7 @@ export interface FoodHubRepo {
 
 type MemState = {
   orders: Map<string, StoredOrder>;
+  skipPayments?: Map<string, SkipPaymentAttempt>;
   events: OrderEvent[];
   stores: Map<string, ChannelStore>;
   menus: Map<string, MasterMenu>;
@@ -256,7 +289,99 @@ function skipJetResult(order: StoredOrder, input: SkipJetInput, now: string): Sk
 }
 
 // No asynchronous boundary between the memory decision, order write and event append, mirroring the SQL atom.
+function applySkipPaymentInMemory(input: SkipPaymentInput): SkipLifecycleResult {
+  const state = memState();
+  const { kind, paymentReference, ...identity } = input;
+  const conflict = { order: null, isNew: false, outcome: 'conflicting_payment' } as const;
+  if (!paymentReference.trim() || paymentReference.length > 32) return conflict;
+  const checked = applySkipLifecycleInMemory({ kind: 'check_receipt', orderId: identity.orderId, externalOrderId: identity.externalOrderId,
+    merchantId: identity.merchantId, posOrderId: identity.posOrderId });
+  const order = checked.order;
+  if (!order) return conflict;
+  const attempts = state.skipPayments ??= new Map();
+  let attempt = attempts.get(order.id);
+  if (attempt && (attempt.merchantId !== identity.merchantId || attempt.posOrderId !== identity.posOrderId || attempt.paymentReference !== paymentReference)) return conflict;
+  const { merchantId, posOrderId } = identity;
+  if (!attempt && ([...attempts.values()].some((other) => other.merchantId === merchantId && other.posOrderId === posOrderId)
+    || [...state.orders.values()].some((other) => other.id !== order.id && other.posOrderId === posOrderId && other.timeline?.posMerchantId === merchantId
+      && (Boolean(other.timeline?.posPaymentId) || hasUncertainEarlierPayment(other.timeline?.posPaymentError))))) return conflict;
+
+  const result = (outcome: SkipLifecycleResult['outcome'], current = order): SkipLifecycleResult => ({
+    ...checked, order: current, outcome, ...(attempt ? { paymentAttempt: attempt } : {}),
+  });
+  const markReview = () => {
+    const reviewed = order.timeline?.posPaymentError === SKIP_PAYMENT_REVIEW ? order
+      : { ...order, timeline: { ...order.timeline, posPaymentError: SKIP_PAYMENT_REVIEW }, updatedAt: nowIso() };
+    if (reviewed !== order) state.orders.set(order.id, reviewed);
+    if (!state.events.some((event) => event.orderId === order.id && event.type === 'needs_attention'
+      && event.detail?.source === 'skip_clover_payment' && event.detail.attemptId === attempt?.id)) {
+      state.events.push({ id: crypto.randomUUID(), orderId: order.id, type: 'needs_attention',
+        detail: { reason: SKIP_PAYMENT_REVIEW, source: 'skip_clover_payment', attemptId: attempt?.id }, at: reviewed.updatedAt });
+    }
+    return result(kind !== 'finish_payment' && order.status === 'cancelled' ? 'cancelled' : 'payment_pending', reviewed);
+  };
+
+  if (kind === 'finish_payment') {
+    if (!attempt || attempt.id !== input.attemptId) return conflict;
+    const storedPaymentId = order.timeline?.posPaymentId;
+    if (attempt.state === 'paid') return input.result === 'paid' && attempt.paymentId === input.paymentId
+      && storedPaymentId === input.paymentId ? result('payment_finished') : conflict;
+    if (input.result === 'refused') {
+      if (attempt.state !== 'sending' || storedPaymentId) return conflict;
+      attempts.delete(order.id);
+      attempt = undefined;
+      if (!input.error?.trim() || (order.status !== 'dispatched' && order.status !== 'completed')) return result('payment_finished');
+      const error = input.error.slice(0, 500);
+      const refused = { ...order, timeline: { ...order.timeline, posPaymentError: error }, updatedAt: nowIso() };
+      state.orders.set(order.id, refused);
+      state.events.push({ id: crypto.randomUUID(), orderId: order.id, type: 'pos_payment_failed',
+        detail: { error, attemptId: input.attemptId }, at: refused.updatedAt });
+      return result('payment_finished', refused);
+    }
+    if (input.result === 'uncertain') {
+      if (storedPaymentId) return conflict;
+      attempt = { ...attempt, state: 'uncertain' };
+      attempts.set(order.id, attempt);
+      return markReview();
+    }
+    if (input.result !== 'paid' || !input.paymentId.trim() || (storedPaymentId && storedPaymentId !== input.paymentId)) return conflict;
+    const paid = { ...order, timeline: { ...order.timeline, posPaymentId: input.paymentId, posPaymentError: undefined }, updatedAt: nowIso() };
+    attempt = { ...attempt, state: 'paid', paymentId: input.paymentId };
+    attempts.set(order.id, attempt);
+    state.orders.set(order.id, paid);
+    if (!storedPaymentId) state.events.push({ id: crypto.randomUUID(), orderId: order.id, type: 'pos_paid',
+      detail: { message: 'Recorded as paid in Clover (Skip tender)', paymentId: input.paymentId }, at: paid.updatedAt });
+    return result('payment_finished', paid);
+  }
+
+  if (kind === 'prepare_payment' && input.attemptId && (!attempt || attempt.id !== input.attemptId)) return conflict;
+  if (attempt?.state === 'paid') {
+    if (!attempt.paymentId || (order.timeline?.posPaymentId && order.timeline.posPaymentId !== attempt.paymentId)) return conflict;
+    if (order.timeline?.posPaymentId === attempt.paymentId) return result('payment_finished');
+    const paid = { ...order, timeline: { ...order.timeline, posPaymentId: attempt.paymentId, posPaymentError: undefined }, updatedAt: nowIso() };
+    state.orders.set(order.id, paid);
+    return result('payment_finished', paid);
+  }
+  if (order.timeline?.posPaymentId) return result('payment_finished');
+  const active = !order.timeline?.posClosedAt && (order.status === 'dispatched' || order.status === 'completed');
+  if (attempt) {
+    if (order.status === 'cancelled') return result('cancelled');
+    return result(kind === 'prepare_payment' && input.attemptId && attempt.state === 'sending' && active ? 'payment_prepared' : 'payment_pending');
+  }
+  if (hasUncertainEarlierPayment(order.timeline?.posPaymentError)) {
+    attempt = { id: crypto.randomUUID(), at: nowIso(), merchantId, posOrderId, paymentReference, state: 'uncertain' };
+    attempts.set(order.id, attempt);
+    return markReview();
+  }
+  if (kind === 'check_payment' || !active) return result(order.status === 'cancelled' ? 'cancelled' : 'received');
+
+  attempt = { id: crypto.randomUUID(), at: nowIso(), merchantId, posOrderId, paymentReference, state: 'sending' };
+  attempts.set(order.id, attempt);
+  return result('payment_prepared');
+}
+
 function applySkipLifecycleInMemory(input: SkipLifecycleInput): SkipLifecycleResult {
+  if (input.kind === 'prepare_payment' || input.kind === 'check_payment' || input.kind === 'finish_payment') return applySkipPaymentInMemory(input);
   const state = memState();
   const externalOrderId = skipNoticeReference(input);
   const now = nowIso();
@@ -764,6 +889,12 @@ function supabaseRepo(): FoodHubRepo {
         if (input.kind === 'prepare_jet') Object.assign(detail, { signal: input.signal, manual: input.manual });
         if (input.kind === 'finish_jet') Object.assign(detail, { attemptId: input.attemptId, result: input.result, fields: input.fields });
         if (input.kind === 'apply_driver') detail.driver = input.driver;
+        if ('paymentReference' in input) detail.paymentReference = input.paymentReference;
+        if (input.kind === 'prepare_payment') detail.attemptId = input.attemptId;
+        if (input.kind === 'finish_payment') Object.assign(detail, {
+          attemptId: input.attemptId, result: input.result, ...(input.result === 'paid' && { paymentId: input.paymentId }),
+          ...(input.result === 'refused' && { error: input.error }),
+        });
         if (input.kind === 'prepare_clover') {
           if (input.allowAfterManualAcceptance) detail.allowAfterManualAcceptance = true;
           const store = input.storeMapping;

@@ -10,8 +10,8 @@ import { randomUUID } from 'node:crypto';
 import { logActivity } from './activity';
 import { mevOnOrderChange } from './mev/hooks';
 import { CHANNEL_LABELS, nowIso } from './config';
-import { closeCancelledCloverOrder, recordCloverPayment } from './pos/clover-books';
-import { getRepo, hasUnresolvedLegacySkipCloverReceipt, LEGACY_SKIP_CLOVER_REVIEW } from './repo';
+import { closeCancelledCloverOrder, confirmedCloverPayment, externalPaymentId, recordCloverPayment } from './pos/clover-books';
+import { getRepo, hasUnresolvedLegacySkipCloverReceipt, LEGACY_SKIP_CLOVER_REVIEW, type SkipLifecycleResult } from './repo';
 import { isTgtgEmailOrder } from './tgtg-email/ids';
 import type { OrderTimeline, StoredOrder } from './types';
 
@@ -71,12 +71,91 @@ export async function settleInClover(order: StoredOrder | null): Promise<StoredO
   return settled;
 }
 
+function skipPaymentIdentity(order: StoredOrder) {
+  const merchantId = order.timeline?.posMerchantId;
+  return order.channel === 'skip' && !order.viaHub && !order.viaPos && order.posOrderId?.trim() && merchantId?.trim()
+    ? { orderId: order.id, externalOrderId: order.externalOrderId, posOrderId: order.posOrderId, merchantId, paymentReference: externalPaymentId(order) }
+    : null;
+}
+
+type SkipPaymentIdentity = NonNullable<ReturnType<typeof skipPaymentIdentity>>;
+
+function pendingSkipPayment(payment: SkipLifecycleResult): boolean {
+  return Boolean(payment.paymentAttempt && payment.paymentAttempt.state !== 'paid');
+}
+
+async function checkSkipPayment(identity: SkipPaymentIdentity): Promise<SkipLifecycleResult> {
+  const repo = getRepo();
+  const observed = await repo.applySkipLifecycle({ kind: 'check_payment', ...identity });
+  const attempt = observed.paymentAttempt;
+  // Let a live sender finish. Old claims can only be resolved by independently confirmed payment evidence.
+  if (!observed.order || !attempt || !pendingSkipPayment(observed)
+      || (attempt.state === 'sending' && Date.now() - Date.parse(attempt.at) < 120_000)) return observed;
+  const paymentId = await confirmedCloverPayment(identity.merchantId, identity.posOrderId, identity.paymentReference);
+  if (!paymentId) return observed;
+  return repo.applySkipLifecycle({ kind: 'finish_payment', ...identity, attemptId: attempt.id, result: 'paid', paymentId });
+}
+
+async function settleSkipPayment(order: StoredOrder, identity: SkipPaymentIdentity): Promise<StoredOrder> {
+  const repo = getRepo();
+  const checked = await checkSkipPayment(identity);
+  if (!checked.order || checked.outcome !== 'received') return checked.order ?? order;
+
+  let latest = checked.order;
+  let attemptId: string | undefined;
+  const r = await recordCloverPayment(latest, identity.merchantId, {
+    beforeTenderPost: async () => {
+      const observed = await repo.applySkipLifecycle({ kind: 'check_payment', ...identity });
+      latest = observed.order ?? latest;
+      return Boolean(observed.outcome === 'received' && observed.order
+        && (latest.status === 'dispatched' || latest.status === 'completed') && !latest.timeline?.posClosedAt);
+    },
+    beforePaymentPost: async () => {
+      const reserved = await repo.applySkipLifecycle({ kind: 'prepare_payment', ...identity, attemptId });
+      latest = reserved.order ?? latest;
+      if (reserved.outcome !== 'payment_prepared' || !reserved.paymentAttempt) return false;
+      attemptId = reserved.paymentAttempt.id;
+      return true;
+    },
+  });
+  if (attemptId) {
+    if (!r.ok && r.skipped && latest.timeline?.posPaymentId) return latest;
+    const finished = await repo.applySkipLifecycle({
+      kind: 'finish_payment', ...identity, attemptId,
+      ...(r.ok ? { result: 'paid' as const, paymentId: r.paymentId }
+        : r.definitelyNotRecorded ? { result: 'refused' as const, ...(r.skipped ? {} : { error: r.error }) }
+          : { result: 'uncertain' as const }),
+    });
+    if (!finished.order) throw new Error('The Skip Clover payment changed before its result was recorded.');
+    return finished.order;
+  }
+  if (!r.ok && !r.skipped) {
+    await repo.addEvent(order.id, 'pos_payment_failed', { error: r.error });
+    return (await repo.patchOrder(order.id, { posPaymentError: r.error }, {}, (current) =>
+      current.posOrderId === identity.posOrderId && current.timeline?.posMerchantId === identity.merchantId
+      && !current.timeline?.posPaymentId && !current.timeline?.posPaymentError?.startsWith('Skip Clover payment needs review:')
+      && !isTerminal(current))) ?? latest;
+  }
+  return latest;
+}
+
+async function holdUnknownSkipRegister(order: StoredOrder): Promise<StoredOrder> {
+  const error = 'Skip Clover payment needs review: Confirm the original register before changing its receipt.';
+  if (order.timeline?.posPaymentError === error) return order;
+  const held = await getRepo().patchOrder(order.id, { posPaymentError: error }, {}, (current) =>
+    current.posOrderId === order.posOrderId && !current.timeline?.posMerchantId?.trim() && current.timeline?.posPaymentError !== error);
+  if (held) await getRepo().addEvent(order.id, 'needs_attention', { reason: error, source: 'skip_clover_payment_register' });
+  return held ?? order;
+}
+
 async function settleCloverOnly(order: StoredOrder | null): Promise<StoredOrder | null> {
   const posOrderId = order?.posOrderId;
   if (!order || !posOrderId) return order;
   // Orders that came through Clover's own platform integration are already paid / closed by that integration.
   if (order.viaPos) return order;
   const repo = getRepo();
+  const directSkip = order.channel === 'skip' && !order.viaHub;
+  const paymentIdentity = skipPaymentIdentity(order);
   const tag = `${CHANNEL_LABELS[order.channel]} #${order.displayId || order.externalOrderId.slice(0, 8)}`;
   try {
     // Entered by hand from a platform screen: the platform already charged the customer and the order was accepted on its
@@ -84,38 +163,34 @@ async function settleCloverOnly(order: StoredOrder | null): Promise<StoredOrder 
     const leftKitchen = order.status === 'dispatched' || order.status === 'completed';
     const paidOnAccept = order.viaHub === 'screen' && (order.status === 'accepted' || order.status === 'ready');
     if ((leftKitchen || paidOnAccept) && !order.timeline?.posPaymentId) {
+      if (directSkip) {
+        if (!paymentIdentity) return holdUnknownSkipRegister(order);
+        const settled = await settleSkipPayment(order, paymentIdentity);
+        return isTerminal(settled) ? settleCloverOnly(settled) : settled;
+      }
       const store = await repo.findStore(order.channel, order.channelStoreId);
-      const exactSkipMerchant = order.channel === 'skip' && !order.viaHub ? order.timeline?.posMerchantId : undefined;
-      let latest = order;
-      const checkSkipPayment = exactSkipMerchant ? async () => {
-        const receipt = await repo.applySkipLifecycle({
-          kind: 'check_receipt', externalOrderId: order.externalOrderId, orderId: order.id,
-          posOrderId, merchantId: exactSkipMerchant,
-        });
-        latest = receipt.order ?? (await repo.getOrder(order.id)) ?? latest;
-        return Boolean(receipt.order && (latest.status === 'dispatched' || latest.status === 'completed')
-          && !latest.timeline?.posPaymentId && !latest.timeline?.posClosedAt);
-      } : undefined;
-      const r = await recordCloverPayment(order, exactSkipMerchant ?? store?.cloverMerchantId, checkSkipPayment);
+      const r = await recordCloverPayment(order, store?.cloverMerchantId);
       if (r.ok) {
         await repo.addEvent(order.id, 'pos_paid', { message: `Recorded as paid in Clover (${r.amount.toFixed(2)} $, ${CHANNEL_LABELS[order.channel]} tender)`, paymentId: r.paymentId });
         return patch(order, { posPaymentId: r.paymentId, posPaymentError: undefined });
       }
-      if ('skipped' in r && r.skipped) {
-        return exactSkipMerchant && latest.timeline?.posMerchantId === exactSkipMerchant && latest.posOrderId === posOrderId && isTerminal(latest)
-          ? settleCloverOnly(latest) : latest;
-      }
+      if (r.skipped) return order;
       await repo.addEvent(order.id, 'pos_payment_failed', { error: r.error });
       return patch(order, { posPaymentError: r.error });
     }
     // 'failed' = handed to the Skip tablet: the kitchen makes it from the tablet, so the Clover copy must go too.
     if (isTerminal(order) && !order.timeline?.posClosedAt) {
-      const guarded = order.channel === 'skip' && !order.viaHub && Boolean(order.timeline?.posMerchantId);
-      const reservation = guarded ? await claimSkipReceiptClose(order) : null;
+      if (directSkip && !paymentIdentity) return holdUnknownSkipRegister(order);
+      // A cancellation can be final in Food Hub while the original Clover payment is still outstanding.
+      // Keep the original receipt open until that payment is confirmed or known not to have been sent.
+      const payment = paymentIdentity ? await checkSkipPayment(paymentIdentity) : null;
+      if (payment && (!payment.order || pendingSkipPayment(payment))) return payment.order ?? order;
+      const terminal = payment?.order ?? order;
+      const reservation = paymentIdentity ? await claimSkipReceiptClose(terminal) : null;
       if (reservation && !reservation.claimed) return (await repo.getOrder(order.id)) ?? order;
-      const closing = reservation?.claimed ?? order;
+      const closing = reservation?.claimed ?? terminal;
       const finishClaim = (t: OrderTimeline) => repo.patchOrder(order.id, { ...t, posCloseClaim: undefined }, {}, (fresh) =>
-        canCloseSkipReceipt(fresh, order) && fresh.timeline?.posCloseClaim?.id === reservation?.claim.id);
+        canCloseSkipReceipt(fresh, terminal) && fresh.timeline?.posCloseClaim?.id === reservation?.claim.id);
       if (closing.timeline?.posPaymentId) {
         const closed = reservation ? await finishClaim({ posClosedAt: nowIso() }) : null;
         if (reservation && !closed) return (await repo.getOrder(order.id)) ?? order;

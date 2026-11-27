@@ -147,6 +147,25 @@ create index if not exists fh_skip_cancel_inbox_reference_idx on public.fh_docs 
 create index if not exists fh_skip_backup_inbox_reference_idx on public.fh_docs ((data->>'reference'), at desc)
   where collection = 'webhook_inbox' and data->>'channel' = 'skip' and data->>'kind' = 'skip_backup';
 
+-- One durable attempt per Food Hub order and per physical Clover receipt.
+-- A missing or ambiguous provider response leaves the receipt held, across restarts.
+create table if not exists public.fh_skip_clover_payments (
+  order_id uuid primary key references public.fh_orders(id),
+  merchant_id text not null check (btrim(merchant_id) <> ''),
+  pos_order_id text not null check (btrim(pos_order_id) <> ''),
+  payment_reference text not null check (char_length(payment_reference) <= 32 and btrim(payment_reference) <> ''),
+  attempt_id uuid not null unique default gen_random_uuid(),
+  attempted_at timestamptz not null,
+  state text not null check (state in ('sending', 'uncertain', 'paid')),
+  payment_id text check (btrim(payment_id) <> ''),
+  unique (merchant_id, pos_order_id),
+  check ((state = 'paid') = (payment_id is not null))
+);
+alter table public.fh_skip_clover_payments enable row level security;
+revoke all on public.fh_skip_clover_payments from public;
+create index if not exists fh_orders_physical_clover_receipt_idx on public.fh_orders ((timeline->>'posMerchantId'), pos_order_id)
+  where pos_order_id is not null;
+
 -- Arbitrate direct JET Connect intake and lifecycle notices on the same order lock, even before a row exists.
 create or replace function public.fh_apply_skip_lifecycle(
   p_kind text, p_external_id text, p_order jsonb, p_mapped boolean, p_message text, p_detail jsonb
@@ -182,7 +201,22 @@ declare
   inserted boolean := false;
   parked_cancel boolean := false;
   transitioned boolean := false;
-  receipt_mode boolean := p_kind in ('record_receipt', 'check_receipt');
+  payment_mode boolean := p_kind in ('prepare_payment', 'check_payment', 'finish_payment');
+  receipt_mode boolean := p_kind in ('record_receipt', 'check_receipt') or payment_mode;
+  payment_attempt public.fh_skip_clover_payments%rowtype;
+  payment_attempt_id text := p_detail->>'attemptId';
+  payment_reference text := p_detail->>'paymentReference';
+  payment_result text := p_detail->>'result';
+  payment_refusal text := left(p_detail->>'error', 500);
+  new_payment_id text := p_detail->>'paymentId';
+  payment_active boolean;
+  payment_review boolean := false;
+  payment_error text;
+  payment_review_prefix constant text := 'Skip Clover payment needs review:';
+  payment_review_reason constant text := 'Skip Clover payment needs review: Verify the outcome on the recorded register before retrying.';
+  payment_uncertain_code constant text := '^Clover payment HTTP [0-9]+:';
+  payment_definite_code constant text := '^Clover payment HTTP (0|400|401|403|404|405|415|422|429):';
+  payment_response jsonb := '{}'::jsonb;
   prepare_mode boolean := p_kind = 'prepare_clover';
   jet_mode boolean := p_kind in ('prepare_jet', 'finish_jet');
   driver_mode boolean := p_kind = 'apply_driver';
@@ -215,7 +249,8 @@ declare
   recorded boolean := false;
 begin
   if p_kind is null or p_kind not in ('backup', 'cancel', 'intake', 'check_intake', 'record_receipt', 'check_receipt',
-      'prepare_clover', 'clear_clover_attempt', 'hold_legacy_clover', 'prepare_jet', 'finish_jet', 'apply_driver')
+      'prepare_clover', 'clear_clover_attempt', 'hold_legacy_clover', 'prepare_jet', 'finish_jet', 'apply_driver',
+      'prepare_payment', 'check_payment', 'finish_payment')
       or p_external_id is null or p_external_id = '' then
     raise exception 'Invalid Skip lifecycle notice' using errcode = '22023';
   end if;
@@ -337,9 +372,11 @@ begin
         or invalid_attempt or (clover_attempt is not null and clover_attempt->>'merchantId' is distinct from clover_merchant)
         or (coalesce(current_order.pos_order_id, '') <> '' and current_order.pos_order_id is distinct from receipt_pos_id)
         or (coalesce(stored_merchant, '') <> '' and stored_merchant is distinct from clover_merchant)
-        or (p_kind = 'check_receipt' and (current_order.pos_order_id is distinct from receipt_pos_id
-          or stored_merchant is distinct from clover_merchant)) then
-      return jsonb_build_object('order', null, 'isNew', false, 'outcome', 'conflicting_receipt');
+        or (p_kind <> 'record_receipt' and (current_order.pos_order_id is distinct from receipt_pos_id
+          or stored_merchant is distinct from clover_merchant))
+        or (payment_mode and (coalesce(btrim(payment_reference, blank_store_chars), '') = '' or char_length(payment_reference) > 32))
+        or (p_kind = 'finish_payment' and coalesce(payment_result, '') not in ('paid', 'refused', 'uncertain')) then
+      return jsonb_build_object('order', null, 'isNew', false, 'outcome', case when payment_mode then 'conflicting_payment' else 'conflicting_receipt' end);
     end if;
     if p_kind = 'record_receipt' then
       receipt_timeline := current_order.timeline || jsonb_build_object('posMerchantId', clover_merchant);
@@ -423,7 +460,7 @@ begin
     if cancellation is not null then desired_status := 'cancelled'; end if;
   end if;
 
-  if (prepare_mode or jet_mode or receipt_mode or driver_mode) and cancellation is null and current_order.status in ('new', 'accepted', 'ready')
+  if (prepare_mode or jet_mode or (receipt_mode and not payment_mode) or driver_mode) and cancellation is null and current_order.status in ('new', 'accepted', 'ready')
       and coalesce(btrim(current_order.channel_store_id, blank_store_chars), '') <> '' then
     -- The failed-order route persisted this authenticated notice before starting its worker.
     select data->'body' into inbox_backup from public.fh_docs
@@ -660,9 +697,129 @@ begin
       insert into public.fh_order_events (order_id, type, detail) values (current_order.id, 'skip_backup_ignored', event_detail);
     end if;
   end if;
+  if payment_mode then
+    payment_error := current_order.timeline->>'posPaymentError';
+    payment_active := current_order.status in ('dispatched', 'completed')
+      and nullif(current_order.timeline->>'posClosedAt', '') is null;
+    select * into payment_attempt from public.fh_skip_clover_payments where order_id = current_order.id for update;
+    if (payment_attempt.order_id is not null and
+        (payment_attempt.merchant_id, payment_attempt.pos_order_id, payment_attempt.payment_reference)
+        is distinct from (clover_merchant, receipt_pos_id, payment_reference))
+        or (payment_attempt.order_id is null and exists (
+          select 1 from public.fh_skip_clover_payments where merchant_id = clover_merchant and pos_order_id = receipt_pos_id
+          union all
+          -- An older row with this exact receipt may already have posted before the ledger existed.
+          select 1 from public.fh_orders o where o.pos_order_id = receipt_pos_id and o.timeline->>'posMerchantId' = clover_merchant
+            and o.id <> current_order.id and (nullif(o.timeline->>'posPaymentId', '') is not null
+              or o.timeline->>'posPaymentError' like payment_review_prefix || '%'
+              or o.timeline->>'posPaymentError' like 'Clover payment error:%'
+              or (o.timeline->>'posPaymentError' ~ payment_uncertain_code and o.timeline->>'posPaymentError' !~ payment_definite_code))
+        )) then
+      return jsonb_build_object('order', null, 'isNew', false, 'outcome', 'conflicting_payment');
+    end if;
+    if payment_attempt_id is not null and payment_attempt.attempt_id::text is distinct from payment_attempt_id then
+      return jsonb_build_object('order', null, 'isNew', false, 'outcome', 'conflicting_payment');
+    end if;
+
+    if p_kind = 'finish_payment' then
+      if payment_attempt_id is null or payment_attempt.order_id is null
+          or (nullif(current_order.timeline->>'posPaymentId', '') is not null and not (
+            payment_result = 'paid' and current_order.timeline->>'posPaymentId' = new_payment_id
+          )) then
+        return jsonb_build_object('order', null, 'isNew', false, 'outcome', 'conflicting_payment');
+      end if;
+      if payment_attempt.state = 'paid' then
+        if payment_result <> 'paid' or payment_attempt.payment_id is distinct from new_payment_id
+            or current_order.timeline->>'posPaymentId' is distinct from new_payment_id then
+          return jsonb_build_object('order', null, 'isNew', false, 'outcome', 'conflicting_payment');
+        end if;
+        disposition := 'payment_finished';
+      elsif payment_result = 'refused' and payment_attempt.state = 'sending' then
+        delete from public.fh_skip_clover_payments where order_id = current_order.id and attempt_id = payment_attempt.attempt_id;
+        payment_attempt := null;
+        if payment_active and coalesce(btrim(payment_refusal, blank_store_chars), '') <> '' then
+          update public.fh_orders set timeline = timeline || jsonb_build_object('posPaymentError', payment_refusal),
+            updated_at = observed_at where id = current_order.id returning * into current_order;
+          insert into public.fh_order_events (order_id, type, detail) values (current_order.id, 'pos_payment_failed',
+            jsonb_build_object('error', payment_refusal, 'attemptId', payment_attempt_id));
+        end if;
+        disposition := 'payment_finished';
+      elsif payment_result = 'uncertain' then
+        update public.fh_skip_clover_payments set state = 'uncertain' where order_id = current_order.id returning * into payment_attempt;
+        payment_review := true;
+        disposition := 'payment_pending';
+      elsif payment_result = 'paid' and coalesce(btrim(new_payment_id, blank_store_chars), '') <> '' then
+        update public.fh_skip_clover_payments set state = 'paid', payment_id = new_payment_id
+          where order_id = current_order.id returning * into payment_attempt;
+        if nullif(current_order.timeline->>'posPaymentId', '') is null then
+          insert into public.fh_order_events (order_id, type, detail) values (current_order.id, 'pos_paid',
+            jsonb_build_object('message', 'Recorded as paid in Clover (Skip tender)', 'paymentId', new_payment_id));
+        end if;
+        update public.fh_orders set timeline = (timeline - 'posPaymentError') || jsonb_build_object('posPaymentId', new_payment_id),
+          updated_at = observed_at where id = current_order.id returning * into current_order;
+        disposition := 'payment_finished';
+      else
+        return jsonb_build_object('order', null, 'isNew', false, 'outcome', 'conflicting_payment');
+      end if;
+    elsif payment_attempt.state = 'paid' then
+      if nullif(current_order.timeline->>'posPaymentId', '') is not null
+          and current_order.timeline->>'posPaymentId' is distinct from payment_attempt.payment_id then
+        return jsonb_build_object('order', null, 'isNew', false, 'outcome', 'conflicting_payment');
+      end if;
+      if current_order.timeline->>'posPaymentId' is distinct from payment_attempt.payment_id then
+        update public.fh_orders set timeline = (timeline - 'posPaymentError') || jsonb_build_object('posPaymentId', payment_attempt.payment_id),
+          updated_at = observed_at where id = current_order.id returning * into current_order;
+      end if;
+      disposition := 'payment_finished';
+    elsif nullif(current_order.timeline->>'posPaymentId', '') is not null then
+      disposition := 'payment_finished';
+    elsif payment_attempt.order_id is not null then
+      if current_order.status = 'cancelled' then
+        disposition := 'cancelled';
+      elsif p_kind = 'prepare_payment' and payment_attempt_id is not null and payment_attempt.state = 'sending' and payment_active then
+        disposition := 'payment_prepared';
+      else
+        disposition := 'payment_pending';
+      end if;
+    else
+      payment_review := coalesce(payment_error like payment_review_prefix || '%'
+        or payment_error like 'Clover payment error:%'
+        or (payment_error ~ payment_uncertain_code and payment_error !~ payment_definite_code), false);
+      if payment_review or (p_kind = 'prepare_payment' and payment_active) then
+        insert into public.fh_skip_clover_payments (order_id, merchant_id, pos_order_id, payment_reference, attempted_at, state)
+          values (current_order.id, clover_merchant, receipt_pos_id, payment_reference, observed_at,
+            case when payment_review then 'uncertain' else 'sending' end)
+          on conflict do nothing returning * into payment_attempt;
+        if payment_attempt.order_id is null then
+          return jsonb_build_object('order', null, 'isNew', false, 'outcome', 'conflicting_payment');
+        end if;
+        disposition := case when not payment_review then 'payment_prepared'
+          when current_order.status = 'cancelled' then 'cancelled' else 'payment_pending' end;
+      end if;
+    end if;
+
+    if payment_review then
+      if current_order.timeline->>'posPaymentError' is distinct from payment_review_reason then
+        update public.fh_orders set timeline = timeline || jsonb_build_object('posPaymentError', payment_review_reason),
+          updated_at = observed_at where id = current_order.id returning * into current_order;
+      end if;
+      if not exists (select 1 from public.fh_order_events where order_id = current_order.id and type = 'needs_attention'
+          and detail->>'source' = 'skip_clover_payment' and detail->>'attemptId' = payment_attempt.attempt_id::text) then
+        insert into public.fh_order_events (order_id, type, detail) values (current_order.id, 'needs_attention',
+          jsonb_build_object('reason', payment_review_reason, 'source', 'skip_clover_payment', 'attemptId', payment_attempt.attempt_id));
+      end if;
+    end if;
+    if payment_attempt.order_id is not null then
+      payment_response := jsonb_build_object('paymentAttempt', jsonb_strip_nulls(jsonb_build_object(
+        'id', payment_attempt.attempt_id, 'at', to_char(payment_attempt.attempted_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+        'merchantId', payment_attempt.merchant_id, 'posOrderId', payment_attempt.pos_order_id,
+        'paymentReference', payment_attempt.payment_reference, 'state', payment_attempt.state, 'paymentId', payment_attempt.payment_id)));
+    end if;
+  end if;
+
   return jsonb_build_object('order', to_jsonb(current_order), 'isNew', inserted, 'outcome', disposition)
     || case when transitioned then '{"transitioned":true}'::jsonb else '{}'::jsonb end
-    || case when recorded then '{"recorded":true}'::jsonb else '{}'::jsonb end;
+    || case when recorded then '{"recorded":true}'::jsonb else '{}'::jsonb end || payment_response;
 end;
 $skip_lifecycle$;
 
@@ -673,6 +830,9 @@ begin
   for role_name in select rolname from pg_roles where rolname in ('anon', 'authenticated', 'service_role') loop
     execute format('%s on function public.fh_apply_skip_lifecycle(text, text, jsonb, boolean, text, jsonb) %s %I',
       case when role_name = 'service_role' then 'grant execute' else 'revoke all' end,
+      case when role_name = 'service_role' then 'to' else 'from' end, role_name);
+    execute format('%s on public.fh_skip_clover_payments %s %I',
+      case when role_name = 'service_role' then 'grant select, insert, update, delete' else 'revoke all' end,
       case when role_name = 'service_role' then 'to' else 'from' end, role_name);
   end loop;
 end;

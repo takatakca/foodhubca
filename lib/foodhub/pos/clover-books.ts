@@ -13,6 +13,7 @@ import { createHash } from 'node:crypto';
 import { CHANNEL_LABELS, toCents } from '../config';
 import { cloverFetch } from './clover-http';
 import { getRepo } from '../repo';
+import { neverSent } from '../env-utils';
 import { screenEntryStoreRef } from '../screen-entry-id';
 import type { ChannelKey, StoredOrder } from '../types';
 import { cloverBaseUrl, cloverToken, defaultCloverMerchant } from './clover';
@@ -128,7 +129,14 @@ export async function postCloverPayment(mid: string, posOrderId: string, p: { am
   return { ok: true, paymentId: String(res.json.id), amount: p.amount / 100 };
 }
 
-export type BookResult = { ok: true; paymentId: string; amount: number } | { ok: false; skipped?: boolean; error: string };
+export type BookResult = { ok: true; paymentId: string; amount: number } | { ok: false; skipped?: boolean; definitelyNotRecorded?: true; error: string };
+
+interface PaymentGuards {
+  beforeTenderPost?: () => Promise<boolean>;
+  beforePaymentPost?: () => Promise<boolean>;
+}
+
+const DEFINITE_PAYMENT_REFUSAL = new Set([0, 400, 401, 403, 404, 405, 415, 422, 429]);
 
 /**
  * Records the platform's payment on the Clover order (custom tender), so the order closes as paid.
@@ -139,15 +147,16 @@ export type BookResult = { ok: true; paymentId: string; amount: number } | { ok:
  */
 class CloverPaymentHeld extends Error {}
 
-export async function recordCloverPayment(order: StoredOrder, mid: string | null | undefined, beforePost?: () => Promise<boolean>): Promise<BookResult> {
-  if (!cloverRecordPaymentEnabled()) return { ok: false, skipped: true, error: 'Payment recording is off (FOODHUB_CLOVER_RECORD_PAYMENT=off).' };
+export async function recordCloverPayment(order: StoredOrder, mid: string | null | undefined, guards?: PaymentGuards): Promise<BookResult> {
+  if (!cloverRecordPaymentEnabled()) return { ok: false, skipped: true, definitelyNotRecorded: true, error: 'Payment recording is off (FOODHUB_CLOVER_RECORD_PAYMENT=off).' };
   const merchant = mid || process.env.CLOVER_MERCHANT_ID;
-  if (!merchant || !order.posOrderId) return { ok: false, skipped: true, error: 'Order is not in Clover.' };
-  const checkWrite = beforePost && (async () => {
-    if (!(await beforePost())) throw new CloverPaymentHeld();
-  });
+  if (!merchant || !order.posOrderId) return { ok: false, skipped: true, definitelyNotRecorded: true, error: 'Order is not in Clover.' };
+  const assertAllowed = (check: () => Promise<boolean>) => async () => {
+    if (!(await check())) throw new CloverPaymentHeld();
+  };
+  let preparing = true;
   try {
-    const tender = await ensureLabeled(merchant, 'tenders', platformLabel(order.channel), checkWrite);
+    const tender = await ensureLabeled(merchant, 'tenders', platformLabel(order.channel), guards?.beforeTenderPost && assertAllowed(guards.beforeTenderPost));
     if (!tender.id) return { ok: false, error: `Could not find or create the "${platformLabel(order.channel)}" tender in Clover: ${tender.error}` };
     const tenderId = tender.id;
     const amounts = cloverPaymentAmounts(order);
@@ -158,6 +167,8 @@ export async function recordCloverPayment(order: StoredOrder, mid: string | null
       const cloverTotal = Number((await cloverJson(merchant, `/orders/${encodeURIComponent(order.posOrderId)}`)).json?.total);
       if (Number.isFinite(cloverTotal) && cloverTotal > 0) amount = cloverTotal;
     }
+    preparing = false;
+    const reference = externalPaymentId(order);
     const res = await cloverJson(merchant, `/orders/${encodeURIComponent(order.posOrderId)}/payments`, {
       method: 'POST',
       body: JSON.stringify({
@@ -166,15 +177,41 @@ export async function recordCloverPayment(order: StoredOrder, mid: string | null
         // Pickup / own-delivery tips are the restaurant's (tip-outs); a delivery tip is the courier's and stays out.
         tipAmount: cloverTipCents(order),
         tender: { id: tenderId },
-        externalPaymentId: externalPaymentId(order),
+        externalPaymentId: reference,
         result: 'SUCCESS',
       }),
-    }, checkWrite);
-    if (!res.ok || !res.json?.id) return { ok: false, error: `Clover payment HTTP ${res.status}: ${JSON.stringify(res.json).slice(0, 200)}` };
-    return { ok: true, paymentId: String(res.json.id), amount: amount / 100 };
+    }, guards?.beforePaymentPost && assertAllowed(guards.beforePaymentPost));
+    const id = typeof res.json?.id === 'string' ? res.json.id.trim()
+      : !guards && typeof res.json?.id === 'number' ? String(res.json.id) : '';
+    const mismatched = guards?.beforePaymentPost && ((res.json?.externalPaymentId != null && res.json.externalPaymentId !== reference)
+      || (res.json?.order?.id != null && res.json.order.id !== order.posOrderId)
+      || (res.json?.result != null && res.json.result !== 'SUCCESS'));
+    if (!res.ok || !id || mismatched) {
+      const definitelyNotRecorded = DEFINITE_PAYMENT_REFUSAL.has(res.status);
+      // A paid row with unexpectedly mismatched proof is as ambiguous as a missing response.
+      return { ok: false, ...(definitelyNotRecorded && { definitelyNotRecorded: true }),
+        error: `Clover payment HTTP ${res.status}: ${JSON.stringify(res.json).slice(0, 200)}` };
+    }
+    return { ok: true, paymentId: id, amount: amount / 100 };
   } catch (error) {
-    if (error instanceof CloverPaymentHeld) return { ok: false, skipped: true, error: 'The Clover receipt is no longer eligible for payment.' };
-    return { ok: false, error: `Clover payment error: ${error instanceof Error ? error.message : String(error)}` };
+    // The guard runs before the first POST and then only after a definitive HTTP 429.
+    if (error instanceof CloverPaymentHeld) return { ok: false, skipped: true, definitelyNotRecorded: true, error: 'The Clover receipt is no longer eligible for payment.' };
+    return { ok: false, ...((preparing || neverSent(error)) && { definitelyNotRecorded: true }),
+      error: `Clover payment${preparing && guards ? ' preparation' : ''} error: ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
+
+/** Positive evidence only. Missing, repeated, or unavailable payment records leave the attempt held. */
+export async function confirmedCloverPayment(mid: string, posOrderId: string, paymentReference: string): Promise<string | null> {
+  try {
+    const res = await cloverJson(mid, `/orders/${encodeURIComponent(posOrderId)}/payments?limit=100`);
+    if (!res.ok || !Array.isArray(res.json?.elements) || res.json.elements.length >= 100 || res.json?.links?.next) return null;
+    const matching = res.json.elements.filter((payment: any) => payment?.externalPaymentId === paymentReference
+      && payment.order?.id === posOrderId);
+    if (matching.length !== 1 || matching[0].result !== 'SUCCESS' || typeof matching[0].id !== 'string') return null;
+    return matching[0].id.trim() || null;
+  } catch {
+    return null;
   }
 }
 

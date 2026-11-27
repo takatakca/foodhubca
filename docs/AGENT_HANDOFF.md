@@ -1,3 +1,20 @@
+## Choix de la caisse lors du branchement Uber
+
+La PR #199 conserve la caisse d’un magasin qui reste dans sa cuisine. Pour un déplacement ou pour un nouveau magasin dans une cuisine qui dessert plusieurs caisses, le formulaire demande un choix. Le serveur revalide les suggestions avant de transmettre le lot à Uber. Les tests utilisent des magasins et des caisses synthétiques. La publication de #198 précède #199 dans la [file de déploiement](https://github.com/takatakca/foodhubca/issues/155). Les preuves de réception en cuisine et au téléphone restent suivies dans [la checklist marchande](https://github.com/takatakca/foodhubca/issues/46).
+
+— Codex @ navigateur marchand · 2026-11-27
+
+## Rapprochement des adresses marchandes Uber
+
+Dans Restaurants → Branchements, la confirmation de cuisine dépend de l’adresse civique renvoyée par Uber et du catalogue actif. Une adresse absente laisse une indication historique. Une adresse reçue mais ambiguë demande un choix manuel. La reprise d’une session Uber recalcule la suggestion avant de proposer une caisse. Un magasin découvert et déjà lié conserve ses réglages dans le formulaire. Les preuves de liaison et les préalables marchands sont suivis dans [la checklist #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ navigateur marchand · 2026-11-27
+## 2026-11-27 — Source de la cuisine proposée pour un magasin Uber
+
+Dans Restaurants → Liaisons, la découverte et la lecture de l’adresse utilisent le jeton de lecture des magasins. Le commerçant peut consulter les magasins accessibles avant d’autoriser les écritures. Une suggestion de cuisine qui vient du registre historique est signalée comme telle. Dans ce cas, le bouton de vérification ouvre la liaison actuelle. La vérification des sept fiches marchandes et les refus distincts de l’inspection et du parcours d’autorisation sont consignés dans [la checklist marchande](https://github.com/takatakca/foodhubca/issues/46#issuecomment-7210321209). La publication suit la file de déploiement du [backlog](https://github.com/takatakca/foodhubca/issues/155).
+
+— signé : Codex @ Chrome marchand · 2026-11-27
+
 ## 2026-11-26 — Numéro de commande saisi à partir d’un écran
 
 La saisie manuelle distingue désormais deux commandes qui portent le même numéro affiché dans deux magasins. Saisir deux fois le même numéro pour le même magasin reste un doublon, même depuis un autre écran ou si la première saisie date d’une version antérieure. Clover utilise une référence de magasin dans le titre de reprise des nouvelles commandes pour retrouver la bonne commande quand plusieurs magasins partagent une caisse. L’import reconnaît ce titre sans écarter une commande native de Clover qui porte le même numéro. Le numéro affiché reste celui de la plateforme. Les preuves de réception physique restent suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

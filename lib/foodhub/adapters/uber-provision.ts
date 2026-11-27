@@ -13,9 +13,12 @@
 import crypto from 'node:crypto';
 import rawBrands from '../../../data/actual/brands.json';
 import rawLocations from '../../../data/actual/locations.json';
-import { matchBrandLocation, type LocationRef } from '../brand-match';
+import { kitchenAtAddress, matchBrandLocation, type LocationRef } from '../brand-match';
+import { getCatalog } from '../catalog';
 import { callApi, publicBaseUrl, result, timedFetch } from '../config';
 import { getRepo } from '../repo';
+import { defaultCloverMerchant } from '../pos/clover';
+import { uberCloverChoice } from '../uber-clover-choice';
 import type { ChannelResult } from '../types';
 import { enableUberIntegration, fetchUberPosData, listUberStorePages, uberApiBase, uberAuthorizeUrl, uberOrderManager, uberTokenUrl, type UberOrderManager, type UberPosState } from './uber-eats';
 
@@ -123,17 +126,19 @@ export async function finishUberConnect(state: string, code: string): Promise<{ 
   }
 }
 
-export async function uberConnectSession(id: string): Promise<{ stores: Array<UberMerchantStore & { suggestedClover?: string }>; error: string | null; active: boolean } | null> {
+export async function uberConnectSession(id: string) {
   const s = await getSession(id);
   if (!s) return null;
-  // Clover merchant suggestion: the register the other stores at that location already use (most common one).
-  const mapped = await getRepo().listStores().catch(() => []);
-  const cloverAt = (loc?: string) => {
-    const counts = new Map<string, number>();
-    for (const m of mapped) if (loc && m.locationCode === loc && m.cloverMerchantId) counts.set(m.cloverMerchantId, (counts.get(m.cloverMerchantId) ?? 0) + 1);
-    return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
-  };
-  return { stores: (s.stores ?? []).map((x) => ({ ...x, suggestedClover: cloverAt(x.suggestedLocation) })), error: s.error ?? null, active: Boolean(s.token) };
+  const [mapped, catalog, defaultMerchantId] = await Promise.all([
+    getRepo().listStores(), getCatalog({ strict: true }), defaultCloverMerchant(),
+  ]);
+  const locations = catalog.locations.filter((place) => place.active);
+  const stores = (s.stores ?? []).map((store) => {
+    const suggestedLocation = kitchenAtAddress(store.address, locations);
+    const { required, suggestedClover } = uberCloverChoice(store.id, suggestedLocation, mapped, defaultMerchantId);
+    return { ...store, suggestedLocation, suggestedClover, requiresCloverChoice: required };
+  });
+  return { stores, error: s.error ?? null, active: Boolean(s.token), defaultMerchantId };
 }
 
 export interface UberActivation {

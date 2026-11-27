@@ -12,6 +12,7 @@ import * as uber from '../lib/foodhub/adapters/uber-eats';
 import { hashPassword } from '../lib/foodhub/auth';
 import * as uberProvision from '../lib/foodhub/adapters/uber-provision';
 import { KNOWN_UBER_KITCHENS, knownStores } from '../lib/foodhub/known-stores';
+import { saveLocation } from '../lib/foodhub/catalog';
 import { getRepo } from '../lib/foodhub/repo';
 
 const SAINT_LEONARD_UUIDS = [
@@ -25,7 +26,7 @@ const ndg = rawUber.ndg_not_mapped.stores as Row[];
 
 const saved: Record<string, string | undefined> = {};
 const ENV: Record<string, string | undefined> = {
-  FOODHUB_FORCE_MEMORY: 'true', DASHBOARD_PASSWORD: 'Owner-pass-123', SESSION_SECRET: undefined,
+  CLOVER_MERCHANT_ID: 'DEFAULTCAISSE', FOODHUB_FORCE_MEMORY: 'true', DASHBOARD_PASSWORD: 'Owner-pass-123', SESSION_SECRET: undefined,
   UBER_CLIENT_ID: undefined, UBER_CLIENT_SECRET: undefined, UBER_ACCESS_TOKEN: undefined,
 };
 beforeEach(() => {
@@ -69,6 +70,23 @@ describe('Stores → Mapping: known Uber stores', () => {
     const list = await knownStores();
     expect(list).toHaveLength(7);
     expect(list.every((k) => !k.confirmedByPlatform && k.suggestedLocation === 'SAINT_LEONARD' && k.expectedLocation === 'SAINT_LEONARD' && !k.locationMismatch)).toBe(true);
+  });
+
+  it('keeps the recorded kitchen distinct from a kitchen suggested by a current Uber address', async () => {
+    vi.spyOn(uber.uberEatsAdapter, 'readiness').mockReturnValue({ ...uber.uberEatsAdapter.readiness(), configured: true });
+    const details = vi.spyOn(uber, 'fetchUberStoreDetails');
+    for (const result of [
+      { ok: false, error: 'invalid_scope' }, { ok: true, name: 'Test brand' },
+    ]) {
+      details.mockResolvedValue(result);
+      const list = await knownStores();
+      expect(list[0]).toMatchObject({ confirmedByPlatform: false, expectedLocation: 'SAINT_LEONARD' });
+    }
+    details.mockResolvedValue({ ok: true, address: '100 Example Street' });
+    expect((await knownStores())[0]).toMatchObject({ confirmedByPlatform: false, expectedLocation: null, suggestedLocation: null });
+    details.mockResolvedValue({ ok: true, address: '6280 Avenue Somerled' });
+    const list = await knownStores();
+    expect(list[0]).toMatchObject({ confirmedByPlatform: true, expectedLocation: 'NDG_MAIN' });
   });
 
   it('flags a store mapped to NDG_6284 and moves it only with an explicit destination Clover merchant', async () => {
@@ -185,7 +203,7 @@ describe('scope of merchant inventory route results', () => {
       { id: 'test-moved-uber-store', name: 'Address conflicts with mapping', address: ndgAddress },
     ];
     const readiness = uber.uberEatsAdapter.readiness();
-    vi.spyOn(uber.uberEatsAdapter, 'readiness').mockReturnValue({ ...readiness, canSend: true });
+    vi.spyOn(uber.uberEatsAdapter, 'readiness').mockReturnValue({ ...readiness, configured: true, canSend: false });
     vi.spyOn(uber, 'discoverUberStores').mockResolvedValue(stores);
     await linkStore('test-mapped-uber-store', 'SAINT_LEONARD');
     await linkStore(conflicting, 'NDG_6284');
@@ -198,5 +216,113 @@ describe('scope of merchant inventory route results', () => {
     const saint = await discover(inventoryRequest('discover', 'saint-manager'), ctx);
     expect(saint.status).toBe(200);
     expect(await saint.json()).toMatchObject({ stores: [stores[0], stores[3]] });
+  });
+});
+
+describe('merchant address evidence', () => {
+  it.each([
+    ['6284 Avenue Somerled, Montréal', 'NDG_6284', true],
+    ['6280 Somerled Ave', 'NDG_MAIN', true],
+    ['6284 Av Somerled, Laval', null, false],
+    ['6284 Av Somerled, Laval QC H3X 2B6', null, false],
+    ['6284 Av Somerled, local 2, Montréal', null, false],
+    ['6284 Av Somerled, Montréal, QC H1W 2E6', null, false],
+    ['5837 Rue Jean-Talon Est, Montréal', 'SAINT_LEONARD', true],
+    ['5839 rue Jean-Talon Est, Saint-Léonard', 'SAINT_LEONARD', true],
+    ['6280 Rue Exemple, Montréal', null, false],
+    ['6280 Avenue Somerled Ouest', null, false],
+    ['Av. Somerled', null, false],
+    ['Rue Jean-Talon Est', null, false],
+    ['Saint-Léonard', null, false],
+    ['', 'SAINT_LEONARD', false],
+  ] as const)('resolves the kitchen from the returned street address %j', async (address, expectedLocation, confirmedByPlatform) => {
+    vi.spyOn(uber.uberEatsAdapter, 'readiness').mockReturnValue({ ...uber.uberEatsAdapter.readiness(), configured: true });
+    vi.spyOn(uber, 'fetchUberStoreDetails').mockResolvedValue({ ok: true, name: 'Pi pita (Hochelaga)', address });
+    const rows = await knownStores();
+    expect(rows).toHaveLength(7);
+    for (const row of rows) {
+      expect(row).toMatchObject({ expectedLocation, suggestedLocation: expectedLocation, confirmedByPlatform });
+    }
+  });
+
+  it('rechecks saved Uber sessions against active kitchens before suggesting the Clover destination', async () => {
+    const id = 'a'.repeat(36);
+    const address = '42 Rue Exemple';
+    await getRepo().setKv(`uber-connect:${id}`, {
+      createdAt: Date.now(), token: 'test-session', stores: [{ id: 'sample', name: 'Pi Pita', address, suggestedLocation: 'NDG_MAIN' }],
+    });
+    const place = { code: 'NEW_KITCHEN', name: 'Test kitchen', address, active: true };
+    const suggestion = async () => (await uberProvision.uberConnectSession(id))?.stores[0].suggestedLocation;
+    expect(await suggestion()).toBeUndefined();
+    await saveLocation(place);
+    expect(await suggestion()).toBe(place.code);
+    await saveLocation({ ...place, code: 'SECOND_KITCHEN' });
+    expect(await suggestion()).toBeUndefined();
+    await saveLocation({ ...place, active: false });
+    expect(await suggestion()).toBe('SECOND_KITCHEN');
+  });
+
+});
+
+describe('Clover register selection in the Uber connection flow', () => {
+  const brandName = 'Pi Pita';
+  const kitchen = 'NDG_MAIN';
+  const sessionId = 'b'.repeat(36);
+  async function link(id: string, register: string, locationCode = kitchen) {
+    expect((await save({ channel: 'uber_eats', channelStoreId: id, brandName, locationCode, cloverMerchantId: register })).status).toBe(200);
+  }
+  async function session(storeId: string) {
+    await getRepo().setKv(`uber-connect:${sessionId}`, {
+      createdAt: Date.now(), token: 'test-only', stores: [{ id: storeId, name: brandName, address: '6280 Avenue Somerled' }],
+    });
+    return (await uberProvision.uberConnectSession(sessionId))!.stores[0];
+  }
+
+  it('keeps a store’s own register and never suggests the majority register for a new or moving store', async () => {
+    await link('majority-one', 'REGISTERAAA');
+    await link('majority-two', 'REGISTERAAA');
+    expect((await session('new')).suggestedClover).toBe('REGISTERAAA');
+    await link('moving', 'REGISTERSRC', 'HOCHELAGA');
+    expect((await session('moving')).suggestedClover).toBeUndefined();
+    await link('minority', 'REGISTERBBB');
+    expect((await session('minority')).suggestedClover).toBe('REGISTERBBB');
+    expect((await session('new')).suggestedClover).toBeUndefined();
+    await link('uses-default', '');
+    expect((await session('uses-default')).suggestedClover).toBeUndefined();
+  });
+
+  it('counts an implicit default using its actual destination, including an unresolved default', async () => {
+    await link('implicit', '');
+    await link('explicit', 'DEFAULTCAISSE');
+    expect((await session('new')).suggestedClover).toBe('DEFAULTCAISSE');
+    process.env.CLOVER_MERCHANT_ID = 'OTHERREGISTER';
+    expect((await session('new')).suggestedClover).toBeUndefined();
+    delete process.env.CLOVER_MERCHANT_ID;
+    expect((await session('new')).suggestedClover).toBeUndefined();
+  });
+
+  it('rechecks a stale suggestion and the whole batch before activation, then accepts a deliberate choice', async () => {
+    const pick = { storeId: 'new', locationCode: kitchen, brandName };
+    const other = { ...pick, storeId: 'unrelated', locationCode: 'HOCHELAGA' };
+    const submit = (patch: Record<string, unknown>) => activate(ownerPost('uber-connect/activate', {
+      id: sessionId, stores: [other, { ...pick, ...patch }],
+    }), ctx);
+    await link('peer', 'REGISTERAAA');
+    const suggestion = (await session('new')).suggestedClover;
+    expect(suggestion).toBe('REGISTERAAA');
+    await link('second-peer', '');
+    vi.spyOn(uber.uberEatsAdapter, 'readiness').mockReturnValue({ ...uber.uberEatsAdapter.readiness(), canSend: true });
+    const provider = vi.spyOn(uberProvision, 'activateUberStores').mockImplementation(async (_id, picks) => picks.map((p) => ({
+      storeId: p.storeId, result: { channel: 'uber_eats', status: 'done', ok: true, message: 'OK' }, enabled: null, pos: null, message: 'OK',
+    })));
+    for (const patch of [{}, { cloverMerchantId: suggestion, cloverSuggested: true }]) {
+      const response = await submit(patch);
+      expect(response.status).toBe(400);
+      expect((await response.json()).error).toMatch(/Clover/);
+    }
+    expect(provider).not.toHaveBeenCalled();
+    expect(await getRepo().findStore('uber_eats', 'unrelated')).toBeNull();
+    expect((await submit({ cloverMerchantId: 'REGISTERAAA' })).status).toBe(200);
+    expect(await getRepo().findStore('uber_eats', 'new')).toMatchObject({ cloverMerchantId: 'REGISTERAAA' });
   });
 });

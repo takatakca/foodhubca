@@ -12,7 +12,7 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
   const b = await readJson(req);
   if (b.channel !== 'uber_eats') return fail('Discovery is available for uber_eats. DoorDash, Skip and TGTG stores are mapped with their store id.');
   const r = uberEatsAdapter.readiness();
-  if (!r.canSend) return fail(r.note, 409);
+  if (!r.configured || r.viaClover) return fail(r.note, 409);
   const stores = await discoverUberStores();
   if (!actor.locations.length) return ok({ stores });
   const mappedLocations = new Map((await getRepo().listStores('uber_eats')).map((store) => [store.channelStoreId, store.locationCode]));

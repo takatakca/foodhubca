@@ -35,8 +35,8 @@ export default async function CloverWelcomePage({ searchParams }: { searchParams
   const named = (a: unknown): 'phone' | 'mev' | null => (a === 'phone' || a === 'mev' ? a : null);
   const app: 'foodhub' | 'phone' | 'mev' = (welcome ? named(welcome.app) : named(q.app)) ?? 'foodhub';
   const canSetup = Boolean(viewer && can(viewer.role, 'stores:map'));
-  const steps = canSetup && state === 'connected' && app === 'foodhub'
-    ? await onboardingSteps({ merchantId: welcome?.merchantId ?? null, viewerHasPin: viewer?.hasPin }).catch(() => null)
+  const steps = viewer && canSetup && state === 'connected' && app === 'foodhub' && (!q.t || welcome)
+    ? await onboardingSteps({ merchantId: welcome?.merchantId ?? null, viewerHasPin: viewer.hasPin, locationCodes: viewer.locations }).catch(() => null)
     : null;
   // TAKATAK MEV from the App Market: the merchant's own self-serve set-up (its location code, read live from Takatak MEV).
   const mevSetup = app === 'mev' && state === 'connected' && welcome

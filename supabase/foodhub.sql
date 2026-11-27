@@ -170,15 +170,21 @@ declare
   parked_cancel boolean := false;
   transitioned boolean := false;
   receipt_mode boolean := p_kind in ('record_receipt', 'check_receipt');
+  prepare_mode boolean := p_kind = 'prepare_clover';
   receipt_pos_id text := p_detail->>'posOrderId';
-  receipt_merchant text := p_detail->>'merchantId';
+  clover_merchant text := p_detail->>'merchantId';
   stored_merchant text;
+  clover_attempt jsonb;
+  invalid_attempt boolean := false;
+  active_order boolean;
+  active_attempt_check boolean;
   receipt_timeline jsonb;
   retry jsonb;
   receipt_evidence jsonb;
   recorded boolean := false;
 begin
-  if p_kind is null or p_kind not in ('backup', 'cancel', 'intake', 'check_intake', 'record_receipt', 'check_receipt')
+  if p_kind is null or p_kind not in ('backup', 'cancel', 'intake', 'check_intake', 'record_receipt', 'check_receipt',
+      'prepare_clover', 'clear_clover_attempt')
       or p_external_id is null or p_external_id = '' then
     raise exception 'Invalid Skip lifecycle notice' using errcode = '22023';
   end if;
@@ -196,19 +202,47 @@ begin
   select * into current_order from public.fh_orders
     where channel = 'skip' and external_order_id = p_external_id for update;
 
-  if receipt_mode then
-    stored_merchant := current_order.timeline->>'posMerchantId';
+  stored_merchant := current_order.timeline->>'posMerchantId';
+  clover_attempt := current_order.timeline->'posCreateAttempt';
+  invalid_attempt := clover_attempt is not null and (jsonb_typeof(clover_attempt) <> 'object'
+    or jsonb_typeof(clover_attempt->'id') is distinct from 'string' or coalesce(clover_attempt->>'id', '') = ''
+    or jsonb_typeof(clover_attempt->'at') is distinct from 'string' or coalesce(clover_attempt->>'at', '') = ''
+    or jsonb_typeof(clover_attempt->'merchantId') is distinct from 'string'
+    or coalesce(btrim(clover_attempt->>'merchantId', blank_store_chars), '') = '');
+  active_order := current_order.status in ('new', 'accepted', 'ready', 'dispatched');
+  active_attempt_check := active_order and clover_attempt is not null and not invalid_attempt;
+  if prepare_mode or p_kind = 'clear_clover_attempt' then
     if current_order.id is null or current_order.id::text is distinct from p_detail->>'orderId'
         or coalesce(current_order.data->>'viaHub', '') <> '' or coalesce(current_order.data->>'viaPos', '') <> ''
-        or coalesce(btrim(receipt_pos_id, blank_store_chars), '') = '' or coalesce(btrim(receipt_merchant, blank_store_chars), '') = ''
+        or coalesce(btrim(clover_merchant, blank_store_chars), '') = '' then
+      return jsonb_build_object('order', null, 'isNew', false, 'outcome', 'conflicting_attempt');
+    end if;
+    if coalesce(current_order.pos_order_id, '') <> '' or (prepare_mode and not active_order and current_order.status <> 'cancelled') then
+      return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'ignored');
+    end if;
+    if p_kind = 'clear_clover_attempt' then
+      if invalid_attempt or clover_attempt is null or clover_attempt->>'id' is distinct from p_detail->>'attemptId'
+          or clover_attempt->>'merchantId' is distinct from clover_merchant then
+        return jsonb_build_object('order', null, 'isNew', false, 'outcome', 'conflicting_attempt');
+      end if;
+      update public.fh_orders set timeline = timeline - 'posCreateAttempt', updated_at = observed_at
+        where id = current_order.id returning * into current_order;
+      return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'attempt_cleared');
+    end if;
+  end if;
+  if receipt_mode then
+    if current_order.id is null or current_order.id::text is distinct from p_detail->>'orderId'
+        or coalesce(current_order.data->>'viaHub', '') <> '' or coalesce(current_order.data->>'viaPos', '') <> ''
+        or coalesce(btrim(receipt_pos_id, blank_store_chars), '') = '' or coalesce(btrim(clover_merchant, blank_store_chars), '') = ''
+        or invalid_attempt or (clover_attempt is not null and clover_attempt->>'merchantId' is distinct from clover_merchant)
         or (coalesce(current_order.pos_order_id, '') <> '' and current_order.pos_order_id is distinct from receipt_pos_id)
-        or (coalesce(stored_merchant, '') <> '' and stored_merchant is distinct from receipt_merchant)
+        or (coalesce(stored_merchant, '') <> '' and stored_merchant is distinct from clover_merchant)
         or (p_kind = 'check_receipt' and (current_order.pos_order_id is distinct from receipt_pos_id
-          or stored_merchant is distinct from receipt_merchant)) then
+          or stored_merchant is distinct from clover_merchant)) then
       return jsonb_build_object('order', null, 'isNew', false, 'outcome', 'conflicting_receipt');
     end if;
     if p_kind = 'record_receipt' then
-      receipt_timeline := current_order.timeline || jsonb_build_object('posMerchantId', receipt_merchant);
+      receipt_timeline := current_order.timeline || jsonb_build_object('posMerchantId', clover_merchant);
       retry := receipt_timeline->'posRetry';
       if jsonb_typeof(retry) = 'object' and (retry->'nextAt' is distinct from 'null'::jsonb or coalesce(retry->>'doneAt', '') = '') then
         receipt_timeline := jsonb_set(receipt_timeline, '{posRetry}', retry || jsonb_build_object(
@@ -224,13 +258,14 @@ begin
         receipt_evidence := case when jsonb_typeof(p_detail->'evidence') = 'object' then p_detail->'evidence' else '{}'::jsonb end;
         insert into public.fh_order_events (order_id, type, detail) values (
           current_order.id, case when p_detail->'adopted' = 'true'::jsonb then 'pos_adopted' else 'pos_injected' end,
-          receipt_evidence || jsonb_build_object('posOrderId', receipt_pos_id, 'merchantId', receipt_merchant));
+          receipt_evidence || jsonb_build_object('posOrderId', receipt_pos_id, 'merchantId', clover_merchant));
         recorded := true;
       end if;
     end if;
   end if;
 
-  if p_kind = 'check_intake' and (current_order.id is null or current_order.status <> 'new' or coalesce(current_order.pos_order_id, '') <> ''
+  if p_kind = 'check_intake' and (current_order.id is null or (current_order.status <> 'new' and not active_attempt_check)
+      or coalesce(current_order.pos_order_id, '') <> ''
       or coalesce(current_order.data->>'viaHub', '') <> '' or coalesce(current_order.data->>'viaPos', '') <> '') then
     return jsonb_build_object('order', case when current_order.id is null then null else to_jsonb(current_order) end,
       'isNew', false, 'outcome', 'ignored');
@@ -288,6 +323,22 @@ begin
     if cancellation is not null then desired_status := 'cancelled'; end if;
   end if;
 
+  if prepare_mode and cancellation is null then
+    if current_order.status = 'cancelled' then
+      return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'cancelled');
+    end if;
+    if invalid_attempt or coalesce(stored_merchant, '') <> '' then
+      return jsonb_build_object('order', null, 'isNew', false, 'outcome', 'conflicting_attempt');
+    end if;
+    if clover_attempt is not null then
+      return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'attempt_pending');
+    end if;
+    update public.fh_orders set timeline = timeline || jsonb_build_object('posCreateAttempt',
+      jsonb_build_object('merchantId', clover_merchant, 'at', event_at, 'id', gen_random_uuid())), updated_at = observed_at
+      where id = current_order.id returning * into current_order;
+    return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'prepared');
+  end if;
+
   if desired_status = 'cancelled' then
     cancellation_reason := coalesce(cancellation->'detail'->>'reason', cancellation->'detail'->>'event', 'Cancelled on the platform');
     cancel_timeline := jsonb_build_object('cancelledAt', event_at, 'cancelReason', cancellation_reason,
@@ -325,7 +376,8 @@ begin
   if not inserted then
     if receipt_mode and cancellation is null then
       disposition := case when current_order.status = 'cancelled' then 'cancelled' else 'received' end;
-    elsif p_kind in ('intake', 'check_intake') and (desired_status = 'new' or current_order.status <> 'new'
+    elsif p_kind in ('intake', 'check_intake') and (desired_status = 'new'
+        or (current_order.status <> 'new' and not (p_kind = 'check_intake' and active_attempt_check))
         or coalesce(current_order.data->>'viaHub', '') <> '' or coalesce(current_order.data->>'viaPos', '') <> '') then
       disposition := 'received';
       parked_cancel := false;

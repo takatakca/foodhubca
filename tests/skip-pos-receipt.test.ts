@@ -453,6 +453,117 @@ describe('automatic receipt of direct Skip orders', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { case: 'its cancellation worker withheld', worker: 'withheld', ambiguous: false },
+    { case: 'its cancellation worker applied and store remapped', worker: 'applied', ambiguous: false },
+    { case: 'an ambiguous original-register lookup', worker: 'withheld', ambiguous: true },
+    { case: 'a marked copy becoming visible on a later active-order retry', worker: 'none', ambiguous: false, delayedVisibility: true },
+  ])('reconciles or holds a lost Clover create response with $case', async ({ worker, ambiguous, delayedVisibility }) => {
+    vi.stubEnv('FOODHUB_POS_INJECTION', undefined);
+    vi.stubEnv('FOODHUB_CLOVER_AUTOPRINT', 'on');
+    vi.stubEnv('FOODHUB_CLOVER_DELETE_CANCELLED', 'on');
+    const repo = getRepo();
+    const incoming = event();
+    const movedMerchant = 'TESTMERCH0002';
+    vi.stubEnv('CLOVER_MERCHANT_TOKENS', JSON.stringify({ [movedMerchant]: 'fixture-moved-register-token' }));
+    const register = `${CLOVER}/v3/merchants/${MERCHANT}`;
+    const create = `${register}/atomic_order/orders`;
+    const lookup = `${register}/orders?filter=`;
+    const close = `${register}/orders/${POS}`;
+    const print = `${register}/print_event`;
+    const respond = fetchMock.getMockImplementation()!;
+    let remoteCopy: { id: string; title: string; note: string; total: number } | undefined;
+    let originalReceiptMarker: string | undefined;
+    let timelineBeforeCreate: unknown;
+    let stateDuringCreate: string | undefined;
+    let lookups = 0;
+    let fixtureError: unknown;
+    fetchMock.mockImplementation(async (url, init) => {
+      const address = String(url);
+      if (address === create && init?.method === 'POST') {
+        try {
+          const stored = await repo.findOrder('skip', incoming.id);
+          if (!stored) throw new Error('The fixture order was not saved before the Clover create');
+          timelineBeforeCreate = structuredClone(stored.timeline);
+          const { title, note } = JSON.parse(String(init.body)).orderCart;
+          remoteCopy = { id: POS, title, note, total: 1150 };
+          originalReceiptMarker = note.endsWith(` | [FH:${stored.id}]`) ? stored.id : undefined;
+          if (worker === 'applied') {
+            const store = await repo.findStore('skip', STORE);
+            if (!store) throw new Error('The fixture store was not mapped');
+            await repo.upsertStore({ ...store, locationCode: 'TEST_MOVED', cloverMerchantId: movedMerchant });
+          }
+          if (worker !== 'none') {
+            const cancel = await saveCancellationWithWorkerWithheld(incoming.id);
+            if (worker === 'applied') await cancel();
+          }
+          stateDuringCreate = (await repo.findOrder('skip', incoming.id))?.status;
+        } catch (error) {
+          fixtureError = error;
+        }
+        throw new Error('Synthetic Clover network disconnect after remote commit');
+      }
+      if (address.startsWith(lookup) && (!init?.method || init.method === 'GET')) {
+        lookups += 1;
+        if (delayedVisibility && lookups === 1) return Response.json({ elements: [] });
+        const elements = remoteCopy ? [remoteCopy] : [];
+        if (remoteCopy && ambiguous) elements.push({ ...remoteCopy, id: 'legacy-title-match', note: 'Existing Clover order with the same title' });
+        return Response.json({ elements });
+      }
+      if (address === close && init?.method === 'DELETE') {
+        remoteCopy = undefined;
+        return new Response(null, { status: 204 });
+      }
+      if (address === print && init?.method === 'POST') return Response.json({ id: 'fixture-print' });
+      return respond(url, init);
+    });
+
+    const first = await processQueuedOrder(incoming);
+    expect(fixtureError).toBeUndefined();
+    expect(originalReceiptMarker).toBe(first.id);
+    expect(timelineBeforeCreate).toMatchObject({ posCreateAttempt: { merchantId: MERCHANT, at: expect.any(String) } });
+    expect(stateDuringCreate).toBe(worker === 'applied' ? 'cancelled' : 'new');
+    const notification = (await repo.listDocs<InboxEntry>(INBOX)).find(({ data }) => data.kind === 'order');
+    if (delayedVisibility) {
+      expect(first).toMatchObject({ status: 'new', timeline: { posCreateAttempt: { merchantId: MERCHANT } } });
+      expect(first.posOrderId).toBeUndefined();
+      expect(notification?.data).toMatchObject({ status: 'failed', attempts: 1, nextAt: expect.any(String) });
+      for (const action of ['accept', 'accept_no_pos', 'deny'] as const) {
+        const held = await runOrderAction(first.id, action);
+        expect(held.result).toMatchObject({ ok: false, message: expect.stringContaining('pending receipt') });
+      }
+      expect(outbound()).toEqual([create, expect.stringContaining(lookup)]);
+    }
+    const lookedUp = outbound().some((url) => url.startsWith(lookup));
+    if (notification?.data.status === 'failed' && notification.data.nextAt && (!ambiguous || !lookedUp)) {
+      await sweepInbox({ now: Date.parse(notification.data.nextAt) + 1 });
+    }
+    const order = await repo.getOrder(first.id);
+    if (delayedVisibility) {
+      expect(order).toMatchObject({ status: 'accepted', posOrderId: POS, locationCode: 'TEST', timeline: { posMerchantId: MERCHANT, printedAt: expect.any(String) } });
+      expect(outbound()).toEqual([create, expect.stringContaining(lookup), expect.stringContaining(lookup), print, jetRequest(incoming.id, 'success')]);
+      expect((await repo.getDoc<InboxEntry>(INBOX, notification!.id))?.data).toMatchObject({ status: 'done', attempts: 2, orderId: first.id });
+      return;
+    }
+    if (ambiguous) {
+      expect(order).toMatchObject({ status: 'cancelled', locationCode: 'TEST', timeline: { cancelReason: 'CUSTOMER_REQUEST', posCreateAttempt: { merchantId: MERCHANT } } });
+      expect(order?.posOrderId).toBeUndefined();
+      expect(remoteCopy).toBeDefined();
+      expect(fetchMock.mock.calls.map(([url, init]) => [String(url), init?.method ?? 'GET']))
+        .toEqual([[create, 'POST'], [expect.stringContaining(lookup), 'GET']]);
+      return;
+    }
+    expect({
+      status: order?.status, receipt: order?.posOrderId, remoteCopyRemains: Boolean(remoteCopy),
+      requests: fetchMock.mock.calls.map(([url, init]) => [String(url), init?.method ?? 'GET']),
+    }).toEqual({
+      status: 'cancelled', receipt: POS, remoteCopyRemains: false,
+      requests: [[create, 'POST'], [expect.stringContaining(lookup), 'GET'], [close, 'DELETE']],
+    });
+    expect(order).toMatchObject({ locationCode: 'TEST', timeline: { posMerchantId: MERCHANT, posClosedAt: expect.any(String), cancelReason: 'CUSTOMER_REQUEST' } });
+    expect((await repo.listEvents(first.id)).map((entry) => entry.type).filter((type) => type === 'pos_adopted')).toHaveLength(1);
+  });
+
   it.each([false, true])('rechecks a confirmed receipt on inbox retry without another Clover create or print (cancel before retry: %s)', async (cancelBeforeRetry) => {
     vi.stubEnv('FOODHUB_POS_INJECTION', undefined);
     vi.stubEnv('FOODHUB_CLOVER_AUTOPRINT', 'on');

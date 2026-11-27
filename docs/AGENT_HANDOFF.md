@@ -1,8 +1,14 @@
+## 2026-11-26 — Réponse Clover perdue après la création d’une commande Skip
+
+Avant le POST Clover, Food Hub réserve une tentative par commande dans PostgreSQL et conserve la caisse utilisée. Si la réponse est perdue, la reprise cherche une copie qui porte la référence Food Hub sur cette caisse, même si la liaison du magasin a changé. Une annulation durable est vérifiée avant d’imprimer ou de répondre à JET. Quand le reçu est confirmé pour une commande annulée, il est conservé et la copie est fermée sur la caisse d’origine. Tant que le résultat est absent ou ambigu, la commande reste à vérifier et une relance cherche le reçu sans envoyer une nouvelle création ni demander le repli JET. Un refus explicite de Clover peut libérer la tentative pour le repli habituel.
+
+Avant de publier #192, vérifier que la base accepte aussi `prepare_clover` et `clear_clover_attempt` via PostgREST au rôle serveur. Les essais locaux et simulés ne confirment pas la livraison d’une commande marchande ou l’impression réelle. Le suivi de publication et les preuves marchandes figurent dans [le backlog #155](https://github.com/takatakca/foodhubca/issues/155) et [la checklist #46](https://github.com/takatakca/foodhubca/issues/46).
+
 ## 2026-11-26 — Reçu Clover reçu pendant une annulation Skip
 
 La transaction Skip conserve le reçu confirmé et la caisse de création ou d’adoption. Elle applique aussi l’annulation durable connue au retour de Clover avant toute impression. Une annulation confirmée garde le reçu pour fermer la copie sur la caisse qui l’a réellement reçue, même si le magasin a changé de liaison. Une seconde vérification précède la confirmation JET. Si cette vérification échoue, la reprise repart du reçu enregistré sans recréer ni réimprimer la commande. L’écriture du statut de confirmation protège une annulation concurrente.
 
-La base cible doit accepter les actions `record_receipt` et `check_receipt` via PostgREST pour le rôle serveur avant le déploiement du code. Les contrôles après un reçu confirmé couvrent l’arrivée normale et l’adoption d’un reçu Clover existant. Pour une commande Skip directe, une reprise n’adopte une copie que si la note Clover porte la référence Food Hub exacte et le résultat est unique. Un ancien titre sans cette preuve ou un résultat ambigu reste à examiner sans recréer ni fermer sa copie. Une réponse Clover perdue ou une interruption avant son enregistrement reste à vérifier dans [le backlog #155](https://github.com/takatakca/foodhubca/issues/155).
+La base cible doit accepter les actions `record_receipt` et `check_receipt` via PostgREST pour le rôle serveur avant le déploiement du code. Les contrôles après un reçu confirmé couvrent l’arrivée normale et l’adoption d’un reçu Clover existant. Pour une commande Skip directe, une reprise n’adopte une copie que si la note Clover porte la référence Food Hub exacte et le résultat est unique. Un ancien titre sans cette preuve ou un résultat ambigu reste à examiner sans recréer ni fermer sa copie. La reprise après une réponse perdue est décrite plus haut.
 
 — signé : Codex @ cloud · 2026-11-26
 

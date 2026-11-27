@@ -38,6 +38,8 @@ export interface OrderTimeline {
   courier?: CourierInfo;
   /** Clover merchant that returned or already held this order when its POS order ID was linked. */
   posMerchantId?: string;
+  /** Clover register and time recorded before a create request whose receipt is still pending. */
+  posCreateAttempt?: { merchantId: string; at: string; id: string };
   /** Clover: payment recorded with the platform tender (when the order leaves the kitchen). */
   posPaymentId?: string;
   posPaymentError?: string;

@@ -508,7 +508,7 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
     const waitingForVoice = screenAlert && Boolean(target) && !callConfigured();
     if (target && !waitingForVoice) {
       // Keep the claim across ticks and restarts, including when Twilio's reply is uncertain.
-      const claimed = screenAlert
+      const claimed = deviceAlert
         ? await getRepo().claimKv(`watch:first-screen-call:${i.id}`, { at: new Date(now).toISOString() }).catch(() => null)
         : true;
       if (claimed === null) {

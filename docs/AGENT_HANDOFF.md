@@ -1,6 +1,6 @@
 ## 2026-11-26 — Désactivation pendant un appel de relève
 
-Après une demande téléphonique ou un texto, Watchtower vérifie à nouveau le catalogue avant l’envoi suivant pour les incidents de tablette et de relais. Une cuisine désactivée ou un catalogue indisponible suspend les envois restants. L’appel déjà accepté reste consigné. Lorsque la lecture redevient possible, un palier qui n’avait pas commencé peut reprendre sans rejouer le premier appel. Un palier déjà commencé garde son comportement de non-répétition.
+Après une demande téléphonique ou un texto, Watchtower vérifie à nouveau le catalogue avant l’envoi suivant pour les incidents de tablette et de relais. Une cuisine désactivée ou un catalogue indisponible suspend les envois restants. L’appel déjà accepté reste consigné, y compris l’appel au numéro de la cuisine pour une tablette muette. Lorsque la lecture redevient possible, un palier qui n’avait pas commencé peut reprendre sans rejouer le premier appel. Un palier déjà commencé garde son comportement de non-répétition.
 
 La fiche de l’alerte indique « surveillance arrêtée » quand sa cuisine a été désactivée.
 

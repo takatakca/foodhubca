@@ -222,12 +222,12 @@ async function configureSameIncidentRecipients() {
   await saveWatchSettings({ callAfterMin: 2, ownerAfterMin: 3, supportPhones: [SUPPORT_PHONE] }, OWNER);
 }
 
-function afterFirstAcceptedCall(work: () => Promise<unknown>) {
+function afterFirstAcceptedCall(work: () => Promise<unknown>, destination = HOTLINE) {
   const respond = provider.getMockImplementation();
   if (!respond) throw new Error('Missing simulated provider');
   provider.mockImplementationOnce(async (...args) => {
     expect(String(args[0])).toMatch(/Calls\.json$/);
-    expect(new URLSearchParams(String(args[1]?.body)).get('To')).toBe(HOTLINE);
+    expect(new URLSearchParams(String(args[1]?.body)).get('To')).toBe(destination);
     const response = await respond(...args);
     await work();
     return response;
@@ -306,4 +306,38 @@ it('recovers unstarted stages after a same-incident read failure without replayi
     { path: 'Messages.json', to: SUPPORT_PHONE }, { path: 'Calls.json', to: SUPPORT_PHONE },
   ]));
   expect(entries.every((entry) => entry.incidentId === incident.id)).toBe(true);
+});
+
+
+it('recovers a muted tablet SMS without replaying its already accepted kitchen call', async () => {
+  const { incident, tick } = await openIncident('device_muted');
+  const repo = getRepo();
+  const readCatalog = repo.getKv.bind(repo);
+  let catalogFailurePending = false;
+  let failureSeen = false;
+  const fault = vi.spyOn(repo, 'getKv').mockImplementation(async <T>(key: string) => {
+    if (key === 'catalog' && catalogFailurePending) {
+      catalogFailurePending = false;
+      failureSeen = true;
+      throw new Error('Temporary catalog read error after the accepted kitchen call');
+    }
+    return readCatalog<T>(key);
+  });
+  afterFirstAcceptedCall(async () => { catalogFailurePending = true; }, KITCHEN.phone);
+  try {
+    expect(await tick(7)).toMatchObject({ escalated: 1, resolved: 0 });
+  } finally {
+    fault.mockRestore();
+  }
+  expect(failureSeen).toBe(true);
+  expect(await listOutbox()).toMatchObject([{ channel: 'call', purpose: 'alert_kitchen', ref: ACCEPTED_CALL_SID, ok: true, incidentId: incident.id }]);
+
+  expect(await tick(8)).toMatchObject({ escalated: 1, resolved: 0 });
+  expect(provider.mock.calls.map(([input, init]) => ({ path: String(input).split('/').at(-1), to: new URLSearchParams(String(init?.body)).get('To') }))).toEqual([
+    { path: 'Calls.json', to: KITCHEN.phone }, { path: 'Messages.json', to: MANAGER_PHONE },
+  ]);
+  const receipts = await listOutbox();
+  expect(receipts.filter((entry) => entry.channel === 'call')).toHaveLength(1);
+  expect(receipts).toContainEqual(expect.objectContaining({ channel: 'sms', incidentId: incident.id, ok: true }));
+  expect(await repo.getKv(`watch:first-screen-call:${incident.id}`)).toEqual(expect.objectContaining({ at: expect.any(String) }));
 });

@@ -102,6 +102,50 @@ export function uberCourierDetails(o: any): Partial<CourierInfo> | undefined {
   };
 }
 
+async function applyDirectSkipDriver(order: StoredOrder, update: Partial<CourierInfo> & { status: CourierStatus }): Promise<StoredOrder | null> {
+  const repo = getRepo();
+  const identity = { orderId: order.id, externalOrderId: order.externalOrderId };
+  const { status, name, phone, vehicle, etaAt } = update;
+  const observed = await repo.applySkipLifecycle({ kind: 'apply_driver', ...identity, driver: { status, name, phone, vehicle, etaAt } });
+  if (!observed.order) return null;
+
+  let current = observed.order;
+  let cancelledHere = observed.transitioned;
+  if (observed.driverAdvanced) {
+    // A terminal notice can arrive after the observation committed and before settlement begins.
+    const posOrderId = current.posOrderId;
+    const merchantId = current.timeline?.posMerchantId;
+    if (posOrderId && merchantId) {
+      const checked = await repo.applySkipLifecycle({ kind: 'check_receipt', ...identity, posOrderId, merchantId });
+      if (!checked.order) throw new Error('Skip receipt changed before courier settlement.');
+      current = checked.order;
+      cancelledHere ||= checked.transitioned;
+    } else {
+      const latest = await repo.getOrder(current.id);
+      if (!latest || latest.viaHub || latest.viaPos) return latest;
+      current = latest;
+    }
+  }
+  if (cancelledHere) {
+    await logActivity({ actor: CHANNEL_LABELS.skip, source: 'platform', kind: 'order', action: 'platform_cancel', status: 'info', channel: 'skip',
+      brandName: current.brandName, locationCode: current.locationCode, orderId: current.id,
+      summary: `${CHANNEL_LABELS.skip} cancelled #${current.displayId || current.externalOrderId.slice(0, 8)} before courier settlement` });
+  }
+  const terminal = current.status === 'cancelled' || current.status === 'failed';
+  const advanced = observed.driverAdvanced && current.status === observed.order.status;
+  if ((terminal && (observed.outcome === 'cancelled' || observed.outcome === 'backed_up' || observed.driverAdvanced)) || advanced) {
+    current = (await settleInClover(current)) ?? current;
+  }
+  const courier = observed.order.timeline?.courier;
+  await repo.addEvent(order.id, 'courier', { status, name: courier?.name, etaAt: courier?.etaAt, source: 'skip:driver_status', message: COURIER_LABEL[status] });
+  if (advanced) {
+    await logActivity({ actor: CHANNEL_LABELS.skip, source: 'platform', kind: 'order', action: `courier_${status}`, status: 'info', channel: 'skip',
+      brandName: current.brandName, locationCode: current.locationCode, orderId: current.id,
+      summary: `${CHANNEL_LABELS.skip} #${current.displayId || current.externalOrderId.slice(0, 8)}: ${COURIER_LABEL[status]}${courier?.name ? ` (${courier.name})` : ''}` });
+  }
+  return current;
+}
+
 /** Saves a courier update on the order and moves the order forward when the courier picks it up / delivers it. */
 export async function applyCourierUpdate(channel: ChannelKey, externalOrderId: string, update: Partial<CourierInfo> & { status: CourierStatus }, source: string): Promise<StoredOrder | null> {
   const repo = getRepo();
@@ -115,6 +159,9 @@ export async function applyCourierUpdate(channel: ChannelKey, externalOrderId: s
     order = await repo.findOrder(channel, externalOrderId);
     if (!order) return null;
     await repo.setKv(pendingKey(channel, externalOrderId), { ...parked, consumedAt: nowIso() }).catch(() => undefined);
+  }
+  if (channel === 'skip' && source === 'skip:driver_status' && !order.viaHub && !order.viaPos) {
+    return applyDirectSkipDriver(order, update);
   }
   const now = nowIso();
   const clean = Object.fromEntries(Object.entries(update).filter(([, v]) => v !== undefined && v !== '')) as Partial<CourierInfo>;

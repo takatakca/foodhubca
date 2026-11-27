@@ -3,7 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { createServiceClient, hasSupabaseEnv } from '../supabase/server';
 import { nowIso } from './config';
 import type { PendingPlatformEvents } from './courier';
-import type { ActivityEntry, ActivityKind, ChannelKey, ChannelStore, FoodHubJob, FoodHubUser, MasterMenu, NormalizedOrder, OrderEvent, OrderStatus, OrderTimeline, StoredOrder } from './types';
+import type { ActivityEntry, ActivityKind, ChannelKey, ChannelStore, CourierInfo, CourierStatus, FoodHubJob, FoodHubUser, MasterMenu, NormalizedOrder, OrderEvent, OrderStatus, OrderTimeline, StoredOrder } from './types';
 
 export interface OrderFilter { limit?: number; statuses?: OrderStatus[]; since?: string; until?: string; locationCodes?: string[] }
 export interface ActivityFilter { limit?: number; since?: string; until?: string; kinds?: ActivityKind[]; locationCodes?: string[] }
@@ -16,6 +16,8 @@ type SkipCloverStoreSnapshot = Pick<ChannelStore, 'id' | 'channelStoreId' | 'loc
 type SkipOrderIdentity = { externalOrderId: string; orderId: string };
 type SkipCloverIdentity = SkipOrderIdentity & { merchantId: string };
 type SkipReceiptIdentity = SkipCloverIdentity & { posOrderId: string };
+type SkipDriverUpdate = Pick<CourierInfo, 'status'> & Partial<Pick<CourierInfo, 'name' | 'phone' | 'vehicle' | 'etaAt'>>;
+const SKIP_DRIVER_STATES: CourierStatus[] = ['assigned', 'arriving', 'at_store', 'picked_up', 'delivered', 'unassigned'];
 type SkipJetAttempt = NonNullable<OrderTimeline['skipJetAttempt']>;
 type SkipJetSignal = SkipJetAttempt['signal'];
 type SkipJetOutcome = NonNullable<SkipJetAttempt['outcome']>;
@@ -34,6 +36,7 @@ export type SkipLifecycleInput =
   | ({ kind: 'hold_legacy_clover' } & SkipOrderIdentity)
   | ({ kind: 'record_receipt'; adopted: boolean; evidence?: Record<string, unknown> } & SkipReceiptIdentity)
   | ({ kind: 'check_receipt' } & SkipReceiptIdentity)
+  | ({ kind: 'apply_driver'; driver: SkipDriverUpdate } & SkipOrderIdentity)
   | SkipJetInput;
 
 export interface SkipLifecycleResult {
@@ -45,6 +48,7 @@ export interface SkipLifecycleResult {
   transitioned?: true;
   recorded?: true;
   finished?: true;
+  driverAdvanced?: true;
 }
 
 export interface FoodHubRepo {
@@ -156,6 +160,31 @@ function pendingInboxBackup(state: MemState, order: StoredOrder): Record<string,
   return candidates[0]?.data?.body;
 }
 
+function applySkipDriverObservation(order: StoredOrder, driver: SkipDriverUpdate, now: string): StoredOrder {
+  const { status, name, phone, vehicle, etaAt } = driver;
+  const courier: CourierInfo = {
+    ...order.timeline?.courier,
+    ...(name ? { name } : {}), ...(phone ? { phone } : {}), ...(vehicle ? { vehicle } : {}), ...(etaAt ? { etaAt } : {}),
+    status, source: 'skip:driver_status', updatedAt: now,
+  };
+  return { ...order, timeline: { ...order.timeline, courier }, updatedAt: now };
+}
+
+function advanceSkipDriver(order: StoredOrder, now: string): SkipLifecycleResult {
+  const timeline = order.timeline ?? {};
+  const driverStatus = timeline.courier?.status;
+  const open = ['new', 'accepted', 'ready'].includes(order.status);
+  if (driverStatus === 'picked_up' && open) {
+    const moved: StoredOrder = { ...order, status: 'dispatched', timeline: { ...timeline, readyAt: timeline.readyAt ?? now, dispatchedAt: timeline.dispatchedAt ?? now } };
+    return { order: moved, isNew: false, outcome: 'received', driverAdvanced: true };
+  }
+  if (driverStatus === 'delivered' && (open || order.status === 'dispatched')) {
+    const moved: StoredOrder = { ...order, status: 'completed', timeline: { ...timeline, dispatchedAt: timeline.dispatchedAt ?? now, completedAt: timeline.completedAt ?? now } };
+    return { order: moved, isNew: false, outcome: 'received', driverAdvanced: true };
+  }
+  return { order, isNew: false, outcome: 'received' };
+}
+
 function validSkipJetAttempt(attempt: SkipJetAttempt | undefined): attempt is SkipJetAttempt {
   return typeof attempt?.id === 'string' && Boolean(attempt.id) && typeof attempt.at === 'string' && Boolean(attempt.at)
     && (attempt.signal === 'accept' || attempt.signal === 'fallback')
@@ -235,6 +264,10 @@ function applySkipLifecycleInMemory(input: SkipLifecycleInput): SkipLifecycleRes
   const pending = state.kv.get(key) as PendingPlatformEvents | undefined;
   let existing = [...state.orders.values()].find((order) => order.channel === 'skip' && order.externalOrderId === externalOrderId);
   const direct = existing && !existing.viaHub && !existing.viaPos;
+  const driver = input.kind === 'apply_driver' ? input : null;
+  if (driver && (!existing || !direct || existing.id !== driver.orderId || !SKIP_DRIVER_STATES.includes(driver.driver.status))) {
+    return { order: null, isNew: false, outcome: 'ignored' };
+  }
   const receipt = 'posOrderId' in input ? input : null;
   const timeline = existing?.timeline;
   const knownMerchant = timeline?.posMerchantId;
@@ -315,7 +348,17 @@ function applySkipLifecycleInMemory(input: SkipLifecycleInput): SkipLifecycleRes
     ? { platformState: 'cancelled', detail: input.detail, at: now }
     : parked?.status ?? pendingInboxCancel(state, externalOrderId);
 
-  const backup = (preparing || jet || receipt) && direct && existing && !cancellation ? pendingInboxBackup(state, existing) : undefined;
+  const backup = (preparing || jet || receipt || driver) && direct && existing && !cancellation ? pendingInboxBackup(state, existing) : undefined;
+
+  if (driver && existing) {
+    existing = applySkipDriverObservation(existing, driver.driver, now);
+    state.orders.set(existing.id, existing);
+    if (!cancellation && !backup) {
+      const result = advanceSkipDriver(existing, now);
+      if (result.driverAdvanced && result.order) state.orders.set(existing.id, result.order);
+      return result;
+    }
+  }
 
   if (!cancellation && !backup && existing && legacyUncertain && ((preparing && active) || (jet?.kind === 'prepare_jet' && existing.status === 'new'))) {
     return { order: existing, isNew: false, outcome: 'legacy_clover_uncertain' };
@@ -720,6 +763,7 @@ function supabaseRepo(): FoodHubRepo {
         if (input.kind === 'clear_clover_attempt') Object.assign(detail, { attemptId: input.attemptId, definiteError: input.definiteError });
         if (input.kind === 'prepare_jet') Object.assign(detail, { signal: input.signal, manual: input.manual });
         if (input.kind === 'finish_jet') Object.assign(detail, { attemptId: input.attemptId, result: input.result, fields: input.fields });
+        if (input.kind === 'apply_driver') detail.driver = input.driver;
         if (input.kind === 'prepare_clover') {
           if (input.allowAfterManualAcceptance) detail.allowAfterManualAcceptance = true;
           const store = input.storeMapping;

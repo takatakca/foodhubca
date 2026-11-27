@@ -185,6 +185,11 @@ declare
   receipt_mode boolean := p_kind in ('record_receipt', 'check_receipt');
   prepare_mode boolean := p_kind = 'prepare_clover';
   jet_mode boolean := p_kind in ('prepare_jet', 'finish_jet');
+  driver_mode boolean := p_kind = 'apply_driver';
+  driver_input jsonb := p_detail->'driver';
+  driver_status text := p_detail->'driver'->>'status';
+  driver_courier jsonb;
+  driver_timestamps jsonb;
   jet_attempt jsonb;
   invalid_jet_attempt boolean;
   jet_signal text := p_detail->>'signal';
@@ -210,7 +215,7 @@ declare
   recorded boolean := false;
 begin
   if p_kind is null or p_kind not in ('backup', 'cancel', 'intake', 'check_intake', 'record_receipt', 'check_receipt',
-      'prepare_clover', 'clear_clover_attempt', 'hold_legacy_clover', 'prepare_jet', 'finish_jet')
+      'prepare_clover', 'clear_clover_attempt', 'hold_legacy_clover', 'prepare_jet', 'finish_jet', 'apply_driver')
       or p_external_id is null or p_external_id = '' then
     raise exception 'Invalid Skip lifecycle notice' using errcode = '22023';
   end if;
@@ -227,6 +232,20 @@ begin
   event_detail := coalesce(p_detail, '{}'::jsonb);
   select * into current_order from public.fh_orders
     where channel = 'skip' and external_order_id = p_external_id for update;
+
+  if driver_mode then
+    if current_order.id is null or current_order.id::text is distinct from p_detail->>'orderId'
+        or coalesce(current_order.data->>'viaHub', '') <> '' or coalesce(current_order.data->>'viaPos', '') <> ''
+        or coalesce(driver_status, '') not in ('assigned', 'arriving', 'at_store', 'picked_up', 'delivered', 'unassigned') then
+      return jsonb_build_object('order', null, 'isNew', false, 'outcome', 'ignored');
+    end if;
+    driver_courier := (case when jsonb_typeof(current_order.timeline->'courier') = 'object' then current_order.timeline->'courier' else '{}'::jsonb end)
+      || jsonb_strip_nulls(jsonb_build_object('status', driver_status, 'updatedAt', event_at, 'source', 'skip:driver_status',
+        'name', nullif(driver_input->>'name', ''), 'phone', nullif(driver_input->>'phone', ''),
+        'vehicle', nullif(driver_input->>'vehicle', ''), 'etaAt', nullif(driver_input->>'etaAt', '')));
+    update public.fh_orders set timeline = jsonb_set(timeline, '{courier}', driver_courier), updated_at = observed_at
+      where id = current_order.id returning * into current_order;
+  end if;
 
   stored_merchant := current_order.timeline->>'posMerchantId';
   clover_attempt := current_order.timeline->'posCreateAttempt';
@@ -404,7 +423,7 @@ begin
     if cancellation is not null then desired_status := 'cancelled'; end if;
   end if;
 
-  if (prepare_mode or jet_mode or receipt_mode) and cancellation is null and current_order.status in ('new', 'accepted', 'ready')
+  if (prepare_mode or jet_mode or receipt_mode or driver_mode) and cancellation is null and current_order.status in ('new', 'accepted', 'ready')
       and coalesce(btrim(current_order.channel_store_id, blank_store_chars), '') <> '' then
     -- The failed-order route persisted this authenticated notice before starting its worker.
     select data->'body' into inbox_backup from public.fh_docs
@@ -425,6 +444,23 @@ begin
       return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'backed_up')
         || case when recorded then '{"recorded":true}'::jsonb else '{}'::jsonb end;
     end if;
+  end if;
+
+  if driver_mode and cancellation is null then
+    if driver_status = 'picked_up' and current_order.status in ('new', 'accepted', 'ready') then
+      desired_status := 'dispatched';
+      driver_timestamps := jsonb_build_object('readyAt', coalesce(current_order.timeline->>'readyAt', event_at),
+        'dispatchedAt', coalesce(current_order.timeline->>'dispatchedAt', event_at));
+    elsif driver_status = 'delivered' and current_order.status in ('new', 'accepted', 'ready', 'dispatched') then
+      desired_status := 'completed';
+      driver_timestamps := jsonb_build_object('dispatchedAt', coalesce(current_order.timeline->>'dispatchedAt', event_at),
+        'completedAt', coalesce(current_order.timeline->>'completedAt', event_at));
+    else
+      return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'received');
+    end if;
+    update public.fh_orders set status = desired_status, timeline = timeline || driver_timestamps, updated_at = observed_at
+      where id = current_order.id returning * into current_order;
+    return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'received', 'driverAdvanced', true);
   end if;
 
   if cancellation is null and legacy_uncertain and ((prepare_mode and active_order) or (p_kind = 'prepare_jet' and current_order.status = 'new')) then

@@ -5,7 +5,10 @@
 //   - The sentences with a setting name or a command fold under « Détails techniques » (tech-text.ts splitTech).
 //   - The progress ring and the stepper (goLiveProgress, goLiveStages) count what is left « À faire »: 100 % = nothing.
 import type { T } from '@/lib/i18n';
+import type { GoLiveFacts } from '@/lib/foodhub/go-live';
 import { PUBLIC_URL_PROBLEM_TEXT, type PublicUrlProblem } from '@/lib/foodhub/public-url';
+import type { PlatformScreen, ScreenStatus } from '@/lib/foodhub/screens';
+import type { RuleSetting } from '@/lib/foodhub/watch/types';
 import { plainTitle, splitTech } from '../tech-text';
 
 export type Step = { key: string; state: 'done' | 'todo' | 'warn'; title: string; body: string; href: string; cta: string; group: string; optional?: boolean };
@@ -95,6 +98,112 @@ export function alertSteps(n: Notify, t: T): Step[] {
     { group: g, key: 'chat', state: n.chat ? 'done' : 'warn', optional: true, title: t('Clavardage de l’équipe', 'Team chat'), body: n.chat ? t('Les alertes sont publiées.', 'Alerts are posted.') : t('Optionnel : ALERT_WEBHOOK_URL (Slack, Teams, Google Chat).', 'Optional: ALERT_WEBHOOK_URL (Slack, Teams, Google Chat).'), href: '/settings/alerts', cta: t('Voir', 'See') },
     { group: g, key: 'ai', state: n.ai ? 'done' : 'warn', optional: true, title: t('Surveillance IA (Claude)', 'AI watchtower (Claude)'), body: n.ai ? t('Claude explique les alertes et répond au copilote.', 'Claude explains alerts and answers the copilot.') : t('Optionnel : ANTHROPIC_API_KEY. Sans clé, les règles intégrées expliquent les alertes.', 'Optional: ANTHROPIC_API_KEY. Without it, built-in rules explain alerts.'), href: '/settings/alerts', cta: t('Voir', 'See') },
   ];
+}
+
+export type RelayGoLiveInput = {
+  relay: { agentConfigured: boolean; screens: (Pick<PlatformScreen, 'platform' | 'locationCode'> & { status: ScreenStatus })[] } | null;
+  watch: {
+    enabled: boolean;
+    sharedPhoneConfigured: boolean;
+    callConfigured: boolean;
+    rules: Partial<Record<'screen_down' | 'screen_waiting', RuleSetting>>;
+  } | null;
+  kitchenPhoneLocations: string[];
+};
+
+function relayScreenStep(relay: RelayGoLiveInput['relay'], t: T): Step {
+  const step: Step = {
+    group: t('Cuisine', 'Kitchen'), key: 'screens-relay', title: t('Relais des écrans de commande', 'Order screen relay'),
+    state: 'warn', optional: true, body: '', href: '/stores/screens', cta: t('Écrans', 'Screens'),
+  };
+  if (!relay) return { ...step, body: t('État du relais indisponible.', 'Relay status unavailable.') };
+  if (!relay.agentConfigured) return { ...step, body: t('Le jeton du relais doit être configuré dans Food Hub.', 'The relay token needs to be configured in Food Hub.') };
+  if (!relay.screens.length) return { ...step, body: t('Aucun écran relais inscrit dans vos cuisines.', 'No relay screens enrolled in your kitchens.') };
+
+  const counts: Record<ScreenStatus, number> = { online: 0, never: 0, offline: 0, login_required: 0, error: 0 };
+  for (const screen of relay.screens) counts[screen.status]++;
+  const total = relay.screens.length;
+  const headline = t(`${counts.online} sur ${total} en ligne.`, `${counts.online} of ${total} online.`);
+  const platforms = ([['ubereats', 'Uber Eats'], ['doordash', 'DoorDash'], ['skip', 'SkipTheDishes']] as const).flatMap(([key, label]) => {
+    const screens = relay.screens.filter((screen) => screen.platform === key);
+    return screens.length ? [`${label} ${screens.filter((screen) => screen.status === 'online').length}/${screens.length}`] : [];
+  });
+  const problems = [
+    counts.never && t(`${counts.never} sans premier signal`, `${counts.never} awaiting first heartbeat`),
+    counts.offline && t(`${counts.offline} hors ligne`, `${counts.offline} offline`),
+    counts.login_required && t(`${counts.login_required} à reconnecter`, `${counts.login_required} with sign-in required`),
+    counts.error && t(`${counts.error} en erreur`, `${counts.error} with an error`),
+  ].filter(Boolean);
+  const body = [headline, [...platforms, ...problems].join(' · ')].filter(Boolean).join(' ');
+  return { ...step, state: counts.online === total ? 'done' : 'warn', body };
+}
+
+function relayCallStep({ relay, watch, kitchenPhoneLocations }: RelayGoLiveInput, t: T, locName: (code: string) => string): Step {
+  const step: Step = {
+    group: t('Cuisine', 'Kitchen'), key: 'screens-calls', title: t('Appels pour les alertes des écrans', 'Calls for screen alerts'),
+    state: 'warn', optional: true, body: '', href: '/settings/alerts', cta: t('Alertes', 'Alerts'),
+  };
+  if (!watch) return { ...step, body: t('Réglages des appels indisponibles.', 'Call settings unavailable.') };
+  if (!watch.enabled) return { ...step, body: t('Activez le Watchtower pour surveiller les écrans.', 'Turn on Watchtower to monitor the screens.') };
+  const down = watch.rules.screen_down;
+  const waiting = watch.rules.screen_waiting;
+  const missingRules = [
+    (!down?.enabled || !down.escalate) && t('pannes d’écran', 'screen outages'),
+    (!waiting?.enabled || !waiting.escalate) && t('commandes en attente', 'waiting orders'),
+  ].filter(Boolean);
+  if (missingRules.length) {
+    const names = missingRules.join(t(' et ', ' and '));
+    return { ...step, body: t(`Activez les alertes et les appels pour les ${names}.`, `Enable alerts and calls for ${names}.`) };
+  }
+  if (!watch.callConfigured) return { ...step, body: t('Configurez Twilio pour passer les appels d’alerte.', 'Set up Twilio to make alert calls.') };
+  if (!relay?.agentConfigured || !relay.screens.length) {
+    const destination = watch.sharedPhoneConfigured
+      ? t('La ligne partagée est configurée.', 'The shared line is configured.')
+      : t('La destination prévue est le téléphone de chaque cuisine.', 'The planned destination is each kitchen’s phone.');
+    const check = t('Vérifiez le relais pour connaître les écrans couverts par les alertes.', 'Check the relay to see which screens are covered by alerts.');
+    return { ...step, href: '/stores/screens', cta: t('Écrans', 'Screens'), body: `${destination} ${check}` };
+  }
+  if (watch.sharedPhoneConfigured) {
+    return { ...step, state: 'done', body: t('La ligne partagée est configurée pour les alertes de ces écrans.', 'The shared line is configured for alerts from these screens.') };
+  }
+
+  const kitchensWithPhone = new Set(kitchenPhoneLocations);
+  const relayKitchens = new Set(relay.screens.map((screen) => screen.locationCode));
+  const missing = [...relayKitchens].filter((code) => !kitchensWithPhone.has(code));
+  if (missing.length) {
+    const listed = missing.slice(0, 4).map(locName).join(', ') + (missing.length > 4 ? ` (+${missing.length - 4})` : '');
+    return { ...step, href: '/settings/business', cta: t('Téléphones', 'Phones'), body: t(`Ajoutez un téléphone de cuisine pour ${listed}.`, `Add a kitchen phone for ${listed}.`) };
+  }
+  return { ...step, state: 'done', body: t('Chaque cuisine de ces écrans a un téléphone configuré pour les alertes.', 'Every kitchen with one of these screens has a phone configured for alerts.') };
+}
+
+/** Configuration and heartbeat review for the screens available to this viewer. */
+export function relayGoLiveSteps(input: RelayGoLiveInput, t: T, locName: (code: string) => string): Step[] {
+  return [relayScreenStep(input.relay, t), relayCallStep(input, t, locName)];
+}
+
+/** Direct Uber setup also requires a saved confirmation of the order manager and webhooks. */
+export function uberDirectStep(label: string, evidence: GoLiveFacts['uberDirect'] | undefined, t: T): Step {
+  const base = {
+    group: t('Plateformes', 'Platforms'),
+    key: 'uber_eats',
+    title: label,
+    href: '/stores/mapping',
+    cta: t('Vérifier chez Uber', 'Check with Uber'),
+  };
+  if (!evidence?.mapped) {
+    return { ...base, state: 'todo', body: t('Vérifiez les liaisons chez Uber pour confirmer qui reçoit les commandes et si les webhooks sont actifs.', 'Check the mappings with Uber to confirm who receives orders and whether webhooks are on.') };
+  }
+  const { confirmed, mapped } = evidence;
+  const proof = t(
+    `Au dernier contrôle enregistré, Food Hub est désigné pour recevoir les commandes et les webhooks sont actifs pour ${confirmed} liaison(s) sur ${mapped}.`,
+    `At the last recorded check, Food Hub was the order manager and webhooks were on for ${confirmed} of ${mapped} mapping(s).`,
+  );
+  const done = confirmed === mapped;
+  const next = done
+    ? t('Vérifiez la réception en cuisine avec une commande d’essai.', 'Verify kitchen receipt with a test order.')
+    : t('Vérifiez les liaisons restantes chez Uber.', 'Check the remaining mappings with Uber.');
+  return { ...base, state: done ? 'done' : 'todo', body: `${proof} ${next}` };
 }
 
 export type CloverAppInfo = {

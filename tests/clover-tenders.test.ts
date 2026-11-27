@@ -5,6 +5,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cloverOrderTypeFor, cloverTenderFor, recordCloverPayment } from '../lib/foodhub/pos/clover-books';
 import { sendCloverTestOrder, testOrder } from '../lib/foodhub/pos/clover-test-order';
+import { screenEntryOrderId } from '../lib/foodhub/screen-entry-id';
 
 const MID = 'TESTMERCH0002'; // a made-up merchant ID (the repository is public: never a real one)
 const realFetch = globalThis.fetch;
@@ -40,7 +41,7 @@ function mockClover() {
     if (p === `${m}/order_types`) return method === 'POST' ? json(200, { id: 'OT-UBER', label: body?.label }) : json(200, { elements: [] });
     if (p === `${m}/atomic_order/orders`) return json(200, { id: 'CLV1' });
     if (p === `${m}/print_event`) return json(200, { id: 'PE-1', state: 'CREATED' });
-    if (p === `${m}/orders/CLV1/payments`) return json(200, { id: 'PAY-1' });
+    if (method === 'POST' && p.startsWith(`${m}/orders/`) && p.endsWith('/payments')) return json(200, { id: 'PAY-1' });
     if (p === `${m}/orders/CLV1`) return json(200, { id: 'CLV1', total: 2242 });
     return json(404, {});
   }) as any;
@@ -127,6 +128,37 @@ describe('recording the platform payment', () => {
     const r = await recordCloverPayment(order(), MID);
     expect(r).toMatchObject({ ok: true, paymentId: 'PAY-1' });
     expect(calls.find((c) => c.path.endsWith('/payments'))?.body.tender).toEqual({ id: 'T-1' });
+  });
+
+  it('posts stable and distinct Clover payment references for two stores with the same long screen code', async () => {
+    const code = 'ORDER-0123456789-0123456789-0123456789';
+    const [first, second] = ['test-store-a', 'test-store-b'].map((channelStoreId, index) => ({
+      ...order(),
+      viaHub: 'screen' as const,
+      displayId: code,
+      channelStoreId,
+      externalOrderId: screenEntryOrderId(code, channelStoreId),
+      posOrderId: `CLV${index + 1}`,
+    }));
+
+    for (const entry of [first, second, first]) expect((await recordCloverPayment(entry, MID)).ok).toBe(true);
+
+    const payments = calls.filter((c) => c.path.endsWith('/payments'));
+    expect(payments.map((c) => c.path)).toEqual(['CLV1', 'CLV2', 'CLV1'].map((id) => `/v3/merchants/${MID}/orders/${id}/payments`));
+    const [firstRef, secondRef, repeatRef] = payments.map((c) => c.body.externalPaymentId);
+    expect(firstRef).not.toBe(secondRef);
+    expect(repeatRef).toBe(firstRef);
+    expect(firstRef).toMatch(/^.{1,32}$/);
+    expect(secondRef).toMatch(/^.{1,32}$/);
+  });
+
+  it.each([
+    { viaHub: 'screen' as const, externalOrderId: 'screen-CODE-1', expected: 'ue:screen-CODE-1' },
+    { viaHub: undefined, externalOrderId: 'f1e2d3c4-b5a6-4789-9abc-def012345678', expected: 'ue:-b5a6-4789-9abc-def012345678' },
+    { viaHub: 'relay' as const, externalOrderId: 'screen-000000000000000000000000:012345678901234567890123456789', expected: 'ue:2345678901234567890123456789' },
+  ])('preserves the Clover payment reference $expected', async ({ viaHub, externalOrderId, expected }) => {
+    expect((await recordCloverPayment({ ...order(), viaHub, externalOrderId }, MID)).ok).toBe(true);
+    expect(calls.find((c) => c.path.endsWith('/payments'))?.body.externalPaymentId).toBe(expected);
   });
 
   it('logs Clover’s answer on the order when the tender cannot be made', async () => {

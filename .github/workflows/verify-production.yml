@@ -34,8 +34,8 @@ jobs:
           # No npm dependencies or production secrets are required.
           # On manual runs, select main. GitHub scheduled runs always target default-branch HEAD.
           set -uo pipefail
-          node scripts/verify-live.mjs --url https://foodhub.on2go.ca/ --sha "$EXPECTED_SHA" > /tmp/foodhub-production-check.log 2>&1
-          result=$?
+          result=0
+          node scripts/verify-live.mjs --url https://foodhub.on2go.ca/ --sha "$EXPECTED_SHA" > /tmp/foodhub-production-check.log 2>&1 || result=$?
           cat /tmp/foodhub-production-check.log
           {
             echo '## Food Hub production release proof'

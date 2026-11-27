@@ -9,7 +9,7 @@ import {
   validateSkipModification, verifySkipOnboardingSignature,
 } from '../lib/foodhub/adapters/skip-api';
 import { publishSkipMenus, validateSkipMenusPayload } from '../lib/foodhub/menu/skip-catalogue';
-import { finalOrderDifference, handleSkipFinalOrder, handleSkipModificationCallback, handleSkipOrderTime, listSkipOnboarding, pushSkipServiceTimes, recordSkipOnboarding, startSkipOnboarding } from '../lib/foodhub/skip-ops';
+import { configureSkipOnboarding, finalOrderDifference, handleSkipFinalOrder, handleSkipModificationCallback, handleSkipOrderTime, listSkipOnboarding, pushSkipServiceTimes, recordSkipOnboarding, SKIP_ONBOARDING, startSkipOnboarding } from '../lib/foodhub/skip-ops';
 import { SYSTEM_ACTOR } from '../lib/foodhub/activity';
 import { getRepo } from '../lib/foodhub/repo';
 import type { StoredOrder, WeeklyHours } from '../lib/foodhub/types';
@@ -224,19 +224,56 @@ describe('partner onboarding', () => {
     expect(verifySkipOnboardingSignature(headers, body, '', now)).toBe(false);
     expect(verifySkipOnboardingSignature(new Headers({ 'x-webhook-timestamp': ts }), body, 'onboard-secret', now)).toBe(false);
   });
-  it('keeps a session and says what to do next; a start made here is tied to the session that follows', async () => {
+  it('keeps unmatched notices without assigning their session or consuming the sole pending start', async () => {
     mockFetch([[/onboard$/, () => ({ status: 202 })]]);
     await startSkipOnboarding({ market: 'ca', jetLocationId: '555', posLocationId: 'NDG_MAIN' }, SYSTEM_ACTOR);
+    const pending = (await listSkipOnboarding()).pending;
+    expect(pending).toMatchObject([{ market: 'CA', jetLocationId: '555', posLocationId: 'NDG_MAIN' }]);
+
+    const unrelatedSession = '0a0b0c0d-1111-2222-3333-444455556666';
+    const unrelated = parseSkipOnboardingNotice({ eventType: 'onboardingLocationLive', sessionId: unrelatedSession, stage: 'live', referenceId: '555' })!;
+    const stored = await recordSkipOnboarding(unrelated);
+    expect(stored).toMatchObject({ sessionId: unrelatedSession, stage: 'live' });
+    expect(stored.posLocationId).toBeUndefined();
+    expect(stored.jetLocationId).toBeUndefined();
+
     const sid = '3fa85f64-5717-4562-b3fc-2c963f66afa6';
-    const notice = parseSkipOnboardingNotice({ eventType: 'onboardingActionRequired', sessionId: sid, stage: 'awaitingConfiguration', timestamp: '2026-10-09T01:00:00Z', referenceId: 'r1', restaurantMetadata: { name: 'Po Poulet', country: 'CA' } })!;
+    const notice = parseSkipOnboardingNotice({ eventType: 'onboardingActionRequired', sessionId: sid, stage: 'awaitingConfiguration', timestamp: '2026-10-09T01:00:00Z', referenceId: '555', restaurantMetadata: { name: 'Test restaurant', country: 'CA' } })!;
     const session = await recordSkipOnboarding(notice);
-    expect(session).toMatchObject({ sessionId: sid, stage: 'awaitingConfiguration', posLocationId: 'NDG_MAIN', jetLocationId: '555', market: 'CA' });
+    expect(session).toMatchObject({ sessionId: sid, stage: 'awaitingConfiguration', restaurant: { name: 'Test restaurant', country: 'CA' } });
+    expect(session.posLocationId).toBeUndefined();
+    expect(session.jetLocationId).toBeUndefined();
     expect(session.nextStep).toContain('Send the configuration');
+    const state = await listSkipOnboarding();
+    expect(state.pending).toEqual(pending);
+    expect(state.sessions.map((entry) => entry.sessionId).sort()).toEqual([unrelatedSession, sid]);
+    expect(calls.map((call) => call.method)).toEqual(['POST']);
+    expect(parseSkipOnboardingNotice({ eventType: 'weird', sessionId: sid, stage: 'live' })).toBeNull();
+  });
+
+  it('preserves an existing session association when a later provider notice arrives', async () => {
+    mockFetch([]);
+    const sid = '3fa85f64-5717-4562-b3fc-2c963f66afa6';
+    const prior = await recordSkipOnboarding(parseSkipOnboardingNotice({ eventType: 'onboardingActionRequired', sessionId: sid, stage: 'awaitingConfiguration' })!);
+    const identity = { posLocationId: 'TEST-POS', jetLocationId: '555', market: 'CA' };
+    await getRepo().putDocs(SKIP_ONBOARDING, [{ id: sid, key: sid, at: prior.updatedAt, data: { ...prior, ...identity } }]);
     const live = await recordSkipOnboarding(parseSkipOnboardingNotice({ eventType: 'onboardingLocationLive', sessionId: sid, stage: 'live', timestamp: '2026-10-09T02:00:00Z' })!);
+    expect(live).toMatchObject(identity);
     expect(live.history).toHaveLength(2);
     expect(live.nextStep).toContain('live on Skip');
-    expect((await listSkipOnboarding()).sessions).toHaveLength(1);
-    expect(parseSkipOnboardingNotice({ eventType: 'weird', sessionId: sid, stage: 'live' })).toBeNull();
+    expect(calls).toEqual([]);
+  });
+
+  it('accepts the operator’s explicit POS configuration for an unmatched provider session', async () => {
+    mockFetch([[/configuration$/, () => ({ status: 202 })]]);
+    const sid = '3fa85f64-5717-4562-b3fc-2c963f66afa6';
+    await recordSkipOnboarding(parseSkipOnboardingNotice({ eventType: 'onboardingActionRequired', sessionId: sid, stage: 'awaitingConfiguration' })!);
+    const cfg = { catalogueLocationId: 'CONFIRMED-POS', order: { orderInjectionUrl: 'https://hub.test/api/foodhub/webhooks/skip/orders', locationId: 'CONFIRMED-POS' } };
+    expect(await configureSkipOnboarding(sid, cfg, SYSTEM_ACTOR)).toMatchObject({ ok: true });
+    expect(calls).toMatchObject([{
+      method: 'PUT', url: `https://jet.test/partners/onboarding/${sid}/configuration`,
+      body: { catalogue: { config: { locationId: 'CONFIRMED-POS' } }, order: { config: { locationId: 'CONFIRMED-POS' } } },
+    }]);
   });
 });
 

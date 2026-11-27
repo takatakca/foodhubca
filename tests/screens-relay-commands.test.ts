@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error plain ESM module without types
-import { ALLOWED_HOSTS, ORDER_APPS, allowedUrl, commandsFor, packageForUrl } from '../deploy/screens/agent/commands.mjs';
+import { ALLOWED_HOSTS, ORDER_APPS, allowedUrl, commandsFor, matchScreenPage, packageForUrl } from '../deploy/screens/agent/commands.mjs';
 // @ts-expect-error plain ESM module without types
 import { buildCompose, envTemplate, generate, pickRange, PLATFORMS, validateScreens } from '../deploy/screens/generate-lib.mjs';
 import { allowedScreenUrl, SCREEN_ALLOWED_HOSTS, screenStartUrl } from '../lib/foodhub/screens';
@@ -42,6 +42,28 @@ describe('open command: the agents accept exactly what Food Hub sends', () => {
     expect(packageForUrl('https://restaurants.skipthedishes.com/')).toBe(PLATFORMS.skip.package);
     expect(packageForUrl('https://evil.example/')).toBeNull();
     expect(new Set(Object.values(ORDER_APPS))).toEqual(new Set([PLATFORMS.doordash.package, PLATFORMS.uber.package, PLATFORMS.skip.package]));
+  });
+});
+
+describe('Web relay tab selection', () => {
+  it('accepts the configured merchant path and recognized sign-in redirects for that provider', () => {
+    const uber = 'https://merchants.ubereats.com/manager/orders';
+    expect(matchScreenPage(uber, `${uber}?test=1`)).toEqual({ state: 'ok', priority: 3 });
+    expect(matchScreenPage(uber, 'https://merchants.ubereats.com/manager/other')).toEqual({ state: 'ok', priority: 2 });
+    expect(matchScreenPage(uber, 'https://auth.uber.com/v2/')).toEqual({ state: 'login', priority: 1 });
+    expect(matchScreenPage('https://auth.uber.com/v2/', uber)).toEqual({ state: 'ok', priority: 1 });
+    expect(matchScreenPage('https://order.doordash.com/', 'https://identity.doordash.com/login')).toEqual({ state: 'login', priority: 1 });
+    expect(matchScreenPage('https://restaurants.skipthedishes.com/', 'https://restaurants.skipthedishes.com/sign-in')).toEqual({ state: 'login', priority: 2 });
+  });
+
+  it('ignores internal pages, another provider, consumer domains and lookalikes', () => {
+    const uber = 'https://merchants.ubereats.com/manager/orders';
+    for (const url of ['about:blank', 'chrome://newtab/', 'chrome-error://chromewebdata/', 'https://order.doordash.com/',
+      'https://www.ubereats.com/checkout', 'https://auth.uber.com.example.test/login', 'https://employee@example.test/']) {
+      expect(matchScreenPage(uber, url)).toBeNull();
+    }
+    expect(matchScreenPage('', uber)).toBeNull();
+    expect(matchScreenPage('http://127.0.0.1:4410/orders', 'http://127.0.0.1:4411/orders')).toBeNull();
   });
 });
 

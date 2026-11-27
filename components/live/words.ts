@@ -1,7 +1,25 @@
 // Small wording helpers for Home, Orders and Alerts (premium pass A1): proper plurals instead of "(s)", a readable order
 // number, and the incident timeline in the screen's language. Pure functions, no React: tested in tests/live-words.test.ts.
 
+import type { OutboxEntry } from '@/lib/foodhub/notify';
+import { isTwilioCallSid } from '@/lib/foodhub/notify/call-status';
+import type { T } from '@/lib/i18n';
+
 export type Lang = 'fr' | 'en';
+
+export const CALL_OUTCOME_UNCONFIRMED = ['Résultat de l’appel non confirmé', 'Call outcome unconfirmed'] as const;
+
+export function outboxStatus(t: T, message: Pick<OutboxEntry, 'channel' | 'ok' | 'skipped' | 'ref' | 'uncertain'>): { tone: 'neutral' | 'wait' | 'go' | 'stop'; word: string } {
+  if (message.skipped) return { tone: 'neutral', word: t('non branché', 'not set up') };
+  if (message.channel === 'call') {
+    // Older outbox entries may say ok even though the provider supplied no usable call reference.
+    if (message.uncertain || (message.ok && !isTwilioCallSid(message.ref))) {
+      return { tone: 'wait', word: t(...CALL_OUTCOME_UNCONFIRMED) };
+    }
+    if (message.ok) return { tone: 'neutral', word: t('Appel demandé', 'Call requested') };
+  }
+  return message.ok ? { tone: 'go', word: t('envoyé', 'sent') } : { tone: 'stop', word: t('échec', 'failed') };
+}
 
 /**
  * "1 commande", "3 commandes", "0 commande" (French keeps 0 and 1 singular; English only 1). The number is written in the

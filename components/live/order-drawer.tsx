@@ -39,7 +39,7 @@ const EVENT: Record<string, [string, string]> = {
   accepted: ['Acceptée', 'Accepted'], accept: ['Acceptée', 'Accepted'], accept_failed: ['Acceptation échouée', 'Accept failed'], deny: ['Refusée', 'Rejected'], deny_failed: ['Refus échoué', 'Reject failed'],
   ready: ['Prête', 'Ready'], ready_failed: ['« Prête » non envoyé', 'Ready not sent'], dispatch: ['Remise au livreur', 'Picked up'], complete: ['Terminée', 'Completed'],
   cancel: ['Annulée', 'Cancelled'], cancel_failed: ['Annulation échouée', 'Cancel failed'], printed: ['Imprimée en cuisine', 'Printed in the kitchen'], print_failed: ['Impression échouée', 'Print failed'],
-  routed_to_skip_tablet: ['Envoyée à la tablette Skip', 'Sent to the Skip tablet'], needs_attention: ['À vérifier', 'Needs attention'], platform_status: ['Mise à jour plateforme', 'Platform update'],
+  routed_to_skip_tablet: ['Relève vers la tablette Skip', 'Skip tablet fallback'], needs_attention: ['À vérifier', 'Needs attention'], platform_status: ['Mise à jour plateforme', 'Platform update'],
   pos_paid: ['Payée dans Clover', 'Paid in Clover'], pos_payment_failed: ['Paiement Clover non noté', 'Clover payment not recorded'], pos_cancelled: ['Retirée de Clover', 'Removed from Clover'],
   scheduled: ['Commande planifiée', 'Scheduled order'], fired: ['Lancée en cuisine', 'Sent to the kitchen'], courier: ['Livreur', 'Courier'], seen: ['Vue en cuisine', 'Seen in the kitchen'],
   delayed: ['Temps ajouté', 'Time added'], report_missing: ['Article manquant signalé', 'Missing item reported'], report_missing_failed: ['Article manquant non envoyé', 'Missing item not sent'],

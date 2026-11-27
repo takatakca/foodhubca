@@ -15,7 +15,7 @@ import { useToast } from '@/components/ui/toast';
 import { refreshEverything, usePulse } from '@/components/live/pulse';
 import { useScopedIncidents } from '@/components/live/scoped-incidents';
 import { ChannelLine, EscalationLevels, type AlertChannels } from '@/components/live/alert-parts';
-import { incidentStepText, plurals } from '@/components/live/words';
+import { CALL_OUTCOME_UNCONFIRMED, incidentStepText, outboxStatus, plurals } from '@/components/live/words';
 import { useScopeLabel } from '@/components/shell/scope-switcher';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { api, ApiError, ago, timeOf } from '@/lib/ui/api';
@@ -83,17 +83,20 @@ export function AlertsView() {
       {tab === 'messages' && (
         <Card>
           <div className="divide-y divide-line">
-            {messages.map((m) => (
-              <div key={m.id} className="text-body flex flex-wrap items-center gap-3 px-5 py-3">
-                <span className="num text-small w-32 text-ink-3">{timeOf(m.at, loc, true)}</span>
-                <Badge tone="neutral">{m.channel === 'sms' ? 'SMS' : m.channel === 'call' ? t('Appel', 'Call') : m.channel === 'chat' ? 'Chat' : 'Email'}</Badge>
-                <span className="text-small w-36 truncate font-mono">{m.to}</span>
-                <span className="text-small text-ink-3">{m.purpose}</span>
-                <span className="min-w-0 flex-1 truncate text-ink-2">{m.preview ?? '—'}</span>
-                <Badge tone={m.ok ? (m.channel === 'call' ? 'neutral' : 'go') : m.skipped ? 'neutral' : 'stop'} title={m.message}>{m.ok ? (m.channel === 'call' ? t('Appel demandé', 'Call requested') : t('envoyé', 'sent')) : m.skipped ? t('non branché', 'not set up') : t('échec', 'failed')}</Badge>
-                {canCheckCalls && watchtowerCallSid(m) && <CallStatusCheck id={m.id} />}
-              </div>
-            ))}
+            {messages.map((m) => {
+              const status = outboxStatus(t, m);
+              return (
+                <div key={m.id} className="text-body flex flex-wrap items-center gap-3 px-5 py-3">
+                  <span className="num text-small w-32 text-ink-3">{timeOf(m.at, loc, true)}</span>
+                  <Badge tone="neutral">{m.channel === 'sms' ? 'SMS' : m.channel === 'call' ? t('Appel', 'Call') : m.channel === 'chat' ? 'Chat' : 'Email'}</Badge>
+                  <span className="text-small w-36 truncate font-mono">{m.to}</span>
+                  <span className="text-small text-ink-3">{m.purpose}</span>
+                  <span className="min-w-0 flex-1 truncate text-ink-2">{m.preview ?? '—'}</span>
+                  <Badge tone={status.tone} title={status.tone === 'wait' ? undefined : m.message}>{status.word}</Badge>
+                  {canCheckCalls && watchtowerCallSid(m) && <CallStatusCheck id={m.id} />}
+                </div>
+              );
+            })}
             {messages.length === 0 && <EmptyState icon={<Send className="size-6" />} title={t('Aucun message envoyé', 'No message sent')} body={t('Les codes de connexion ne sont jamais conservés ici.', 'Sign-in codes are never kept here.')} action={<ButtonLink href="/settings/channels" variant="outline" size="lg">{t('Voir les canaux', 'See the channels')}</ButtonLink>} />}
           </div>
         </Card>
@@ -204,9 +207,9 @@ function IncidentCard({ i, focus, defaultOpen, onChanged }: { i: Incident; focus
                 <ol className="text-small space-y-2 border-l border-line pl-4">
                   {i.steps.slice(-10).map((s, k) => (
                     <li key={k} className="relative">
-                      <span className={cn('absolute top-1.5 -left-[21px] size-2.5 rounded-full border-2 border-surface', s.ok === false ? 'bg-stop' : s.kind === 'resolved' ? 'bg-go' : 'bg-ink-4')} />
+                      <span className={cn('absolute top-1.5 -left-[21px] size-2.5 rounded-full border-2 border-surface', s.uncertain ? 'bg-wait' : s.ok === false ? 'bg-stop' : s.kind === 'resolved' ? 'bg-go' : 'bg-ink-4')} />
                       <span className="num text-ink-3">{timeOf(s.at, loc)}</span> <span className="font-semibold">{stepLabel(t, s.kind)}</span>{s.to ? ` → ${s.to}` : ''}{s.by ? ` · ${s.by}` : ''}
-                      {s.message && <div className="text-ink-3">{incidentStepText(lang, s.message)}</div>}
+                      {(s.uncertain || s.message) && <div className="text-ink-3">{s.uncertain ? t(...CALL_OUTCOME_UNCONFIRMED) : incidentStepText(lang, s.message ?? '')}</div>}
                     </li>
                   ))}
                 </ol>

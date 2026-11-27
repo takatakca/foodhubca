@@ -1,5 +1,5 @@
 // Platform screens: the relay host's Uber Eats / DoorDash order screens inside Food Hub (docs/PLATFORM_SCREENS.md).
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { saveLocation } from '../lib/foodhub/catalog';
 import * as notify from '../lib/foodhub/notify';
 import { hashPassword } from '../lib/foodhub/auth';
@@ -10,8 +10,8 @@ import { getRepo } from '../lib/foodhub/repo';
 import { allDayWeek, saveHours } from '../lib/foodhub/hours';
 import {
   addScreen, agentAuthorized, allowedScreenUrl, checkViewUrl, cleanStoreIds, getScreen, listScreens, nextWaitingSince, orderPaths, protectedStoreIds,
-  recordHeartbeat, removeScreen, requestOpen, requestReload, SCREEN_OFFLINE_AFTER_MS, screenStartUrl, screenStatus, setupScreens, titleCount, updateScreen,
-  getSharedWall, saveSharedWall, viewHosts, type PlatformScreen,
+  recordHeartbeat, removeScreen, requestOpen, requestReload, SCREENS, SCREEN_OFFLINE_AFTER_MS, screenStartUrl, screenStatus, setupScreens, titleCount, updateScreen,
+  getSharedWall, saveSharedWall, viewHosts, type Heartbeat, type PlatformScreen,
 } from '../lib/foodhub/screens';
 import { getWatchSettings, listIncidents, runWatch, saveWatchSettings } from '../lib/foodhub/watch/engine';
 import { POST as heartbeatRoute } from '../app/api/foodhub/screens/heartbeat/route';
@@ -21,6 +21,8 @@ const TOKEN = 'a'.repeat(32);
 const hbReq = (body: unknown, auth?: string) => new Request('http://hub.local/api/foodhub/screens/heartbeat', {
   method: 'POST', headers: { 'content-type': 'application/json', ...(auth ? { authorization: auth } : {}) }, body: JSON.stringify(body),
 });
+const signedBeat = (screen: Heartbeat['screens'][number]) => heartbeatRoute(hbReq({ screens: [screen] }, `Bearer ${TOKEN}`));
+const emptySignal = { pageHost: null, pageTitle: null, titleCount: null, waitingSince: null, app: null };
 
 async function newScreen(): Promise<PlatformScreen> {
   const s = await addScreen({ name: 'Uber St-Léonard', platform: 'ubereats', locationCode: 'SAINT_LEONARD', viewUrl: 'https://screens.example.ca/uber-1/' }, ACTOR);
@@ -121,6 +123,86 @@ describe('relay agent heartbeat', () => {
     await recordHeartbeat({ screens: [{ id: s.id, state: 'login', url: 'https://auth.uber.com/v2/' }] });
     expect(screenStatus((await getScreen(s.id))!)).toBe('login_required');
   });
+
+  it('does not make the old merchant page ready after a platform switch if the open reply is lost', async () => {
+    const s = await newScreen();
+    const old = { id: s.id, state: 'ok' as const, url: 'https://merchants.ubereats.com/manager/orders', title: '(2) Previous orders' };
+    expect((await signedBeat(old)).status).toBe(200);
+    const before = (await getScreen(s.id))!;
+    expect(screenStatus(before)).toBe('online');
+    expect(before).toMatchObject({ titleCount: 2, waitingSince: expect.any(String) });
+
+    await updateScreen(s.id, { platform: 'skip' }, ACTOR);
+    const changed = (await getScreen(s.id))!;
+    expect(changed).toMatchObject({ ...emptySignal, platform: 'skip', lastSeenAt: before.lastSeenAt, state: 'blank' });
+    expect(screenStatus(changed)).toBe('error');
+    expect(screenStatus(changed, Date.parse(before.lastSeenAt!) + SCREEN_OFFLINE_AFTER_MS + 1)).toBe('offline');
+
+    // Deliver the command to the HTTP response but leave the relay on the old vendor, as with a dropped reply.
+    const lostReply = await signedBeat({ ...old, state: 'login', url: 'https://auth.uber.com/v2/' });
+    expect(lostReply.status).toBe(200);
+    expect(await lostReply.json()).toMatchObject({ commands: [{ id: s.id, kind: 'open', url: 'https://restaurants.skipthedishes.com/' }] });
+    expect((await getScreen(s.id))?.state).toBe('blank');
+    expect((await getRepo().listActivity()).some((entry) => entry.action === 'screen_signed_out')).toBe(false);
+
+    const stale = await signedBeat(old);
+    expect(stale.status).toBe(200);
+    expect(await stale.json()).toMatchObject({ commands: [] });
+    const stored = (await getRepo().getDoc<PlatformScreen>(SCREENS, s.id))!.data;
+    expect(stored).toMatchObject({ ...emptySignal, platform: 'skip', lastSeenAt: expect.any(String), state: 'blank', command: null });
+    expect(screenStatus(stored)).toBe('error');
+    expect((await signedBeat({ ...old, title: 'Orders', waiting: 0 })).status).toBe(200);
+    expect(await getScreen(s.id)).toMatchObject({ ...emptySignal, state: 'blank' });
+
+    const matching = { id: s.id, url: 'https://restaurants.skipthedishes.com/' };
+    expect((await signedBeat({ ...matching, state: 'login', title: 'Sign in' })).status).toBe(200);
+    expect(screenStatus((await getScreen(s.id))!)).toBe('login_required');
+    expect((await signedBeat({ ...matching, state: 'ok', title: 'Orders' })).status).toBe(200);
+    const online = (await getScreen(s.id))!;
+    expect(online).toMatchObject({ state: 'ok', pageHost: 'restaurants.skipthedishes.com', titleCount: null, waitingSince: null });
+    expect(screenStatus(online)).toBe('online');
+  });
+
+  it('excludes a known wrong-provider foreground Android package and keeps a valid foreground app', async () => {
+    const s = await newScreen();
+    const android = { id: s.id, state: 'ok' as const, mode: 'android' as const, title: '(4) Orders', waiting: 4 };
+    for (const app of ['com.dd.ddmerchant', 'ca.skipthedishes.dashboard']) {
+      expect((await signedBeat({ ...android, app })).status).toBe(200);
+      const stored = (await getScreen(s.id))!;
+      expect(stored).toMatchObject({ ...emptySignal, mode: 'android', state: 'blank' });
+      expect(screenStatus(stored)).toBe('error');
+    }
+    expect((await signedBeat({ ...android, app: 'com.uber.restaurants' })).status).toBe(200);
+    expect(await getScreen(s.id)).toMatchObject({ mode: 'android', state: 'ok', app: 'com.uber.restaurants', titleCount: 4, waitingSince: expect.any(String) });
+  });
+
+  it('preserves signals without a recognized provider identity and same-provider sign-in aliases', async () => {
+    const s = await newScreen();
+    for (const report of [
+      { mode: 'web' as const },
+      { url: 'https://order.doordash.com.relay.example.test/orders' },
+      { mode: 'android' as const, app: 'com.example.legacy' },
+    ]) {
+      expect((await signedBeat({ id: s.id, state: 'ok', waiting: 2, ...report })).status).toBe(200);
+      const stored = (await getScreen(s.id))!;
+      expect(screenStatus(stored)).toBe('online');
+      expect(stored.titleCount).toBe(2);
+    }
+    expect((await signedBeat({ id: s.id, state: 'login', url: 'https://auth.uber.com/v2/' })).status).toBe(200);
+    expect(screenStatus((await getScreen(s.id))!)).toBe('login_required');
+  });
+
+  it('does not expose mismatched evidence stored before this release', async () => {
+    const s = await newScreen();
+    const lastSeenAt = new Date().toISOString();
+    await getRepo().putDocs<PlatformScreen>(SCREENS, [{ id: s.id, data: {
+      ...s, lastSeenAt, state: 'ok', pageHost: 'order.doordash.com', pageTitle: '(1) Previous orders', titleCount: 1, waitingSince: lastSeenAt,
+    } }]);
+    for (const row of [await getScreen(s.id), ...(await listScreens())]) {
+      expect(row).toMatchObject({ ...emptySignal, state: 'blank', lastSeenAt });
+      expect(screenStatus(row!)).toBe('error');
+    }
+  });
 });
 
 describe('heartbeat v2 (Android mode, waiting count) — docs/ORDER_SCREENS_RESCUE.md', () => {
@@ -207,6 +289,9 @@ describe('Watchtower: orders waiting on a screen (screen_waiting)', () => {
 });
 
 describe('Watchtower: calls a configured phone for screen and tablet incidents', () => {
+  beforeEach(() => { vi.spyOn(notify, 'callConfigured').mockReturnValue(true); });
+  afterEach(() => { vi.mocked(notify.callConfigured).mockRestore(); });
+
   const sharedPhone = '+15145550124';
   const cases = (['doordash', 'ubereats', 'skip'] as const).flatMap((platform) =>
     [false, true].flatMap((waiting) => [false, true].map((shared) => ({ platform, waiting, shared }))));
@@ -303,8 +388,14 @@ describe('Watchtower: calls a configured phone for screen and tablet incidents',
       });
       const res = await watchSettingsRoute(req, {});
       expect(res.status).toBe(200);
-      expect((await res.json()).settings.screenAlertPhone).toBe(role === 'owner' ? sharedPhone : null);
+      const body = await res.json();
+      expect(body.screenAlertPhoneConfigured).toBe(true);
+      expect(body.settings.screenAlertPhone).toBe(role === 'owner' ? sharedPhone : null);
     }
+    await saveWatchSettings({ screenAlertPhone: null }, ACTOR);
+    const auth = `Basic ${Buffer.from(`alert-test-operator:${password}`).toString('base64')}`;
+    const res = await watchSettingsRoute(new Request('http://hub.local/api/foodhub/watch/settings', { headers: { authorization: auth } }), {});
+    expect(await res.json()).toMatchObject({ screenAlertPhoneConfigured: false, settings: { screenAlertPhone: null } });
   });
 });
 
@@ -372,6 +463,7 @@ describe('numbered screens and the open command (contract v2.1)', () => {
     expect(o && !('error' in o) && o.command?.url).toBe('https://restaurants.skipthedishes.com/');
     const other = await updateScreen(s.id, { platform: 'other' }, ACTOR);
     expect(other && !('error' in other) && other.platform).toBe('other');
+    expect(other).toMatchObject({ ...emptySignal, command: null });
     expect(await requestOpen(s.id, ACTOR)).toHaveProperty('error');
   });
 

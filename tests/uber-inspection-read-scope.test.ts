@@ -277,26 +277,30 @@ describe('manual Uber store inspection', () => {
     ]);
   });
 
-  it('sends the mapping snapshot filters with the conditional database update', async () => {
-    vi.stubEnv('FOODHUB_FORCE_MEMORY', 'false');
-    vi.stubEnv('SUPABASE_URL', 'https://db.example.test');
-    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'synthetic-service-key');
-    const expected = {
-      channel: 'uber_eats' as const, channelStoreId: STORE, locationCode: 'ORIGINAL',
-      updatedAt: '2026-11-26T14:00:00Z', meta: { doNotTouch: true, localNote: 'A, B (synthetic) ' },
-    };
-    fetchMock.mockImplementationOnce(async (input, init) => {
-      const url = new URL(String(input));
-      expect(url.origin + url.pathname).toBe('https://db.example.test/rest/v1/fh_channel_stores');
-      expect(init?.method).toBe('PATCH');
-      expect(Object.fromEntries(url.searchParams)).toMatchObject({
-        id: 'eq.synthetic-row', channel: 'eq.uber_eats', channel_store_id: `eq.${STORE}`,
-        location_code: 'eq.ORIGINAL', updated_at: `eq.${expected.updatedAt}`, meta: `eq.${JSON.stringify(expected.meta)}`,
+  it.each([['TESTMERCH0002', 'eq.TESTMERCH0002'], [null, 'is.null'], [undefined, null]] as const)(
+    'checks the snapshot and its register %s with the conditional database update', async (cloverMerchantId, filter) => {
+      vi.stubEnv('FOODHUB_FORCE_MEMORY', 'false');
+      vi.stubEnv('SUPABASE_URL', 'https://db.example.test');
+      vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'synthetic-service-key');
+      const expected = {
+        cloverMerchantId,
+        channel: 'uber_eats' as const, channelStoreId: STORE, locationCode: 'ORIGINAL',
+        updatedAt: '2026-11-26T14:00:00Z', meta: { doNotTouch: true, localNote: 'A, B (synthetic) ' },
+      };
+      fetchMock.mockImplementationOnce(async (input, init) => {
+        const url = new URL(String(input));
+        expect(url.origin + url.pathname).toBe('https://db.example.test/rest/v1/fh_channel_stores');
+        expect(init?.method).toBe('PATCH');
+        expect(url.searchParams.get('clover_merchant_id')).toBe(filter);
+        expect(Object.fromEntries(url.searchParams)).toMatchObject({
+          id: 'eq.synthetic-row', channel: 'eq.uber_eats', channel_store_id: `eq.${STORE}`,
+          location_code: 'eq.ORIGINAL', updated_at: `eq.${expected.updatedAt}`, meta: `eq.${JSON.stringify(expected.meta)}`,
+        });
+        return Response.json([]);
       });
-      return Response.json([]);
-    });
 
-    expect(await getRepo().updateStore('synthetic-row', { meta: { ...expected.meta, uberPos: { storeId: STORE } } }, expected)).toBeNull();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
+      expect(await getRepo().updateStore('synthetic-row', { meta: { ...expected.meta, uberPos: { storeId: STORE } } }, expected)).toBeNull();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
 });

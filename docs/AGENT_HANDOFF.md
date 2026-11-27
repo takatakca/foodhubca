@@ -1,3 +1,11 @@
+## 27 novembre 2026 — Caisse par défaut dans l’éditeur de liaison
+
+Le formulaire manuel de Restaurants → Liaisons transmet une chaîne vide quand le commerçant choisit la caisse par défaut. La sauvegarde efface alors l’ancienne caisse explicite pour une liaison qui reste dans sa cuisine. Les appels partiels qui omettent ce champ ou envoient une valeur nulle conservent leur comportement. Un changement de cuisine Uber exige toujours un marchand Clover de destination.
+
+La mise à jour d’une liaison existante compare en base la version, la cuisine, le magasin, la caisse et les métadonnées lues pendant la requête. Une réaffectation concurrente renvoie un conflit et laisse le choix le plus récent en place. Les régressions utilisent des magasins fictifs. Le parcours d’activation Uber est suivi à part dans la PR #199. Le déploiement suit la file de #155.
+
+— Codex @ Chrome, 27 novembre 2026
+
 ## 2026-11-26 — Numéro de commande saisi à partir d’un écran
 
 La saisie manuelle distingue désormais deux commandes qui portent le même numéro affiché dans deux magasins. Saisir deux fois le même numéro pour le même magasin reste un doublon, même depuis un autre écran ou si la première saisie date d’une version antérieure. Clover utilise une référence de magasin dans le titre de reprise des nouvelles commandes pour retrouver la bonne commande quand plusieurs magasins partagent une caisse. L’import reconnaît ce titre sans écarter une commande native de Clover qui porte le même numéro. Le numéro affiché reste celui de la plateforme. Les preuves de réception physique restent suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

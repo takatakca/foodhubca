@@ -7,6 +7,7 @@ import { parseSkipOrder } from '../lib/foodhub/adapters/skip';
 import { readPending } from '../lib/foodhub/courier';
 import { INBOX, sweepInbox, type InboxEntry } from '../lib/foodhub/inbox';
 import { autoAcceptAfterClover, processIncomingOrder, runOrderAction } from '../lib/foodhub/pipeline';
+import { cloverOrderTitle } from '../lib/foodhub/pos/clover-order';
 import { getRepo } from '../lib/foodhub/repo';
 
 const afterCallbacks = vi.hoisted(() => [] as Array<() => Promise<unknown>>);
@@ -56,8 +57,10 @@ async function saveCancellationWithWorkerWithheld(orderId: string) {
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual(body);
   expect((await getRepo().listDocs<InboxEntry>(INBOX)).map(({ data }) => data)).toContainEqual(expect.objectContaining({ kind: 'skip_cancel', status: 'received', body }));
-  expect(afterCallbacks.splice(queued)).toHaveLength(1);
+  const delayed = afterCallbacks.splice(queued);
+  expect(delayed).toHaveLength(1);
   expect(await readPending('skip', orderId)).toBeNull();
+  return delayed[0];
 }
 
 async function processQueuedOrder(order = event()) {
@@ -339,6 +342,140 @@ describe('automatic receipt of direct Skip orders', () => {
     const stored = await processQueuedOrder();
     expect(stored).toMatchObject({ status: 'accepted', posOrderId: POS });
     expect(outbound()).toEqual([`${CLOVER}/v3/merchants/${MERCHANT}/atomic_order/orders`, jetRequest(event().id, 'success')]);
+  });
+
+  it.each([
+    { case: 'a creation with its cancellation worker withheld', worker: 'withheld', adopt: false, remap: false },
+    { case: 'a creation with its cancellation worker run', worker: 'run', adopt: false, remap: false },
+    { case: 'a creation while the store mapping moves to another kitchen and register', worker: 'run', adopt: false, remap: true },
+    { case: 'a resumed receipt lookup with its cancellation worker withheld', worker: 'withheld', adopt: true, remap: false },
+  ])('records and closes the Clover receipt without printing or accepting during $case', async ({ worker, adopt, remap }) => {
+    vi.stubEnv('FOODHUB_POS_INJECTION', undefined);
+    vi.stubEnv('FOODHUB_CLOVER_AUTOPRINT', 'on');
+    vi.stubEnv('FOODHUB_CLOVER_DELETE_CANCELLED', 'on');
+    const repo = getRepo();
+    const incoming = event();
+    const parsed = parseSkipOrder(incoming)!;
+    if (adopt) {
+      await repo.insertOrderIfNew({ ...parsed, locationCode: 'TEST', createdAt: new Date(Date.now() - 100_000).toISOString() });
+    }
+    const movedMerchant = 'TESTMERCH0002';
+    if (remap) vi.stubEnv('CLOVER_MERCHANT_TOKENS', JSON.stringify({ [movedMerchant]: 'fixture-moved-register-token' }));
+    const register = `${CLOVER}/v3/merchants/${MERCHANT}`;
+    const create = `${register}/atomic_order/orders`;
+    const lookup = `${register}/orders?filter=`;
+    const close = `${register}/orders/${POS}`;
+    const movedClose = `${CLOVER}/v3/merchants/${movedMerchant}/orders/${POS}`;
+    const respond = fetchMock.getMockImplementation()!;
+    const beforeResponse: Array<{ status: string | undefined; posOrderId: string | undefined }> = [];
+    let fixtureError: unknown;
+    fetchMock.mockImplementation(async (url, init) => {
+      const address = String(url);
+      const inFlight = adopt ? address.startsWith(lookup) && (!init?.method || init.method === 'GET') : address === create && init?.method === 'POST';
+      if (inFlight) {
+        try {
+          const before = await repo.findOrder('skip', incoming.id);
+          beforeResponse.push({ status: before?.status, posOrderId: before?.posOrderId });
+          if (remap) {
+            const store = await repo.findStore('skip', STORE);
+            if (!store) throw new Error('The fixture store was not mapped');
+            await repo.upsertStore({ ...store, locationCode: 'TEST_MOVED', cloverMerchantId: movedMerchant });
+          }
+          const cancel = await saveCancellationWithWorkerWithheld(incoming.id);
+          if (worker === 'run') await cancel();
+          const after = await repo.findOrder('skip', incoming.id);
+          beforeResponse.push({ status: after?.status, posOrderId: after?.posOrderId });
+        } catch (error) {
+          fixtureError = error;
+        }
+        if (adopt) return Response.json({ elements: [{ id: POS, title: cloverOrderTitle(parsed), total: 1150 }] });
+      }
+      if (address.endsWith('/print_event') && init?.method === 'POST') return Response.json({ id: 'fixture-print' });
+      if ([close, movedClose].includes(address) && init?.method === 'DELETE') return new Response(null, { status: 204 });
+      return respond(url, init);
+    });
+
+    const order = await processQueuedOrder(incoming);
+    expect(fixtureError).toBeUndefined();
+    expect(beforeResponse).toEqual([
+      { status: 'new', posOrderId: undefined }, { status: worker === 'run' ? 'cancelled' : 'new', posOrderId: undefined },
+    ]);
+    expect({
+      status: order.status, receipt: order.posOrderId, closed: Boolean(order.timeline?.posClosedAt),
+      requests: fetchMock.mock.calls.map(([url, init]) => [String(url), init?.method ?? 'GET']),
+    }).toEqual({
+      status: 'cancelled', receipt: POS, closed: true,
+      requests: [adopt ? [expect.stringContaining(lookup), 'GET'] : [create, 'POST'], [close, 'DELETE']],
+    });
+    expect(order.timeline?.cancelReason).toBe('CUSTOMER_REQUEST');
+    expect(order.timeline?.posMerchantId).toBe(MERCHANT);
+    expect(order.locationCode).toBe('TEST');
+    if (remap) expect(await repo.findStore('skip', STORE)).toMatchObject({ locationCode: 'TEST_MOVED', cloverMerchantId: movedMerchant });
+    const types = (await repo.listEvents(order.id)).map((entry) => entry.type);
+    expect(types).not.toContain('printed');
+    expect(types.filter((type) => type === (adopt ? 'pos_adopted' : 'pos_injected'))).toHaveLength(1);
+  });
+
+  it('records the confirmed Skip receipt once and rejects the same receipt ID for a different Clover register', async () => {
+    const repo = getRepo();
+    const normalized = parseSkipOrder(event())!;
+    const { order } = await repo.insertOrderIfNew({ ...normalized, locationCode: 'TEST' });
+    const receipt = {
+      kind: 'record_receipt', externalOrderId: order.externalOrderId, orderId: order.id,
+      posOrderId: POS, merchantId: MERCHANT, adopted: false,
+      evidence: { posOrderId: 'untrusted-audit-value', merchantId: 'untrusted-audit-value', freeLines: 1 },
+    } as const;
+    const recorded = await repo.applySkipLifecycle(receipt);
+    expect(recorded).toMatchObject({ recorded: true, order: { id: order.id, status: 'new', posOrderId: POS, timeline: { posMerchantId: MERCHANT } } });
+    const saved = structuredClone(recorded.order);
+    const repeated = await repo.applySkipLifecycle(receipt);
+    expect(repeated.order).toEqual(saved);
+    expect(repeated.recorded).toBeUndefined();
+    expect(await repo.applySkipLifecycle({ ...receipt, merchantId: 'TESTMERCH0002' })).toMatchObject({ outcome: 'conflicting_receipt' });
+    expect(await repo.getOrder(order.id)).toEqual(saved);
+    expect(await repo.listEvents(order.id)).toEqual([expect.objectContaining({ type: 'pos_injected', detail: { posOrderId: POS, merchantId: MERCHANT, freeLines: 1 } })]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])('rechecks a confirmed receipt on inbox retry without another Clover create or print (cancel before retry: %s)', async (cancelBeforeRetry) => {
+    vi.stubEnv('FOODHUB_POS_INJECTION', undefined);
+    vi.stubEnv('FOODHUB_CLOVER_AUTOPRINT', 'on');
+    vi.stubEnv('FOODHUB_CLOVER_DELETE_CANCELLED', 'on');
+    const repo = getRepo();
+    const incoming = event();
+    const register = `${CLOVER}/v3/merchants/${MERCHANT}`;
+    const create = `${register}/atomic_order/orders`;
+    const print = `${register}/print_event`;
+    const close = `${register}/orders/${POS}`;
+    const respond = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (url, init) => {
+      if (String(url) === print && init?.method === 'POST') return Response.json({ id: 'fixture-print' });
+      if (String(url) === close && init?.method === 'DELETE') return new Response(null, { status: 204 });
+      return respond(url, init);
+    });
+    let checkFailed = false;
+    const applySkipLifecycle = repo.applySkipLifecycle.bind(repo);
+    vi.spyOn(repo, 'applySkipLifecycle').mockImplementation(async (input) => {
+      if (!checkFailed && String(input.kind) === 'check_receipt') {
+        checkFailed = true;
+        throw new Error('Synthetic Skip confirmed receipt check outage');
+      }
+      return applySkipLifecycle(input);
+    });
+
+    const first = await processQueuedOrder(incoming);
+    expect(checkFailed).toBe(true);
+    expect(first).toMatchObject({ status: 'new', posOrderId: POS, timeline: { posMerchantId: MERCHANT, printedAt: expect.any(String) } });
+    expect(outbound()).toEqual([create, print]);
+    const [failed] = await repo.listDocs<InboxEntry>(INBOX);
+    expect(failed?.data).toMatchObject({ kind: 'order', status: 'failed', attempts: 1, nextAt: expect.any(String) });
+    if (!failed?.data.nextAt) throw new Error('The receipt check failure has no retry date');
+    if (cancelBeforeRetry) await saveCancellationWithWorkerWithheld(incoming.id);
+
+    expect(await sweepInbox({ now: Date.parse(failed.data.nextAt) + 1 })).toEqual({ processed: 1, failed: 0 });
+    expect(await repo.getOrder(first.id)).toMatchObject({ status: cancelBeforeRetry ? 'cancelled' : 'accepted', posOrderId: POS });
+    expect(outbound()).toEqual([create, print, cancelBeforeRetry ? close : jetRequest(incoming.id, 'success')]);
+    expect((await repo.getDoc<InboxEntry>(INBOX, failed.id))?.data).toMatchObject({ status: 'done', attempts: 2, orderId: first.id });
   });
 
   it('does not acknowledge a resumed delivery without a receipt', async () => {

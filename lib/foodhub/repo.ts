@@ -12,18 +12,23 @@ export interface Doc<T = Record<string, unknown>> { id: string; key?: string | n
 export interface DocFilter { since?: string; until?: string; keys?: string[]; limit?: number }
 
 type StoreSnapshot = Pick<ChannelStore, 'channel' | 'channelStoreId' | 'locationCode' | 'updatedAt' | 'meta'>;
+type SkipReceiptIdentity = { externalOrderId: string; orderId: string; posOrderId: string; merchantId: string };
+type SkipReceiptTimeline = OrderTimeline & { posMerchantId?: string };
 
 export type SkipLifecycleInput =
   | { kind: 'backup'; order: NormalizedOrder & { locationCode?: string }; mappedStore: boolean; message: string; detail: Record<string, unknown> }
   | { kind: 'cancel'; externalOrderId: string; detail: Record<string, unknown> }
   | { kind: 'intake'; order: NormalizedOrder & { locationCode?: string } }
-  | { kind: 'check_intake'; externalOrderId: string };
+  | { kind: 'check_intake'; externalOrderId: string }
+  | ({ kind: 'record_receipt'; adopted: boolean; evidence?: Record<string, unknown> } & SkipReceiptIdentity)
+  | ({ kind: 'check_receipt' } & SkipReceiptIdentity);
 
 export interface SkipLifecycleResult {
   order: StoredOrder | null;
   isNew: boolean;
-  outcome: 'conflicting_store' | 'ignored' | 'cancelled' | 'parked' | 'backed_up' | 'received';
+  outcome: 'conflicting_store' | 'conflicting_receipt' | 'ignored' | 'cancelled' | 'parked' | 'backed_up' | 'received';
   transitioned?: true;
+  recorded?: true;
 }
 
 export interface FoodHubRepo {
@@ -128,8 +133,15 @@ function applySkipLifecycleInMemory(input: SkipLifecycleInput): SkipLifecycleRes
   const now = nowIso();
   const key = `pending:skip:${externalOrderId}`;
   const pending = state.kv.get(key) as PendingPlatformEvents | undefined;
-  const existing = [...state.orders.values()].find((order) => order.channel === 'skip' && order.externalOrderId === externalOrderId);
+  let existing = [...state.orders.values()].find((order) => order.channel === 'skip' && order.externalOrderId === externalOrderId);
   const direct = existing && !existing.viaHub && !existing.viaPos;
+  const receipt = 'posOrderId' in input ? input : null;
+  const knownMerchant = (existing?.timeline as SkipReceiptTimeline | undefined)?.posMerchantId;
+  if (receipt && (!existing || !direct || existing.id !== receipt.orderId || !receipt.posOrderId.trim() || !receipt.merchantId.trim()
+    || (existing.posOrderId && existing.posOrderId !== receipt.posOrderId) || (knownMerchant && knownMerchant !== receipt.merchantId)
+    || (receipt.kind === 'check_receipt' && (existing.posOrderId !== receipt.posOrderId || knownMerchant !== receipt.merchantId)))) {
+    return { order: null, isNew: false, outcome: 'conflicting_receipt' };
+  }
   if (input.kind === 'check_intake' && (!existing || !direct || existing.status !== 'new' || existing.posOrderId)) {
     return { order: existing ?? null, isNew: false, outcome: 'ignored' };
   }
@@ -160,17 +172,40 @@ function applySkipLifecycleInMemory(input: SkipLifecycleInput): SkipLifecycleRes
     return { order: null, isNew: false, outcome: 'ignored' };
   }
   const isNew = !existing;
-  const order = existing ?? ('order' in input
+  let order = existing ?? ('order' in input
     ? { ...input.order, id: crypto.randomUUID(), createdAt: now, updatedAt: now }
     : null);
   if (!order) throw new Error('Missing Skip order');
+  const orderId = order.id;
 
   const addEvent = (type: string, detail: Record<string, unknown>) => {
-    state.events.push({ id: crypto.randomUUID(), orderId: order.id, type, detail: JSON.parse(JSON.stringify(detail)), at: now });
+    state.events.push({ id: crypto.randomUUID(), orderId, type, detail: JSON.parse(JSON.stringify(detail)), at: now });
   };
   const consumePending = () => {
     if (input.kind !== 'cancel' && parked) state.kv.set(key, { ...parked, consumedAt: now });
   };
+
+  let recorded: true | undefined;
+  if (input.kind === 'record_receipt' && existing) {
+    const retry = existing.timeline?.posRetry;
+    const finishRetry = retry && (retry.nextAt !== null || !retry.doneAt);
+    if (existing.posOrderId !== input.posOrderId || knownMerchant !== input.merchantId || existing.posError !== undefined || finishRetry) {
+      const timeline: SkipReceiptTimeline = { ...existing.timeline, posMerchantId: input.merchantId };
+      if (finishRetry) timeline.posRetry = { ...retry, nextAt: null, doneAt: retry.doneAt || now };
+      existing = { ...existing, timeline, posOrderId: input.posOrderId, posError: undefined, updatedAt: now };
+      state.orders.set(existing.id, existing);
+      order = existing;
+    }
+    if (!state.events.some((event) => event.orderId === orderId && ['pos_injected', 'pos_adopted'].includes(event.type)
+      && event.detail?.posOrderId === input.posOrderId)) {
+      addEvent(input.adopted ? 'pos_adopted' : 'pos_injected', { ...input.evidence, posOrderId: input.posOrderId, merchantId: input.merchantId });
+      recorded = true;
+    }
+  }
+  const receiptOutcome = recorded ? { recorded } : {};
+  if (receipt && existing && !cancellation) {
+    return { order: existing, isNew: false, outcome: existing.status === 'cancelled' ? 'cancelled' : 'received', ...receiptOutcome };
+  }
 
   if (existing) {
     if (direct && input.kind === 'backup' && !cancellation && existing.status === 'failed'
@@ -179,7 +214,7 @@ function applySkipLifecycleInMemory(input: SkipLifecycleInput): SkipLifecycleRes
     }
     if ((input.kind === 'cancel' || direct) && cancellation && existing.status === 'cancelled') {
       consumePending();
-      return { order: existing, isNew: false, outcome: 'cancelled' };
+      return { order: existing, isNew: false, outcome: 'cancelled', ...receiptOutcome };
     }
     if (input.kind === 'backup' && (!direct || (!['new', 'accepted', 'ready'].includes(existing.status)
       && !(cancellation && existing.status === 'failed')))) {
@@ -202,7 +237,7 @@ function applySkipLifecycleInMemory(input: SkipLifecycleInput): SkipLifecycleRes
     state.orders.set(order.id, cancelled);
     consumePending();
     addEvent('platform_status', { ...cancellation.detail, state: cancellation.platformState, at: cancellation.at ?? now });
-    return { order: cancelled, isNew, outcome: 'cancelled', transitioned: true };
+    return { order: cancelled, isNew, outcome: 'cancelled', transitioned: true, ...receiptOutcome };
   }
   if (input.kind === 'intake' || input.kind === 'check_intake') {
     if (existing) return { order: existing, isNew: false, outcome: 'received' };
@@ -466,10 +501,14 @@ function supabaseRepo(): FoodHubRepo {
     async applySkipLifecycle(input) {
       const backup = input.kind === 'backup' ? input : null;
       const seed = 'order' in input ? input.order : null;
+      const detail = 'posOrderId' in input ? {
+        orderId: input.orderId, posOrderId: input.posOrderId, merchantId: input.merchantId,
+        ...(input.kind === 'record_receipt' ? { adopted: input.adopted, evidence: input.evidence } : {}),
+      } : 'detail' in input ? input.detail : {};
       const result = must(await db.rpc('fh_apply_skip_lifecycle', {
         p_kind: input.kind, p_external_id: skipNoticeReference(input),
         p_order: seed ? { ...orderToRow(seed), data: seed } : null,
-        p_mapped: backup?.mappedStore ?? false, p_message: backup?.message ?? null, p_detail: 'detail' in input ? input.detail : {},
+        p_mapped: backup?.mappedStore ?? false, p_message: backup?.message ?? null, p_detail: detail,
       })) as Omit<SkipLifecycleResult, 'order'> & { order: Row | null };
       return { ...result, order: result.order ? rowToOrder(result.order) : null };
     },

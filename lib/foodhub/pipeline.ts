@@ -37,6 +37,7 @@ export interface PipelineOutcome {
 /** One line for the webhook inbox: what became of an incoming order. */
 export function pipelineOutcomeText(out: PipelineOutcome): string {
   if (out.duplicate) return 'duplicate (already received)';
+  if (out.order.status === 'cancelled' && out.order.posOrderId) return 'order cancelled (Clover receipt retained)';
   const clover = out.pos?.ok ? ', in Clover' : out.pos?.error ? `, Clover: ${out.pos.error}` : '';
   return `${out.resumed ? 'order resumed (its processing had stopped before Clover)' : 'order received'}${clover}`;
 }
@@ -68,6 +69,25 @@ function isDirectSkipSource(order: Pick<NormalizedOrder, 'channel' | 'viaHub' | 
 
 function isDirectSkipOrder(order: Pick<NormalizedOrder, 'channel' | 'viaHub' | 'viaPos'>): boolean {
   return isDirectSkipSource(order) && !isViaClover('skip');
+}
+
+function hasDirectSkipReceipt(order: StoredOrder): boolean {
+  return isDirectSkipSource(order) && Boolean(order.posOrderId && order.timeline?.posMerchantId);
+}
+
+async function logSkipReceiptCancellation(order: StoredOrder): Promise<void> {
+  await logActivity({ actor: CHANNEL_LABELS.skip, source: 'platform', kind: 'order', action: 'platform_cancel', status: 'info', channel: 'skip', brandName: order.brandName, locationCode: order.locationCode, orderId: order.id,
+    summary: `Skip cancelled #${order.displayId || order.externalOrderId.slice(0, 8)} during Clover processing` });
+}
+
+async function checkRecordedSkipReceipt(order: StoredOrder): Promise<StoredOrder> {
+  const { posOrderId, timeline } = order;
+  const merchantId = timeline?.posMerchantId;
+  if (!posOrderId || !merchantId) return order;
+  const checked = await getRepo().applySkipLifecycle({ kind: 'check_receipt', externalOrderId: order.externalOrderId, orderId: order.id, posOrderId, merchantId });
+  if (!checked.order) throw new Error('The stored Skip Clover receipt changed before confirmation.');
+  if (checked.transitioned) await logSkipReceiptCancellation(checked.order);
+  return checked.order;
 }
 
 async function stopCancelledSkipIntake(order: StoredOrder, transitioned?: true): Promise<PipelineOutcome> {
@@ -147,6 +167,16 @@ export async function processIncomingOrder(n: NormalizedOrder, opts: { holdClove
     const sameStore = !order.channelStoreId?.trim() || !n.channelStoreId?.trim() || order.channelStoreId === n.channelStoreId;
     const sameSource = !directSkip || (isDirectSkipSource(order) && sameStore);
     if (sameSource && neverSentToClover(order)) return resumeUnsentOrder(order);
+    if (directSkip && sameSource && opts.retrying && hasDirectSkipReceipt(order)) {
+      // A receipt already exists. Never create or print it again when a later confirmation check needs a retry.
+      if (order.status === 'cancelled' || order.status === 'failed') {
+        return { order: (await settleInClover(order)) ?? order, duplicate: false };
+      }
+      if (order.status === 'new' && store?.autoAccept && order.locationCode && !cloverKitchenChanged(order, store)) {
+        const resumed = await autoAcceptAfterClover(order, order.posOrderId);
+        return { ...resumed, duplicate: false, resumed: true, pos: { ok: true, posOrderId: order.posOrderId } };
+      }
+    }
     // Keep this receipt retryable until an interrupted Skip intake is eligible for recovery.
     if (directSkip && sameSource && opts.retrying && waitingForFirstCloverSend(order)) {
       throw new Error('Skip order is waiting for its previous Clover processing window.');
@@ -212,6 +242,9 @@ export async function processIncomingOrder(n: NormalizedOrder, opts: { holdClove
     : await sendToClover(current, store);
   if (pos.ok) {
     current = await recordCloverSuccess(current, store, pos);
+    if (directSkip && (current.status === 'cancelled' || current.status === 'failed')) {
+      return { order: current, duplicate: false, pos: { ok: true, posOrderId: current.posOrderId } };
+    }
   } else {
     current = (await repo.updateOrder(order.id, { posError: pos.error })) ?? current;
     await repo.addEvent(order.id, pos.skipped ? 'pos_skipped' : 'pos_failed', { error: pos.error, ...(pos.uncertain ? { uncertain: true } : {}) });
@@ -342,7 +375,7 @@ export async function sendToClover(order: StoredOrder, store: ChannelStore | nul
   const mid = store?.cloverMerchantId || (await defaultCloverMerchant());
   const token = mid ? await cloverToken(mid).catch(() => null) : null;
   const orderTypeId = await cloverOrderTypeForOrder(mid, order, { token, base: cloverBaseUrl() }).catch(() => null);
-  return injectOrder(order, store?.cloverMerchantId, { orderTypeId });
+  return injectOrder(order, mid, { orderTypeId });
 }
 
 /**
@@ -351,14 +384,27 @@ export async function sendToClover(order: StoredOrder, store: ChannelStore | nul
  */
 export async function recordCloverSuccess(order: StoredOrder, store: ChannelStore | null, pos: Extract<InjectResult, { ok: true }>, extra: Record<string, unknown> = {}): Promise<StoredOrder> {
   const repo = getRepo();
-  let current = (await repo.updateOrder(order.id, { posOrderId: pos.posOrderId, posError: undefined })) ?? order;
-  if (current.timeline?.posRetry) current = await patchTimeline(current, { posRetry: { ...current.timeline.posRetry, nextAt: null, doneAt: nowIso() } });
-  await repo.addEvent(order.id, pos.adopted ? 'pos_adopted' : 'pos_injected', {
-    posOrderId: pos.posOrderId, ...extra,
+  const evidence = {
+    ...extra, posOrderId: pos.posOrderId,
     ...(pos.lineItems !== undefined ? { lineItems: pos.lineItems } : {}),
     ...(pos.freeLines ? { freeLines: pos.freeLines } : {}),
     ...(pos.adopted ? { message: 'Clover already had this order (its earlier answer was lost) — linked to it, nothing sent twice.' } : {}),
-  });
+  };
+  const directSkip = isDirectSkipSource(order);
+  let current: StoredOrder;
+  if (directSkip) {
+    if (!pos.merchantId) throw new Error('The confirmed Skip Clover receipt needs its originating register.');
+    const receipt = await repo.applySkipLifecycle({ kind: 'record_receipt', externalOrderId: order.externalOrderId, orderId: order.id, posOrderId: pos.posOrderId, merchantId: pos.merchantId, adopted: Boolean(pos.adopted), evidence });
+    if (!receipt.order) throw new Error('The received Skip Clover receipt conflicts with the stored order.');
+    current = receipt.order;
+    if (receipt.transitioned) await logSkipReceiptCancellation(current);
+    if (current.status === 'cancelled' || current.status === 'failed') return (await settleInClover(current)) ?? current;
+    if (!receipt.recorded || current.timeline?.printedAt) return current;
+  } else {
+    current = (await repo.updateOrder(order.id, { posOrderId: pos.posOrderId, posError: undefined })) ?? order;
+    if (current.timeline?.posRetry) current = await patchTimeline(current, { posRetry: { ...current.timeline.posRetry, nextAt: null, doneAt: nowIso() } });
+    await repo.addEvent(order.id, pos.adopted ? 'pos_adopted' : 'pos_injected', evidence);
+  }
   if (pos.totalCents !== undefined) {
     const gap = cloverTotalGap(current, pos.totalCents, pos.lineItems ?? current.lines.length);
     if (gap.flagged) {
@@ -368,7 +414,7 @@ export async function recordCloverSuccess(order: StoredOrder, store: ChannelStor
         summary: `${CHANNEL_LABELS[current.channel]} #${current.displayId || current.externalOrderId.slice(0, 8)}: ${msg}` });
     }
   }
-  return autoPrint(current, store?.cloverMerchantId);
+  return autoPrint(current, directSkip ? pos.merchantId : store?.cloverMerchantId);
 }
 
 /**
@@ -377,29 +423,46 @@ export async function recordCloverSuccess(order: StoredOrder, store: ChannelStor
  */
 export async function autoAcceptAfterClover(order: StoredOrder, posOrderId?: string): Promise<{ order: StoredOrder; accept?: ChannelResult }> {
   const repo = getRepo();
-  const cancelledMeanwhile = async () => (await repo.getOrder(order.id))?.status === 'cancelled';
-  let current = order;
-  if (await cancelledMeanwhile()) {
-    await repo.addEvent(order.id, 'accept_skipped', { reason: 'Cancelled by the platform while it was being put in Clover — nothing sent to the platform; the Clover copy is removed.' });
-    return { order: (await settleInClover((await repo.getOrder(order.id)) ?? current)) ?? current };
+  const recordedSkip = hasDirectSkipReceipt(order);
+  let current = recordedSkip ? await checkRecordedSkipReceipt(order) : ((await repo.getOrder(order.id)) ?? order);
+  if (current.status === 'cancelled' || (recordedSkip && current.status === 'failed')) {
+    const reason = current.status === 'cancelled'
+      ? 'Cancelled by the platform while it was being put in Clover — nothing sent to the platform; the Clover copy is removed.'
+      : 'Skip moved this order to its tablet before confirmation; its Clover receipt is kept for settlement.';
+    await repo.addEvent(order.id, 'accept_skipped', { reason });
+    return { order: (await settleInClover(current)) ?? current };
   }
-  if (isDirectSkipOrder(order) && !posOrderId?.trim() && !order.posOrderId?.trim()) {
-    return { order, accept: { channel: 'skip', status: 'blocked', ok: false, message: 'Skip requires a Clover order ID for automatic confirmation.' } };
+  if (recordedSkip && current.status !== 'new') return { order: current };
+  if (isDirectSkipOrder(order) && !posOrderId?.trim() && !current.posOrderId?.trim()) {
+    return { order: current, accept: { channel: 'skip', status: 'blocked', ok: false, message: 'Skip requires a Clover order ID for automatic confirmation.' } };
   }
-  const accept = await actionsFor(current).acceptOrder(current, posOrderId);
-  if (accept.ok && (await cancelledMeanwhile())) {
-    // Cancelled during the accept call itself: keep the cancellation, never write 'accepted' over it.
-    await repo.addEvent(order.id, 'needs_attention', { reason: 'Accepted on the platform, but the platform cancelled the order meanwhile — check the platform; the Clover copy is removed.' });
-    current = (await settleInClover((await repo.getOrder(order.id)) ?? current)) ?? current;
-  } else if (accept.ok) {
-    current = await patchTimeline(current, { acceptedAt: nowIso(), acceptedBy: 'auto' }, { status: 'accepted', channelError: undefined });
+  const accept = await actionsFor(current).acceptOrder(current, recordedSkip ? current.posOrderId : posOrderId);
+  if (accept.ok) {
+    const latest = recordedSkip ? await checkRecordedSkipReceipt(current) : ((await repo.getOrder(order.id)) ?? current);
+    const timeline = { acceptedAt: nowIso(), acceptedBy: 'auto' };
+    const fields = { status: 'accepted' as const, channelError: undefined };
+    const accepted = latest.status === 'cancelled' ? null : recordedSkip
+      ? await repo.patchOrder(latest.id, timeline, fields, (fresh) => fresh.status === 'new' && fresh.posOrderId === latest.posOrderId && fresh.timeline?.posMerchantId === latest.timeline?.posMerchantId)
+      : await patchTimeline(latest, timeline, fields);
+    if (!accepted) {
+      current = (await repo.getOrder(order.id)) ?? latest;
+      if (current.status === 'cancelled' || (recordedSkip && current.status === 'failed')) {
+        const reason = current.status === 'cancelled'
+          ? 'Accepted on the platform, but the platform cancelled the order meanwhile — check the platform; the Clover copy is removed.'
+          : 'The platform confirmed the order while tablet handoff was being recorded. Check the provider; the Clover receipt is kept for settlement.';
+        await repo.addEvent(order.id, 'needs_attention', { reason });
+        current = (await settleInClover(current)) ?? current;
+      }
+      return { order: current, accept };
+    }
+    current = accepted;
     await repo.addEvent(order.id, 'accepted', { auto: true, response: summarize(accept) });
-    // Accepted = sold: the Revenu Québec invoice follows (Takatak MEV; nothing when MEV is off). An order entered by hand
-    // from a platform screen is also recorded as paid in Clover now (settleInClover runs the MEV hook itself).
+    // Accepted = sold: follow the existing fiscal and screen-payment policy.
     if (current.viaHub === 'screen') current = (await settleInClover(current)) ?? current;
     else await mevOnOrderChange(current);
   } else {
-    current = (await repo.updateOrder(order.id, { channelError: accept.message })) ?? current;
+    current = recordedSkip ? (await repo.patchOrder(order.id, {}, { channelError: accept.message }, (fresh) => fresh.status === 'new')) ?? (await repo.getOrder(order.id)) ?? current
+      : (await repo.updateOrder(order.id, { channelError: accept.message })) ?? current;
     await repo.addEvent(order.id, 'accept_failed', { auto: true, status: accept.status, message: accept.message });
   }
   return { order: current, accept };
@@ -507,16 +570,21 @@ async function resendNow(order: StoredOrder, opts: { manual?: boolean; by?: stri
     const mid = store?.cloverMerchantId || (await defaultCloverMerchant());
     const token = mid ? await cloverToken(mid).catch(() => null) : null;
     const hit = mid && token ? await findCloverOrderByTitle(mid, token, cloverBaseUrl(), current, Date.parse(current.createdAt) - 5 * 60_000).catch(() => null) : null;
-    if (hit) pos = { ok: true, posOrderId: hit.id, adopted: true, ...(hit.totalCents !== undefined ? { totalCents: hit.totalCents } : {}) };
+    if (hit && mid) pos = { ok: true, posOrderId: hit.id, merchantId: mid, adopted: true, ...(hit.totalCents !== undefined ? { totalCents: hit.totalCents } : {}) };
   }
   pos ??= await sendToClover(current, store);
   if (pos.ok) {
     // Read again: another server or a person may have put it in Clover meanwhile, or the platform cancelled it.
     const latest = (await repo.getOrder(order.id)) ?? current;
+    const sameReceipt = latest.posOrderId === pos.posOrderId
+      && (!latest.timeline?.posMerchantId || latest.timeline.posMerchantId === pos.merchantId);
+    if (isDirectSkipSource(latest) && (!latest.posOrderId || sameReceipt)) {
+      return { order: await recordCloverSuccess(latest, store, pos, tag), pos, store };
+    }
     if (latest.posOrderId) {
-      if (latest.posOrderId !== pos.posOrderId && !pos.adopted) {
+      if (!sameReceipt && !pos.adopted) {
         // Theirs is kept; this second copy is removed so Clover never has the order twice.
-        const r = await closeCancelledCloverOrder({ ...latest, posOrderId: pos.posOrderId }, store?.cloverMerchantId);
+        const r = await closeCancelledCloverOrder({ ...latest, posOrderId: pos.posOrderId }, pos.merchantId ?? store?.cloverMerchantId);
         await repo.addEvent(order.id, 'pos_duplicate', { posOrderId: pos.posOrderId, kept: latest.posOrderId, ...tag,
           message: r.ok ? `Reached Clover just after another send (${latest.posOrderId}) — this extra copy was removed.` : `Reached Clover just after another send (${latest.posOrderId}) — remove the extra copy ${pos.posOrderId} in Clover: ${r.message}` });
         if (!r.ok) {
@@ -524,7 +592,7 @@ async function resendNow(order: StoredOrder, opts: { manual?: boolean; by?: stri
             summary: `${CHANNEL_LABELS[latest.channel]} #${latest.displayId || latest.externalOrderId.slice(0, 8)} is in Clover twice (${latest.posOrderId}, ${pos.posOrderId}) — delete ${pos.posOrderId} in the Clover Orders app: ${r.message}` });
         }
       }
-      return { order: latest, pos: { ok: true, posOrderId: latest.posOrderId, adopted: true }, store };
+      return { order: latest, pos: { ok: true, posOrderId: latest.posOrderId, merchantId: latest.timeline?.posMerchantId, adopted: true }, store };
     }
     if (latest.status === 'cancelled') {
       // No kitchen ticket for a cancelled order: keep the Clover id for the record, then remove it from Clover.

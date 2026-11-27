@@ -61,10 +61,11 @@ export function cloverReadiness() {
 /**
  * `skipped` = Clover is deliberately not in the picture (injection off, or no merchant configured anywhere); every other
  * miss is a failure. `uncertain` = the answer was lost (time-out, 5xx): Clover may have created the order anyway.
+ * merchantId = the merchant that confirmed the order, when known.
  * totalCents = Clover's own total for the new order, when Clover returns it (taxes computed by Clover).
  */
 export type InjectResult =
-  | { ok: true; posOrderId: string; totalCents?: number; lineItems?: number; freeLines?: number; adopted?: boolean }
+  | { ok: true; posOrderId: string; merchantId?: string; totalCents?: number; lineItems?: number; freeLines?: number; adopted?: boolean }
   | { ok: false; skipped?: boolean; error: string; httpStatus?: number; uncertain?: boolean };
 
 /**
@@ -125,7 +126,7 @@ export async function injectOrder(order: StoredOrder, merchantId?: string | null
     const json = text ? JSON.parse(text) : {};
     if (!json.id) return { ok: false, error: 'Clover response did not include an order id.', uncertain: true };
     const total = Number(json.total);
-    return { ok: true, posOrderId: String(json.id), lineItems: draft.lineItems, freeLines: draft.freeLines, ...(Number.isFinite(total) ? { totalCents: total } : {}) };
+    return { ok: true, posOrderId: String(json.id), merchantId: mid, lineItems: draft.lineItems, freeLines: draft.freeLines, ...(Number.isFinite(total) ? { totalCents: total } : {}) };
   } catch (error) {
     // A time-out or a dropped connection: Clover may or may not have the order — the retry looks before sending again.
     return { ok: false, error: `Clover network error: ${error instanceof Error ? error.message : String(error)}`, uncertain: true };

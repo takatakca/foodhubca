@@ -58,8 +58,8 @@ async function settleCloverOnly(order: StoredOrder | null): Promise<StoredOrder 
           summary: `${tag} was cancelled after it was recorded as paid in Clover — check the payout; refund it in Clover if the platform did not pay you.` });
         return patch(order, { posClosedAt: nowIso() });
       }
-      const store = await repo.findStore(order.channel, order.channelStoreId);
-      const r = await closeCancelledCloverOrder(order, store?.cloverMerchantId, { flagOnly: isTgtgEmailOrder(order) });
+      const merchantId = order.timeline?.posMerchantId || (await repo.findStore(order.channel, order.channelStoreId))?.cloverMerchantId;
+      const r = await closeCancelledCloverOrder(order, merchantId, { flagOnly: isTgtgEmailOrder(order) });
       if (r.skipped) return order;
       await repo.addEvent(order.id, r.ok ? 'pos_cancelled' : 'pos_cancel_failed', { message: order.status === 'failed' ? `${r.message} (order handed to the Skip tablet)` : r.message });
       if (!r.ok) {

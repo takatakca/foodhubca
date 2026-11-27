@@ -176,8 +176,17 @@ declare
   inserted boolean := false;
   parked_cancel boolean := false;
   transitioned boolean := false;
+  receipt_mode boolean := p_kind in ('record_receipt', 'check_receipt');
+  receipt_pos_id text := p_detail->>'posOrderId';
+  receipt_merchant text := p_detail->>'merchantId';
+  stored_merchant text;
+  receipt_timeline jsonb;
+  retry jsonb;
+  receipt_evidence jsonb;
+  recorded boolean := false;
 begin
-  if p_kind is null or p_kind not in ('backup', 'cancel', 'intake', 'check_intake') or p_external_id is null or p_external_id = '' then
+  if p_kind is null or p_kind not in ('backup', 'cancel', 'intake', 'check_intake', 'record_receipt', 'check_receipt')
+      or p_external_id is null or p_external_id = '' then
     raise exception 'Invalid Skip lifecycle notice' using errcode = '22023';
   end if;
   if p_kind in ('backup', 'intake') then
@@ -193,6 +202,40 @@ begin
   event_detail := coalesce(p_detail, '{}'::jsonb);
   select * into current_order from public.fh_orders
     where channel = 'skip' and external_order_id = p_external_id for update;
+
+  if receipt_mode then
+    stored_merchant := current_order.timeline->>'posMerchantId';
+    if current_order.id is null or current_order.id::text is distinct from p_detail->>'orderId'
+        or coalesce(current_order.data->>'viaHub', '') <> '' or coalesce(current_order.data->>'viaPos', '') <> ''
+        or coalesce(btrim(receipt_pos_id, blank_store_chars), '') = '' or coalesce(btrim(receipt_merchant, blank_store_chars), '') = ''
+        or (coalesce(current_order.pos_order_id, '') <> '' and current_order.pos_order_id is distinct from receipt_pos_id)
+        or (coalesce(stored_merchant, '') <> '' and stored_merchant is distinct from receipt_merchant)
+        or (p_kind = 'check_receipt' and (current_order.pos_order_id is distinct from receipt_pos_id
+          or stored_merchant is distinct from receipt_merchant)) then
+      return jsonb_build_object('order', null, 'isNew', false, 'outcome', 'conflicting_receipt');
+    end if;
+    if p_kind = 'record_receipt' then
+      receipt_timeline := current_order.timeline || jsonb_build_object('posMerchantId', receipt_merchant);
+      retry := receipt_timeline->'posRetry';
+      if jsonb_typeof(retry) = 'object' and (retry->'nextAt' is distinct from 'null'::jsonb or coalesce(retry->>'doneAt', '') = '') then
+        receipt_timeline := jsonb_set(receipt_timeline, '{posRetry}', retry || jsonb_build_object(
+          'nextAt', null, 'doneAt', coalesce(nullif(retry->>'doneAt', ''), event_at)));
+      end if;
+      if current_order.pos_order_id is distinct from receipt_pos_id or current_order.pos_error is not null
+          or current_order.timeline is distinct from receipt_timeline then
+        update public.fh_orders set pos_order_id = receipt_pos_id, pos_error = null,
+          timeline = receipt_timeline, updated_at = observed_at where id = current_order.id returning * into current_order;
+      end if;
+      if not exists (select 1 from public.fh_order_events where order_id = current_order.id
+          and type in ('pos_injected', 'pos_adopted') and detail->>'posOrderId' = receipt_pos_id) then
+        receipt_evidence := case when jsonb_typeof(p_detail->'evidence') = 'object' then p_detail->'evidence' else '{}'::jsonb end;
+        insert into public.fh_order_events (order_id, type, detail) values (
+          current_order.id, case when p_detail->'adopted' = 'true'::jsonb then 'pos_adopted' else 'pos_injected' end,
+          receipt_evidence || jsonb_build_object('posOrderId', receipt_pos_id, 'merchantId', receipt_merchant));
+        recorded := true;
+      end if;
+    end if;
+  end if;
 
   if p_kind = 'check_intake' and (current_order.id is null or current_order.status <> 'new' or coalesce(current_order.pos_order_id, '') <> ''
       or coalesce(current_order.data->>'viaHub', '') <> '' or coalesce(current_order.data->>'viaPos', '') <> '') then
@@ -232,7 +275,7 @@ begin
       end if;
     end if;
   else
-    desired_status := case when p_kind = 'backup' then 'failed' else 'new' end;
+    desired_status := case when p_kind = 'backup' then 'failed' when receipt_mode then current_order.status else 'new' end;
     select value into pending from public.fh_kv where key = pending_key for update;
     if coalesce(pending->>'consumedAt', '') = '' and pending->'status'->>'platformState' ~* 'cancel|fail' then
       cancellation := pending->'status';
@@ -287,7 +330,9 @@ begin
     return jsonb_build_object('order', null, 'isNew', false, 'outcome', 'conflicting_store');
   end if;
   if not inserted then
-    if p_kind in ('intake', 'check_intake') and (desired_status = 'new' or current_order.status <> 'new'
+    if receipt_mode and cancellation is null then
+      disposition := case when current_order.status = 'cancelled' then 'cancelled' else 'received' end;
+    elsif p_kind in ('intake', 'check_intake') and (desired_status = 'new' or current_order.status <> 'new'
         or coalesce(current_order.data->>'viaHub', '') <> '' or coalesce(current_order.data->>'viaPos', '') <> '') then
       disposition := 'received';
       parked_cancel := false;
@@ -337,7 +382,8 @@ begin
     end if;
   end if;
   return jsonb_build_object('order', to_jsonb(current_order), 'isNew', inserted, 'outcome', disposition)
-    || case when transitioned then '{"transitioned":true}'::jsonb else '{}'::jsonb end;
+    || case when transitioned then '{"transitioned":true}'::jsonb else '{}'::jsonb end
+    || case when recorded then '{"recorded":true}'::jsonb else '{}'::jsonb end;
 end;
 $skip_lifecycle$;
 

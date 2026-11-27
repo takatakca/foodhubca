@@ -6,7 +6,7 @@ import { logActivity, type Actor } from './activity';
 import { getAdapter } from './adapters';
 import { CHANNEL_LABELS, nowIso } from './config';
 import { allCloverMerchants, cloverAutoPrintEnabled, cloverBaseUrl, cloverExpected, cloverInjectionEnabled, cloverToken, defaultCloverMerchant, injectOrder, type InjectResult } from './pos/clover';
-import { CLOVER_REPRINT_KITCHEN_CHANGED, cloverKitchenChanged, cloverOrderTypeForOrder, cloverTotalGap, describeMappingWarnings, findCloverOrderByTitle, mapOrderLines, platformFoodCents, printKitchenTicket } from './pos/clover-order';
+import { CLOVER_REPRINT_KITCHEN_CHANGED, cloverKitchenChanged, cloverOrderTypeForOrder, cloverReceiptMarker, cloverTotalGap, describeMappingWarnings, findCloverOrderByTitle, mapOrderLines, platformFoodCents, printKitchenTicket } from './pos/clover-order';
 import { cloverRetryDelaysS, noteLastOrder, scheduleCloverRetry } from './order-retry';
 import { settleInClover } from './clover-settle';
 import { mevOnOrderChange } from './mev/hooks';
@@ -569,8 +569,37 @@ async function resendNow(order: StoredOrder, opts: { manual?: boolean; by?: stri
   } else if (maybeInClover(current)) {
     const mid = store?.cloverMerchantId || (await defaultCloverMerchant());
     const token = mid ? await cloverToken(mid).catch(() => null) : null;
-    const hit = mid && token ? await findCloverOrderByTitle(mid, token, cloverBaseUrl(), current, Date.parse(current.createdAt) - 5 * 60_000).catch(() => null) : null;
-    if (hit && mid) pos = { ok: true, posOrderId: hit.id, merchantId: mid, adopted: true, ...(hit.totalCents !== undefined ? { totalCents: hit.totalCents } : {}) };
+    const directSkip = isDirectSkipSource(current);
+    try {
+      if (mid && token) {
+        const hit = await findCloverOrderByTitle(mid, token, cloverBaseUrl(), current, Date.parse(current.createdAt) - 5 * 60_000,
+          directSkip ? cloverReceiptMarker(current) : undefined);
+        if (hit) pos = { ok: true, posOrderId: hit.id, merchantId: mid, adopted: true, ...(hit.totalCents !== undefined ? { totalCents: hit.totalCents } : {}) };
+      } else if (directSkip) {
+        throw new Error('The Clover register could not be checked.');
+      }
+    } catch (error) {
+      if (directSkip) {
+        const problem = error instanceof Error ? error.message : String(error);
+        pos = { ok: false, skipped: true, uncertain: true, error: `Skip Clover receipt needs review: ${problem}` };
+        const decision = await repo.applySkipLifecycle({ kind: 'check_intake', externalOrderId: current.externalOrderId });
+        if (!decision.order || decision.order.id !== current.id) throw new Error('Skip order changed while checking Clover receipt ownership.');
+        current = decision.order;
+        if (decision.transitioned) await logSkipReceiptCancellation(current);
+        await repo.addEvent(order.id, 'needs_attention', { reason: pos.error, ...tag });
+        if (current.status === 'cancelled') return { order: current, pos, store };
+      }
+    }
+  }
+  if (!pos && isDirectSkipSource(current) && current.status === 'new') {
+    // A cancellation can arrive while the recovery lookup is waiting for Clover's answer.
+    const decision = await repo.applySkipLifecycle({ kind: 'check_intake', externalOrderId: current.externalOrderId });
+    if (!decision.order || decision.order.id !== current.id) throw new Error('Skip order changed before a Clover retry.');
+    current = decision.order;
+    if (decision.transitioned) await logSkipReceiptCancellation(current);
+    if (decision.outcome !== 'received') {
+      return { order: current, pos: { ok: false, skipped: true, error: 'Skip order changed before a Clover retry.' }, store };
+    }
   }
   pos ??= await sendToClover(current, store);
   if (pos.ok) {
@@ -584,7 +613,8 @@ async function resendNow(order: StoredOrder, opts: { manual?: boolean; by?: stri
     if (latest.posOrderId) {
       if (!sameReceipt && !pos.adopted) {
         // Theirs is kept; this second copy is removed so Clover never has the order twice.
-        const r = await closeCancelledCloverOrder({ ...latest, posOrderId: pos.posOrderId }, pos.merchantId ?? store?.cloverMerchantId);
+        const duplicate = { ...latest, posOrderId: pos.posOrderId, timeline: { ...latest.timeline, posMerchantId: pos.merchantId } };
+        const r = await closeCancelledCloverOrder(duplicate, pos.merchantId ?? store?.cloverMerchantId);
         await repo.addEvent(order.id, 'pos_duplicate', { posOrderId: pos.posOrderId, kept: latest.posOrderId, ...tag,
           message: r.ok ? `Reached Clover just after another send (${latest.posOrderId}) — this extra copy was removed.` : `Reached Clover just after another send (${latest.posOrderId}) — remove the extra copy ${pos.posOrderId} in Clover: ${r.message}` });
         if (!r.ok) {

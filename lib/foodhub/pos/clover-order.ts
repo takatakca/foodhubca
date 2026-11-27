@@ -153,6 +153,11 @@ function scheduledLabel(iso: string) {
 }
 
 const FULFILLMENT_NOTE: Record<StoredOrder['fulfillment'], string> = { delivery: 'LIVRAISON / DELIVERY', pickup: 'CUEILLETTE / PICKUP', dine_in: 'SUR PLACE / DINE IN' };
+const CLOVER_NOTE_LIMIT = 255;
+
+export function cloverReceiptMarker(order: Pick<StoredOrder, 'id'>): string {
+  return `[FH:${order.id}]`;
+}
 
 /** The note Clover shows (and prints) with the order: when, who, how it leaves, the customer's own words. Max 255. */
 export function cloverOrderNote(order: StoredOrder, freeLines = 0): string {
@@ -170,7 +175,10 @@ export function cloverOrderNote(order: StoredOrder, freeLines = 0): string {
     order.notes || '',
     freeLines ? `⚠ ${freeLines} article(s) hors inventaire Clover` : '',
   ].filter(Boolean);
-  return parts.join(' | ').slice(0, 255);
+  const note = parts.join(' | ');
+  if (order.channel !== 'skip' || order.viaHub || order.viaPos) return note.slice(0, CLOVER_NOTE_LIMIT);
+  const suffix = ` | ${cloverReceiptMarker(order)}`;
+  return note.slice(0, CLOVER_NOTE_LIMIT - suffix.length) + suffix;
 }
 
 /**
@@ -270,15 +278,32 @@ export function cloverTipCents(order: Pick<StoredOrder, 'tip' | 'fulfillment' | 
 
 /**
  * An order Food Hub may already have created in Clover (the answer was lost: time-out, 5xx): looked up by its title
- * among the orders created since `sinceMs`, so a retry adopts it instead of printing a second kitchen ticket.
+ * among the orders created since `sinceMs`. A scoped lookup also requires a unique ownership marker.
  */
-export async function findCloverOrderByTitle(mid: string, token: string, base: string, order: CloverOrderTitleFields, sinceMs: number): Promise<{ id: string; totalCents?: number } | null> {
+export async function findCloverOrderByTitle(mid: string, token: string, base: string, order: CloverOrderTitleFields, sinceMs: number, expectedMarker?: string): Promise<{ id: string; totalCents?: number } | null> {
+  const limit = 100;
   const want = normalizeCloverOrderTitle(cloverOrderTitle(order));
-  const qs = new URLSearchParams({ filter: `createdTime>=${Math.floor(sinceMs)}`, limit: '100' });
+  const qs = new URLSearchParams({ filter: `createdTime>=${Math.floor(sinceMs)}`, limit: String(limit) });
   const res = await cloverFetch(`${base}/v3/merchants/${encodeURIComponent(mid)}/orders?${qs}`, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
   if (!res.ok) throw new Error(`Clover orders HTTP ${res.status}`);
-  const rows: any[] = (await res.json())?.elements ?? [];
-  const hit = rows.find((o) => normalizeCloverOrderTitle(o?.title) === want && !/^cancel/i.test(String(o?.title ?? '')));
+  type LookupRow = { id?: string; title?: unknown; note?: unknown; total?: unknown } | null;
+  const elements: LookupRow[] | undefined = (await res.json())?.elements;
+  const matchesTitle = (row: LookupRow) => normalizeCloverOrderTitle(row?.title) === want && !/^cancel/i.test(String(row?.title ?? ''));
+  let hit: LookupRow | undefined;
+  if (expectedMarker === undefined) {
+    hit = (elements ?? []).find(matchesTitle);
+  } else {
+    if (!expectedMarker || !Array.isArray(elements) || elements.length >= limit) {
+      throw new Error('Clover order lookup did not return a complete candidate window');
+    }
+    const matchesMarker = (row: LookupRow) => typeof row?.note === 'string' && row.note.endsWith(expectedMarker);
+    const candidates = elements.filter((row) => matchesTitle(row) || matchesMarker(row));
+    if (!candidates.length) return null;
+    hit = candidates[0];
+    if (candidates.length !== 1 || typeof hit?.id !== 'string' || !hit.id.trim() || !matchesTitle(hit) || !matchesMarker(hit)) {
+      throw new Error('Clover order lookup could not verify unique order ownership');
+    }
+  }
   if (!hit?.id) return null;
   const total = Number(hit.total);
   return { id: String(hit.id), ...(Number.isFinite(total) ? { totalCents: total } : {}) };

@@ -349,15 +349,18 @@ describe('automatic receipt of direct Skip orders', () => {
     { case: 'a creation with its cancellation worker run', worker: 'run', adopt: false, remap: false },
     { case: 'a creation while the store mapping moves to another kitchen and register', worker: 'run', adopt: false, remap: true },
     { case: 'a resumed receipt lookup with its cancellation worker withheld', worker: 'withheld', adopt: true, remap: false },
-  ])('records and closes the Clover receipt without printing or accepting during $case', async ({ worker, adopt, remap }) => {
+    { case: 'a resumed legacy title-only lookup with its cancellation worker withheld', worker: 'withheld', adopt: true, remap: false, legacy: true },
+  ])('handles the Clover receipt without printing or accepting during $case', async ({ worker, adopt, remap, legacy }) => {
     vi.stubEnv('FOODHUB_POS_INJECTION', undefined);
     vi.stubEnv('FOODHUB_CLOVER_AUTOPRINT', 'on');
     vi.stubEnv('FOODHUB_CLOVER_DELETE_CANCELLED', 'on');
     const repo = getRepo();
     const incoming = event();
     const parsed = parseSkipOrder(incoming)!;
+    let storedOrderId: string | undefined;
     if (adopt) {
-      await repo.insertOrderIfNew({ ...parsed, locationCode: 'TEST', createdAt: new Date(Date.now() - 100_000).toISOString() });
+      const { order } = await repo.insertOrderIfNew({ ...parsed, locationCode: 'TEST', createdAt: new Date(Date.now() - 100_000).toISOString() });
+      storedOrderId = order.id;
     }
     const movedMerchant = 'TESTMERCH0002';
     if (remap) vi.stubEnv('CLOVER_MERCHANT_TOKENS', JSON.stringify({ [movedMerchant]: 'fixture-moved-register-token' }));
@@ -388,7 +391,10 @@ describe('automatic receipt of direct Skip orders', () => {
         } catch (error) {
           fixtureError = error;
         }
-        if (adopt) return Response.json({ elements: [{ id: POS, title: cloverOrderTitle(parsed), total: 1150 }] });
+        if (adopt) {
+          const note = legacy ? 'Prior Clover order without a Food Hub marker' : `Fixture Clover receipt | [FH:${storedOrderId}]`;
+          return Response.json({ elements: [{ id: POS, title: cloverOrderTitle(parsed), note, total: 1150 }] });
+        }
       }
       if (address.endsWith('/print_event') && init?.method === 'POST') return Response.json({ id: 'fixture-print' });
       if ([close, movedClose].includes(address) && init?.method === 'DELETE') return new Response(null, { status: 204 });
@@ -400,6 +406,16 @@ describe('automatic receipt of direct Skip orders', () => {
     expect(beforeResponse).toEqual([
       { status: 'new', posOrderId: undefined }, { status: worker === 'run' ? 'cancelled' : 'new', posOrderId: undefined },
     ]);
+    if (legacy) {
+      expect({
+        status: order.status, receipt: order.posOrderId,
+        requests: fetchMock.mock.calls.map(([url, init]) => [String(url), init?.method ?? 'GET']),
+      }).toEqual({ status: 'cancelled', receipt: undefined, requests: [[expect.stringContaining(lookup), 'GET']] });
+      expect(order.timeline?.cancelReason).toBe('CUSTOMER_REQUEST');
+      expect((await repo.listDocs<InboxEntry>(INBOX)).map(({ data }) => data)).toContainEqual(expect.objectContaining({ kind: 'skip_cancel', status: 'received' }));
+      expect((await repo.listEvents(order.id)).map((entry) => entry.type)).not.toContain('pos_adopted');
+      return;
+    }
     expect({
       status: order.status, receipt: order.posOrderId, closed: Boolean(order.timeline?.posClosedAt),
       requests: fetchMock.mock.calls.map(([url, init]) => [String(url), init?.method ?? 'GET']),

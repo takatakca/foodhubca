@@ -8,7 +8,7 @@ export interface OrderFilter { limit?: number; statuses?: OrderStatus[]; since?:
 export interface ActivityFilter { limit?: number; since?: string; until?: string; kinds?: ActivityKind[]; locationCodes?: string[] }
 /** Generic document store (payout lines, statement imports, reconciliation cases, ledger approvals…). */
 export interface Doc<T = Record<string, unknown>> { id: string; key?: string | null; at?: string | null; data: T }
-export interface DocFilter { since?: string; until?: string; keys?: string[]; limit?: number }
+export interface DocFilter { since?: string; until?: string; keys?: string[]; ids?: string[]; limit?: number }
 
 type StoreSnapshot = Pick<ChannelStore, 'channel' | 'channelStoreId' | 'locationCode' | 'updatedAt' | 'meta'>;
 
@@ -208,7 +208,10 @@ const memoryRepo: FoodHubRepo = {
   },
   async listDocs<T>(collection: string, filter: DocFilter = {}) {
     const col = memState().docs?.get(collection);
-    let list = col ? [...col.values()] as Doc<T>[] : [];
+    let list = col ? (filter.ids ? [...new Set(filter.ids)].flatMap((id) => {
+      const doc = col.get(id);
+      return doc ? [doc] : [];
+    }) : [...col.values()]) as Doc<T>[] : [];
     if (filter.since) list = list.filter((d) => (d.at ?? '') >= filter.since!);
     if (filter.until) list = list.filter((d) => (d.at ?? '') < filter.until!);
     if (filter.keys?.length) list = list.filter((d) => d.key && filter.keys!.includes(d.key));
@@ -522,6 +525,7 @@ function supabaseRepo(): FoodHubRepo {
       }
     },
     async listDocs<T>(collection: string, filter: DocFilter = {}) {
+      if (filter.ids && !filter.ids.length) return [];
       const limit = filter.limit ?? 100_000;
       const out: Doc<T>[] = [];
       const keys = filter.keys?.length ? filter.keys : null;
@@ -531,6 +535,7 @@ function supabaseRepo(): FoodHubRepo {
         if (filter.since) q = q.gte('at', filter.since);
         if (filter.until) q = q.lt('at', filter.until);
         if (keys) q = q.in('key', keys.slice(0, 500));
+        if (filter.ids) q = q.in('id', filter.ids);
         const rows = (must(await q) ?? []) as Row[];
         out.push(...rows.map((r) => ({ id: r.id, key: r.key, at: r.at, data: r.data as T })));
         if (rows.length < to - from + 1) break;

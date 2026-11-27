@@ -1,3 +1,5 @@
+import releaseProbe from './release-probe.json';
+
 /** The source identity reported by the public release marker. */
 export function releaseSha(): string {
   return (
@@ -11,4 +13,9 @@ export function releaseSha(): string {
 
 export function validatedReleaseSha(value: unknown): string | undefined {
   return typeof value === 'string' && /^[0-9a-f]{40}$/i.test(value) ? value : undefined;
+}
+
+export function releaseProbeNonce(params: URLSearchParams): string | undefined {
+  const values = params.getAll(releaseProbe.query);
+  return values.length === 1 && /^[a-f0-9]{32}$/.test(values[0]) ? values[0] : undefined;
 }

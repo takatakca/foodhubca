@@ -1,8 +1,10 @@
 // Read-only verification of a deployed Food Hub instance. No credentials or order writes.
 // Usage: npm run verify:live -- --url https://foodhub.on2go.ca/ --sha <40-char-commit>
 // A missing expected commit is a failure: merely seeing *any* release marker is NOT deployment proof.
+import { randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import releaseProbe from '../lib/foodhub/release-probe.json' with { type: 'json' };
 
 export function parseOptions(argv, env = process.env) {
   let url = env.FOODHUB_HTTPS_URL || '';
@@ -48,10 +50,16 @@ export async function verifyLiveDeployment({ url, sha = '', fetchImpl = fetch, a
     throw new Error('Expected SHA is required and must be the full 40-character Git commit');
   }
 
+  const missingIdentity = [];
   const request = async (path, headers = {}) => {
+    const requestUrl = new URL(path, base);
+    const nonce = randomBytes(16).toString('hex');
+    requestUrl.searchParams.set(releaseProbe.query, nonce);
+    let response;
     try {
-      return await fetchImpl(new URL(path, base), {
+      response = await fetchImpl(requestUrl, {
         method: 'GET',
+        cache: 'no-store',
         headers,
         redirect: 'manual',
         signal: AbortSignal.timeout(15000),
@@ -60,6 +68,16 @@ export async function verifyLiveDeployment({ url, sha = '', fetchImpl = fetch, a
       const cause = error instanceof Error ? error.name : 'network error';
       throw new Error('GET ' + path + ' unreachable (' + cause + ')');
     }
+    const responseSha = response.headers.get(releaseProbe.shaHeader);
+    const responseNonce = response.headers.get(releaseProbe.nonceHeader);
+    if (responseSha !== null && responseSha.toLowerCase() !== sha.toLowerCase()) {
+      throw new Error(path + ' returned a different release SHA');
+    }
+    if (responseNonce !== null && responseNonce !== nonce) {
+      throw new Error(path + ' returned a different probe nonce');
+    }
+    if (responseSha === null || responseNonce === null) missingIdentity.push(path);
+    return response;
   };
 
   const verifyRelease = async () => {
@@ -73,9 +91,12 @@ export async function verifyLiveDeployment({ url, sha = '', fetchImpl = fetch, a
     if (release.sha.toLowerCase() !== sha.toLowerCase()) {
       throw new Error('/api/release is on a different SHA: ' + release.sha.slice(0, 7));
     }
-    return release.sha;
+    if (release.probeIdentity !== undefined && release.probeIdentity !== releaseProbe.capability) {
+      throw new Error('/api/release advertised an unsupported release identity capability');
+    }
+    return { sha: release.sha, probeIdentity: release.probeIdentity };
   };
-  const releaseSha = await verifyRelease();
+  const firstRelease = await verifyRelease();
 
   const directoryResponse = await request('/api/public/directory', { Origin: 'https://on2go.ca' });
   requireStatus(directoryResponse, 200, '/api/public/directory');
@@ -112,13 +133,21 @@ export async function verifyLiveDeployment({ url, sha = '', fetchImpl = fetch, a
   requireStatus(privateResponse, 401, '/api/foodhub/orders');
 
   // The reverse proxy may switch versions while the other endpoints are being checked.
-  await verifyRelease();
+  const lastRelease = await verifyRelease();
+  if (firstRelease.probeIdentity !== lastRelease.probeIdentity) {
+    throw new Error('/api/release capability changed during verification');
+  }
+  const provesEveryResponse = firstRelease.probeIdentity === releaseProbe.capability;
+  if (provesEveryResponse && missingIdentity.length) {
+    throw new Error(missingIdentity[0] + ' is missing release identity for its probe');
+  }
 
   return {
-    sha: releaseSha,
+    sha: firstRelease.sha,
     origin: base.origin,
     checks: [
-      '/api/release: exact deployed SHA before and after endpoint checks',
+      provesEveryResponse ? '/api/release: exact deployed SHA for each probe response'
+        : '/api/release: exact deployed SHA before and after endpoint checks (marker only)',
       '/api/public/directory: public brands, kitchens and ON2GO CORS',
       '/api/health: healthy',
       '/login: available',

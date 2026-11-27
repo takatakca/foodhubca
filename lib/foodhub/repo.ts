@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { createServiceClient, hasSupabaseEnv } from '../supabase/server';
 import { nowIso } from './config';
+import type { PendingPlatformEvents } from './courier';
 import type { ActivityEntry, ActivityKind, ChannelKey, ChannelStore, FoodHubJob, FoodHubUser, MasterMenu, NormalizedOrder, OrderEvent, OrderStatus, OrderTimeline, StoredOrder } from './types';
 
 export interface OrderFilter { limit?: number; statuses?: OrderStatus[]; since?: string; until?: string; locationCodes?: string[] }
@@ -12,8 +13,20 @@ export interface DocFilter { since?: string; until?: string; keys?: string[]; li
 
 type StoreSnapshot = Pick<ChannelStore, 'channel' | 'channelStoreId' | 'locationCode' | 'updatedAt' | 'meta'>;
 
+export type SkipLifecycleInput =
+  | { kind: 'backup'; order: NormalizedOrder & { locationCode?: string }; mappedStore: boolean; message: string; detail: Record<string, unknown> }
+  | { kind: 'cancel'; externalOrderId: string; detail: Record<string, unknown> };
+
+export interface SkipLifecycleResult {
+  order: StoredOrder | null;
+  isNew: boolean;
+  outcome: 'conflicting_store' | 'ignored' | 'cancelled' | 'parked' | 'backed_up';
+  transitioned?: true;
+}
+
 export interface FoodHubRepo {
   mode: 'supabase' | 'memory';
+  applySkipLifecycle(input: SkipLifecycleInput): Promise<SkipLifecycleResult>;
   insertOrderIfNew(order: NormalizedOrder & { locationCode?: string; createdAt?: string }): Promise<{ order: StoredOrder; isNew: boolean }>;
   getOrder(id: string): Promise<StoredOrder | null>;
   findOrder(channel: ChannelKey, externalOrderId: string): Promise<StoredOrder | null>;
@@ -89,8 +102,103 @@ function memState(): MemState {
   return g.__foodhubMem;
 }
 
+function skipNoticeReference(input: SkipLifecycleInput): string {
+  const reference = input.kind === 'backup' ? input.order.externalOrderId : input.externalOrderId;
+  if (!reference || (input.kind === 'backup' && input.order.channel !== 'skip')) throw new Error('Invalid Skip lifecycle notice');
+  return reference;
+}
+
+function pendingInboxCancel(state: MemState, reference: string): PendingPlatformEvents['status'] {
+  const candidates = [...(state.docs.get('webhook_inbox')?.values() ?? [])].filter(({ data, key }) =>
+    data?.channel === 'skip' && data.kind === 'skip_cancel' && data.reference === reference.slice(0, 200)
+    && String(data.body?.orderID ?? '') === reference && ['received', 'processing', 'failed', 'done'].includes(key ?? ''));
+  candidates.sort((a, b) => (b.at ?? '').localeCompare(a.at ?? '') || b.id.localeCompare(a.id));
+  const entry = candidates[0]?.data;
+  if (!entry) return undefined;
+  const { reason, happenedAt } = entry.body;
+  return { platformState: 'cancelled', detail: { reason: reason?.code, happenedAt }, at: entry.receivedAt };
+}
+
+// No asynchronous boundary between the memory decision, order write and event append, mirroring the SQL atom.
+function applySkipLifecycleInMemory(input: SkipLifecycleInput): SkipLifecycleResult {
+  const state = memState();
+  const externalOrderId = skipNoticeReference(input);
+  const now = nowIso();
+  const key = `pending:skip:${externalOrderId}`;
+  const pending = state.kv.get(key) as PendingPlatformEvents | undefined;
+  const existing = [...state.orders.values()].find((order) => order.channel === 'skip' && order.externalOrderId === externalOrderId);
+  const parked = pending && !pending.consumedAt && pending.status && /cancel|fail/i.test(pending.status.platformState) ? pending : undefined;
+  const cancellation = input.kind === 'cancel'
+    ? { platformState: 'cancelled', detail: input.detail, at: now }
+    : parked?.status ?? pendingInboxCancel(state, externalOrderId);
+
+  if (input.kind === 'cancel' && !existing) {
+    const { consumedAt: _consumed, ...previous } = pending ?? {};
+    state.kv.set(key, { ...previous, status: cancellation });
+    return { order: null, isNew: false, outcome: 'parked' };
+  }
+  if (input.kind === 'backup' && input.mappedStore && existing?.channelStoreId && existing.channelStoreId !== input.order.channelStoreId) {
+    return { order: null, isNew: false, outcome: 'conflicting_store' };
+  }
+  if (input.kind === 'backup' && !existing && (input.order.viaHub || input.order.viaPos)) {
+    return { order: null, isNew: false, outcome: 'ignored' };
+  }
+  const isNew = !existing;
+  const order = existing ?? (input.kind === 'backup'
+    ? { ...input.order, id: crypto.randomUUID(), createdAt: now, updatedAt: now }
+    : null);
+  if (!order) throw new Error('Missing Skip order');
+
+  const addEvent = (type: string, detail: Record<string, unknown>) => {
+    state.events.push({ id: crypto.randomUUID(), orderId: order.id, type, detail: JSON.parse(JSON.stringify(detail)), at: now });
+  };
+  const consumePending = () => {
+    if (input.kind === 'backup' && parked) state.kv.set(key, { ...parked, consumedAt: now });
+  };
+
+  if (existing) {
+    const direct = !existing.viaHub && !existing.viaPos;
+    if (direct && input.kind === 'backup' && !cancellation && existing.status === 'failed'
+      && state.events.some((event) => event.orderId === order.id && event.type === 'routed_to_skip_tablet')) {
+      return { order: existing, isNew: false, outcome: 'backed_up' };
+    }
+    if ((input.kind === 'cancel' || direct) && cancellation && existing.status === 'cancelled') {
+      consumePending();
+      return { order: existing, isNew: false, outcome: 'cancelled' };
+    }
+    if (input.kind === 'backup' && (!direct || (!['new', 'accepted', 'ready'].includes(existing.status)
+      && !(cancellation && existing.status === 'failed')))) {
+      consumePending();
+      const detail = JSON.parse(JSON.stringify({ ...input.detail, status: existing.status }));
+      if (!state.events.some((event) => event.orderId === order.id && event.type === 'skip_backup_ignored' && isDeepStrictEqual(event.detail, detail))) {
+        addEvent('skip_backup_ignored', detail);
+      }
+      return { order: existing, isNew: false, outcome: 'ignored' };
+    }
+  }
+
+  if (cancellation) {
+    const reason = String(cancellation.detail?.reason ?? cancellation.detail?.event ?? 'Cancelled on the platform');
+    const cancelled: StoredOrder = {
+      ...order, status: 'cancelled', updatedAt: now, channelError: input.kind === 'backup' ? undefined : existing?.channelError,
+      timeline: { ...existing?.timeline, cancelledAt: now, cancelledBy: /customer|eater/i.test(reason) ? 'customer' : 'platform',
+        cancelStage: existing?.timeline?.acceptedAt ? 'after_accept' : 'before_accept', cancelReason: reason },
+    };
+    state.orders.set(order.id, cancelled);
+    consumePending();
+    addEvent('platform_status', { ...cancellation.detail, state: cancellation.platformState, at: cancellation.at ?? now });
+    return { order: cancelled, isNew, outcome: 'cancelled', transitioned: true };
+  }
+  if (input.kind !== 'backup') throw new Error('Missing Skip cancellation');
+  const backedUp: StoredOrder = { ...order, status: 'failed', updatedAt: now, channelError: input.message, timeline: existing?.timeline ?? {} };
+  state.orders.set(order.id, backedUp);
+  addEvent('routed_to_skip_tablet', { ...input.detail, message: input.message });
+  return { order: backedUp, isNew, outcome: 'backed_up' };
+}
+
 const memoryRepo: FoodHubRepo = {
   mode: 'memory',
+  async applySkipLifecycle(input) { return applySkipLifecycleInMemory(input); },
   async insertOrderIfNew(order) {
     const s = memState();
     for (const o of s.orders.values()) {
@@ -334,6 +442,15 @@ function supabaseRepo(): FoodHubRepo {
   const db = createServiceClient();
   const repo: FoodHubRepo = {
     mode: 'supabase',
+    async applySkipLifecycle(input) {
+      const backup = input.kind === 'backup' ? input : null;
+      const result = must(await db.rpc('fh_apply_skip_lifecycle', {
+        p_kind: input.kind, p_external_id: skipNoticeReference(input),
+        p_order: backup ? { ...orderToRow(backup.order), data: backup.order } : null,
+        p_mapped: backup?.mappedStore ?? false, p_message: backup?.message ?? null, p_detail: input.detail,
+      })) as Omit<SkipLifecycleResult, 'order'> & { order: Row | null };
+      return { ...result, order: result.order ? rowToOrder(result.order) : null };
+    },
     async insertOrderIfNew(order) {
       const existing = await repo.findOrder(order.channel, order.externalOrderId);
       if (existing) return { order: existing, isNew: false };

@@ -8,7 +8,7 @@ import { receiveWebhook, refuseInboxEntry, runInboxEntry, type InboxKind } from 
 import type { ActivityKind, ChannelKey, CourierStatus, NormalizedOrder } from './types';
 
 export const SKIP_FINAL_PICKED_NOTICE = 'skip_final_picked';
-type RetainedNotice = typeof SKIP_FINAL_PICKED_NOTICE;
+type RetainedNotice = typeof SKIP_FINAL_PICKED_NOTICE | 'skip_backup';
 
 /** What to keep when deferred webhook work fails: the platform already got its 2xx and will not retry. */
 export interface BackgroundContext { channel: ChannelKey; body?: unknown; reference?: string | null; kind?: ActivityKind; notice?: RetainedNotice }

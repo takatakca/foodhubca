@@ -5,6 +5,7 @@ import { POST as cancelWebhook } from '../app/api/foodhub/webhooks/skip/cancel/r
 import { POST as failedWebhook } from '../app/api/foodhub/webhooks/skip/failed/route';
 import { parseSkipFailedOrder } from '../lib/foodhub/adapters/skip';
 import { readPending } from '../lib/foodhub/courier';
+import { INBOX, type InboxEntry } from '../lib/foodhub/inbox';
 import { getRepo } from '../lib/foodhub/repo';
 import type { OrderStatus } from '../lib/foodhub/types';
 
@@ -96,32 +97,25 @@ describe('Skip signed backup order lifecycle', () => {
     expect(await readPending('skip', ORDER)).toBeNull();
     const events = await getRepo().listEvents(order.id);
     expect(events.some((event) => event.type === 'routed_to_skip_tablet')).toBe(false);
-    expect(events).toContainEqual(expect.objectContaining({ type: 'skip_backup_ignored', detail: expect.objectContaining({ status: 'cancelled' }) }));
     expect(events).toContainEqual(expect.objectContaining({
       type: 'platform_status', detail: expect.objectContaining({ state: 'cancelled', reason: 'CUSTOMER_REQUEST' }),
     }));
   });
 
-  it('honors a cancellation parked between the initial ledger read and insertion', async () => {
+  it('honors a signed cancellation whose transaction parks it before the backup starts', async () => {
     const repo = getRepo();
-    const insert = repo.insertOrderIfNew.bind(repo);
-    vi.spyOn(repo, 'insertOrderIfNew').mockImplementationOnce(async (input) => {
-      await post('cancel', cancel());
-      return insert(input);
+    const apply = repo.applySkipLifecycle.bind(repo);
+    let deliveredCancel = false;
+    vi.spyOn(repo, 'applySkipLifecycle').mockImplementation(async (input) => {
+      if (input.kind === 'backup' && !deliveredCancel) {
+        deliveredCancel = true;
+        await post('cancel', cancel());
+      }
+      return apply(input);
     });
     await post('failed', backup());
+    expect(deliveredCancel).toBe(true);
     expect(await storedOrder()).toMatchObject({ status: 'cancelled', timeline: { cancelReason: 'CUSTOMER_REQUEST' } });
-  });
-
-  it('keeps the signed notice without opening a kitchen order when the initial ledger read fails', async () => {
-    const repo = getRepo();
-    vi.spyOn(repo, 'getKv').mockRejectedValueOnce(new Error('Synthetic ledger read failure'));
-    const body = backup();
-    await post('failed', body);
-    expect(await repo.findOrder('skip', ORDER)).toBeNull();
-    expect(await repo.listJobs(10)).toContainEqual(expect.objectContaining({
-      kind: 'webhook_unparsed', reference: ORDER, request: expect.objectContaining({ body }),
-    }));
   });
 
   it('retains a notice naming another known mapped store without changing the existing kitchen order', async () => {
@@ -136,9 +130,10 @@ describe('Skip signed backup order lifecycle', () => {
     body.order.restaurant.id = otherStore;
     await post('failed', body);
     expect(await storedOrder()).toEqual(order);
-    expect(await repo.listJobs(10)).toContainEqual(expect.objectContaining({
-      kind: 'webhook_unparsed', reference: ORDER, request: expect.objectContaining({ body }),
-    }));
+    const notice = (await repo.listDocs<InboxEntry>(INBOX, { limit: 10 })).map((doc) => doc.data)
+      .find((row) => row.kind === 'skip_backup' && row.reference === ORDER);
+    expect(notice).toMatchObject({ body, status: 'failed' });
+    expect(notice?.orderId).toBeFalsy();
   });
 
   it.each(['cancelled', 'completed'] as const)('keeps an already %s order terminal when backup arrives late', async (status) => {
@@ -150,27 +145,22 @@ describe('Skip signed backup order lifecycle', () => {
     expect(await storedOrder()).toEqual(before);
     const events = await getRepo().listEvents(before.id);
     expect(events).not.toContainEqual(expect.objectContaining({ type: 'routed_to_skip_tablet' }));
-    expect(events).toContainEqual(expect.objectContaining({ type: 'skip_backup_ignored', detail: expect.objectContaining({ status }) }));
+    if (status === 'completed') expect(events).toContainEqual(expect.objectContaining({
+      type: 'skip_backup_ignored', detail: expect.objectContaining({ status }),
+    }));
   });
 
-  it('lets a signed cancellation win between backup lookup and the status update', async () => {
+  it('keeps an existing order cancelled when its signed transaction wins before the backup', async () => {
     const order = await storeOrder('new');
     const repo = getRepo();
-    const update = repo.updateOrder.bind(repo);
-    const patch = repo.patchOrder.bind(repo);
+    const apply = repo.applySkipLifecycle.bind(repo);
     let cancelled = false;
-    const beforeWrite = async () => {
-      if (cancelled) return;
-      cancelled = true;
-      await post('cancel', cancel());
-    };
-    vi.spyOn(repo, 'updateOrder').mockImplementation(async (id, extra) => {
-      if (id === order.id && extra.status === 'failed') await beforeWrite();
-      return update(id, extra);
-    });
-    vi.spyOn(repo, 'patchOrder').mockImplementation(async (id, timeline, extra, guard) => {
-      if (id === order.id && extra?.status === 'failed') await beforeWrite();
-      return patch(id, timeline, extra, guard);
+    vi.spyOn(repo, 'applySkipLifecycle').mockImplementation(async (input) => {
+      if (input.kind === 'backup' && !cancelled) {
+        cancelled = true;
+        await post('cancel', cancel());
+      }
+      return apply(input);
     });
     await post('failed', backup());
 
@@ -178,7 +168,6 @@ describe('Skip signed backup order lifecycle', () => {
     expect(await storedOrder()).toMatchObject({ status: 'cancelled', timeline: { cancelReason: 'CUSTOMER_REQUEST' } });
     const events = await repo.listEvents(order.id);
     expect(events).not.toContainEqual(expect.objectContaining({ type: 'routed_to_skip_tablet' }));
-    expect(events).toContainEqual(expect.objectContaining({ type: 'skip_backup_ignored', detail: expect.objectContaining({ status: 'cancelled' }) }));
   });
 
   it('records a genuine first backup as a mapped tablet order and echoes the exact partner notice', async () => {

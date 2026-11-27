@@ -19,6 +19,7 @@
 // Stored in fh_docs, collection "webhook_inbox"; the doc key is the status, so the runner only reads open entries.
 import crypto from 'node:crypto';
 import { logActivity, type Actor } from './activity';
+import { parseSkipCancelNotice } from './adapters/skip';
 import { CHANNEL_LABELS, nowIso } from './config';
 import { deadlineFor, ORDER_DEADLINE_MIN } from './deadline';
 import { e2eHookMs } from './e2e-hooks';
@@ -26,7 +27,7 @@ import { getRepo } from './repo';
 import type { ChannelKey, NormalizedOrder } from './types';
 
 export const INBOX = 'webhook_inbox';
-export type InboxKind = 'uber' | 'doordash' | 'order';
+export type InboxKind = 'uber' | 'doordash' | 'order' | 'skip_backup' | 'skip_cancel';
 export type InboxStatus = 'received' | 'processing' | 'done' | 'failed' | 'refused';
 
 export interface InboxEntry {
@@ -79,6 +80,8 @@ async function carriesOrder(e: InboxEntry): Promise<{ placedAt?: string | null; 
   const body = (e.body ?? {}) as Record<string, any>;
   if (e.kind === 'order') return { placedAt: body.placedAt ?? null, viaHub: body.viaHub };
   if (e.kind === 'uber') return /^orders(\.scheduled)?\.notification$/.test(String(body.event_type ?? '')) ? {} : null;
+  // Skip backup and cancellation notices describe an existing platform decision and cannot begin kitchen intake.
+  if (e.kind !== 'doordash') return null;
   // A DoorDash sandbox test has no kitchen deadline (the sandbox handler never cooks and never throws): never cut off.
   if (e.sandbox) return null;
   const { doorDashSandboxReason } = await import('./doordash/sandbox');
@@ -102,9 +105,13 @@ export async function inboxOrderCutoff(e: InboxEntry): Promise<{ at: number; dea
 /** The platform store an entry is about (channelStoreId), for a manager limited to some locations. */
 export function inboxStoreRef(e: Pick<InboxEntry, 'kind' | 'body'>): string | null {
   const b = (e.body ?? {}) as Record<string, any>;
-  const id = e.kind === 'order' ? b.channelStoreId
-    : e.kind === 'uber' ? b.meta?.user_id ?? b.store_id ?? b.meta?.store_id
-      : b.order?.store?.merchant_supplied_id ?? b.store?.merchant_supplied_id;
+  let id: unknown;
+  switch (e.kind) {
+    case 'order': id = b.channelStoreId; break;
+    case 'uber': id = b.meta?.user_id ?? b.store_id ?? b.meta?.store_id; break;
+    case 'skip_backup': id = b.order?.restaurant?.id; break;
+    case 'doordash': id = b.order?.store?.merchant_supplied_id ?? b.store?.merchant_supplied_id; break;
+  }
   return id ? String(id) : null;
 }
 
@@ -113,10 +120,21 @@ async function storeLocations(): Promise<Map<string, string>> {
   return new Map((await getRepo().listStores()).map((s) => [`${s.channel}:${s.channelStoreId}`, s.locationCode]));
 }
 
-/** A manager limited to some locations sees an entry when its store is mapped to one of them; unmapped stores only the unrestricted. */
-function visibleTo(e: Pick<InboxEntry, 'channel' | 'kind' | 'body'>, locations: string[] | undefined, where: Map<string, string>): boolean {
-  if (!locations?.length) return true;
-  const loc = where.get(`${e.channel}:${inboxStoreRef(e) ?? ''}`);
+/** A scoped manager sees a Skip status notice in the recorded kitchen, or an unprocessed backup via its mapped store. */
+async function visibleTo(e: Pick<InboxEntry, 'channel' | 'kind' | 'body'>, locations: string[], where: Map<string, string>): Promise<boolean> {
+  if (e.kind === 'skip_cancel') {
+    const cancellation = parseSkipCancelNotice(e.body);
+    const order = cancellation && await getRepo().findOrder('skip', cancellation.externalOrderId);
+    return Boolean(order?.locationCode && locations.includes(order.locationCode));
+  }
+  const store = inboxStoreRef(e);
+  if (e.kind === 'skip_backup') {
+    const body = e.body as { order?: { orderId?: unknown } } | null;
+    const ref = body?.order?.orderId;
+    const order = (typeof ref === 'string' || typeof ref === 'number') ? await getRepo().findOrder('skip', String(ref)) : null;
+    if (order) return Boolean(store && store === order.channelStoreId && order.locationCode && locations.includes(order.locationCode));
+  }
+  const loc = where.get(`${e.channel}:${store ?? ''}`);
   return Boolean(loc && locations.includes(loc));
 }
 
@@ -130,6 +148,8 @@ async function handlerFor(kind: InboxKind, sandbox?: string | null): Promise<Han
   }
   if (kind === 'uber') return (await import('./webhooks/uber')).handleUberWebhook;
   if (kind === 'doordash') return (await import('./webhooks/doordash')).handleDoorDashWebhook;
+  if (kind === 'skip_backup') return (await import('./webhooks/skip')).handleSkipBackupWebhook;
+  if (kind === 'skip_cancel') return (await import('./webhooks/skip')).handleSkipCancelWebhook;
   const { pipelineOutcomeText, processIncomingOrder } = await import('./pipeline');
   return async (body: NormalizedOrder) => {
     const out = await processIncomingOrder(body);
@@ -269,9 +289,17 @@ export async function inboxSummary(opts: { now?: number; withBodies?: boolean; l
   const now = opts.now ?? Date.now();
   const repo = getRepo();
   let open = (await repo.listDocs<InboxEntry>(INBOX, { keys: ['received', 'processing', 'failed'], limit: 500 })).map((d) => d.data);
-  if (opts.locations?.length) {
+  const locations = opts.locations;
+  if (locations?.length) {
     const where = await storeLocations();
-    open = open.filter((e) => visibleTo(e, opts.locations, where));
+    const allowed: InboxEntry[] = [];
+    // Skip status notices may need an order lookup. Keep those reads bounded on a large inbox.
+    for (let offset = 0; offset < open.length; offset += 25) {
+      const entries = open.slice(offset, offset + 25);
+      const visibility = await Promise.all(entries.map((entry) => visibleTo(entry, locations, where)));
+      allowed.push(...entries.filter((_entry, index) => visibility[index]));
+    }
+    open = allowed;
   }
   const recent = (await repo.listDocs<InboxEntry>(INBOX, { since: new Date(now - 86400_000).toISOString(), limit: 1 })).map((d) => d.data);
   const stuckAfter = stuckMs();

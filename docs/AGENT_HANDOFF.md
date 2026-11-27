@@ -1,8 +1,16 @@
+## 2026-11-26 — Enregistrement durable du repli et de l’annulation Skip
+
+Les deux webhooks signés enregistrent l’avis dans la boîte de réception avant l’accusé JET. La reprise traite les deux types comme des avis de statut et la relance des anciens replis conserve leur type. Un repli dont l’écriture échoue reste en attente, sans commande provisoire. La transaction PostgreSQL choisit le statut et écrit la preuve de transition ensemble. Une annulation déjà enregistrée prévaut même si son traitement attend encore. Un repli valide conserve le suivi tablette et la règle MEV existante.
+
+Pour une base existante, la fonction `fh_apply_skip_lifecycle` et son autorisation au seul rôle serveur doivent être installées et vérifiées avant le déploiement du code. Le bloc idempotent figure dans `supabase/foodhub.sql` et `supabase/INSTALL_ALL.sql`. La publication et les preuves marchandes restent suivies dans [le backlog #155](https://github.com/takatakca/foodhubca/issues/155) et [la checklist #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Relance des avis Skip Final Picked
 
 Les avis Final Picked conservés gardent leur provenance. La relance générique de la boîte de réception laisse l’avis disponible pour le rapprochement sans créer de commande. Les anciens avis portant le motif ou le libellé enregistré par le webhook reçoivent la même protection. Le webhook signé qui met à jour une commande connue et la relance d’une vraie commande initiale gardent leur comportement.
 
-Le traitement atomique d’une panne du registre d’annulations après insertion du repli reste à suivre dans [le backlog #155](https://github.com/takatakca/foodhubca/issues/155).
+Le traitement du repli et le préalable de mise en service de sa fonction PostgreSQL sont décrits ci-dessus.
 
 — signé : Codex @ cloud · 2026-11-26
 

@@ -26,7 +26,7 @@ const ndg = rawUber.ndg_not_mapped.stores as Row[];
 
 const saved: Record<string, string | undefined> = {};
 const ENV: Record<string, string | undefined> = {
-  FOODHUB_FORCE_MEMORY: 'true', DASHBOARD_PASSWORD: 'Owner-pass-123', SESSION_SECRET: undefined,
+  CLOVER_MERCHANT_ID: 'DEFAULTCAISSE', FOODHUB_FORCE_MEMORY: 'true', DASHBOARD_PASSWORD: 'Owner-pass-123', SESSION_SECRET: undefined,
   UBER_CLIENT_ID: undefined, UBER_CLIENT_SECRET: undefined, UBER_ACCESS_TOKEN: undefined,
 };
 beforeEach(() => {
@@ -262,4 +262,67 @@ describe('merchant address evidence', () => {
     expect(await suggestion()).toBe('SECOND_KITCHEN');
   });
 
+});
+
+describe('Clover register selection in the Uber connection flow', () => {
+  const brandName = 'Pi Pita';
+  const kitchen = 'NDG_MAIN';
+  const sessionId = 'b'.repeat(36);
+  async function link(id: string, register: string, locationCode = kitchen) {
+    expect((await save({ channel: 'uber_eats', channelStoreId: id, brandName, locationCode, cloverMerchantId: register })).status).toBe(200);
+  }
+  async function session(storeId: string) {
+    await getRepo().setKv(`uber-connect:${sessionId}`, {
+      createdAt: Date.now(), token: 'test-only', stores: [{ id: storeId, name: brandName, address: '6280 Avenue Somerled' }],
+    });
+    return (await uberProvision.uberConnectSession(sessionId))!.stores[0];
+  }
+
+  it('keeps a store’s own register and never suggests the majority register for a new or moving store', async () => {
+    await link('majority-one', 'REGISTERAAA');
+    await link('majority-two', 'REGISTERAAA');
+    expect((await session('new')).suggestedClover).toBe('REGISTERAAA');
+    await link('moving', 'REGISTERSRC', 'HOCHELAGA');
+    expect((await session('moving')).suggestedClover).toBeUndefined();
+    await link('minority', 'REGISTERBBB');
+    expect((await session('minority')).suggestedClover).toBe('REGISTERBBB');
+    expect((await session('new')).suggestedClover).toBeUndefined();
+    await link('uses-default', '');
+    expect((await session('uses-default')).suggestedClover).toBeUndefined();
+  });
+
+  it('counts an implicit default using its actual destination, including an unresolved default', async () => {
+    await link('implicit', '');
+    await link('explicit', 'DEFAULTCAISSE');
+    expect((await session('new')).suggestedClover).toBe('DEFAULTCAISSE');
+    process.env.CLOVER_MERCHANT_ID = 'OTHERREGISTER';
+    expect((await session('new')).suggestedClover).toBeUndefined();
+    delete process.env.CLOVER_MERCHANT_ID;
+    expect((await session('new')).suggestedClover).toBeUndefined();
+  });
+
+  it('rechecks a stale suggestion and the whole batch before activation, then accepts a deliberate choice', async () => {
+    const pick = { storeId: 'new', locationCode: kitchen, brandName };
+    const other = { ...pick, storeId: 'unrelated', locationCode: 'HOCHELAGA' };
+    const submit = (patch: Record<string, unknown>) => activate(ownerPost('uber-connect/activate', {
+      id: sessionId, stores: [other, { ...pick, ...patch }],
+    }), ctx);
+    await link('peer', 'REGISTERAAA');
+    const suggestion = (await session('new')).suggestedClover;
+    expect(suggestion).toBe('REGISTERAAA');
+    await link('second-peer', '');
+    vi.spyOn(uber.uberEatsAdapter, 'readiness').mockReturnValue({ ...uber.uberEatsAdapter.readiness(), canSend: true });
+    const provider = vi.spyOn(uberProvision, 'activateUberStores').mockImplementation(async (_id, picks) => picks.map((p) => ({
+      storeId: p.storeId, result: { channel: 'uber_eats', status: 'done', ok: true, message: 'OK' }, enabled: null, pos: null, message: 'OK',
+    })));
+    for (const patch of [{}, { cloverMerchantId: suggestion, cloverSuggested: true }]) {
+      const response = await submit(patch);
+      expect(response.status).toBe(400);
+      expect((await response.json()).error).toMatch(/Clover/);
+    }
+    expect(provider).not.toHaveBeenCalled();
+    expect(await getRepo().findStore('uber_eats', 'unrelated')).toBeNull();
+    expect((await submit({ cloverMerchantId: 'REGISTERAAA' })).status).toBe(200);
+    expect(await getRepo().findStore('uber_eats', 'new')).toMatchObject({ cloverMerchantId: 'REGISTERAAA' });
+  });
 });

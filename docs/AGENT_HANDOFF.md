@@ -1,3 +1,9 @@
+## Choix de la caisse lors du branchement Uber
+
+La PR #199 conserve la caisse d’un magasin qui reste dans sa cuisine. Pour un déplacement ou pour un nouveau magasin dans une cuisine qui dessert plusieurs caisses, le formulaire demande un choix. Le serveur revalide les suggestions avant de transmettre le lot à Uber. Les tests utilisent des magasins et des caisses synthétiques. La publication de #198 précède #199 dans la [file de déploiement](https://github.com/takatakca/foodhubca/issues/155). Les preuves de réception en cuisine et au téléphone restent suivies dans [la checklist marchande](https://github.com/takatakca/foodhubca/issues/46).
+
+— Codex @ navigateur marchand · 2026-11-27
+
 ## Rapprochement des adresses marchandes Uber
 
 Dans Restaurants → Branchements, la confirmation de cuisine dépend de l’adresse civique renvoyée par Uber et du catalogue actif. Une adresse absente laisse une indication historique. Une adresse reçue mais ambiguë demande un choix manuel. La reprise d’une session Uber recalcule la suggestion avant de proposer une caisse. Un magasin découvert et déjà lié conserve ses réglages dans le formulaire. Les preuves de liaison et les préalables marchands sont suivis dans [la checklist #46](https://github.com/takatakca/foodhubca/issues/46).

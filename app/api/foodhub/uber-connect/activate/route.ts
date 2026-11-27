@@ -4,8 +4,9 @@ import { logActivity } from '@/lib/foodhub/activity';
 import { inScope, withPerm } from '@/lib/foodhub/auth';
 import { getCatalog } from '@/lib/foodhub/catalog';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
-import { storeCloverMerchantIdProblem } from '@/lib/foodhub/pos/clover';
+import { defaultCloverMerchant, storeCloverMerchantIdProblem } from '@/lib/foodhub/pos/clover';
 import { getRepo } from '@/lib/foodhub/repo';
+import { uberCloverChoice } from '@/lib/foodhub/uber-clover-choice';
 
 export const dynamic = 'force-dynamic';
 // 17 stores × (POST pos_data + PATCH + GET).
@@ -14,7 +15,7 @@ export const maxDuration = 120;
 // Activates the chosen Uber stores for this app and saves each store mapping (brand, location, Clover merchant) in one click.
 export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
   const b = await readJson(req);
-  const picks: Array<{ storeId: string; brandName: string; locationCode: string; cloverMerchantId?: string }> = Array.isArray(b.stores) ? b.stores : [];
+  const picks: Array<{ storeId: string; brandName: string; locationCode: string; cloverMerchantId?: string; cloverSuggested?: boolean }> = Array.isArray(b.stores) ? b.stores : [];
   if (!b.id || !picks.length) return fail('id and at least one store are required');
   if (picks.some((p) => !p.storeId || !p.brandName || !p.locationCode)) return fail('Every store needs a brand and a location');
   // Same rules as POST /api/foodhub/stores: only your locations, only known brands/locations.
@@ -26,11 +27,17 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
   const badLocation = picks.find((p) => !catalog.locations.some((l) => l.code === p.locationCode));
   if (badLocation) return fail(`Unknown location "${badLocation.locationCode}". Add it in Brands & Locations first.`);
   const repo = getRepo();
+  const [mapped, defaultMerchantId] = await Promise.all([repo.listStores(), defaultCloverMerchant()]);
   for (const p of picks) {
     const existing = await repo.findStore('uber_eats', p.storeId);
     if (existing && !inScope(actor, existing.locationCode)) return fail(`Store ${p.storeId} is mapped to ${existing.locationCode}, which is outside your locations.`, 403);
     const badMerchant = storeCloverMerchantIdProblem({ channel: 'uber_eats', locationCode: p.locationCode, cloverMerchantId: p.cloverMerchantId }, existing);
     if (badMerchant) return fail(badMerchant.en);
+    const choice = uberCloverChoice(p.storeId, p.locationCode, mapped, defaultMerchantId, existing ?? undefined);
+    if ((choice.required && !p.cloverMerchantId?.trim())
+      || (p.cloverSuggested && (!choice.suggestedClover || p.cloverMerchantId !== choice.suggestedClover))) {
+      return fail(`Choose the destination Clover merchant for store ${p.storeId} before activation.`);
+    }
   }
   const r = uberEatsAdapter.readiness();
   if (!r.canSend) return fail(`Activation changes your Uber stores, so it needs the live switch: ${r.note}`, 409);

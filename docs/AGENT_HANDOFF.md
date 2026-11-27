@@ -12,6 +12,8 @@ Deux processus Watchtower peuvent lire la même occurrence alors que le premier 
 
 Avant une demande qui n’a pas encore démarré, la relève vérifie que l’incident est toujours ouvert dans la même cuisine. Le journal conserve le résultat des demandes déjà parties. La preuve de réception réelle reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
 
+Le scénario PostgreSQL du contrôle de reprise maintient le premier appel de gestionnaire simulé en attente pendant qu’un second processus lit et met à jour la même alerte. Il vérifie que ce passage ne renvoie pas l’appel, puis acquitte l’alerte et vérifie que le résultat du premier appel demeure dans l’historique sans appel au gestionnaire de relève.
+
 — signé : Codex @ cloud · 2026-11-26
 
 ## 2026-11-26 — Premier appel d’un incident d’écran enregistré

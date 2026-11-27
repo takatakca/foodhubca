@@ -17,9 +17,10 @@
 //   2. lets a second order finish, kills the server, restarts it: nothing is processed again.
 //   3. forces two workers to read the same empty screen-incident snapshots: one durable row and one simulated first call.
 //   4. moves the failing screen while both workers observe the source incident: one destination row and one new call.
+//   5. blocks a manager-rung response while the second worker observes the incident and acknowledges it.
 // FOODHUB_E2E_INBOX_STUCK_MS (same guard) makes "interrupted" mean 3 s instead of 2 minutes so the check is quick.
 import { spawn, spawnSync } from 'node:child_process';
-import { APP, APP_PORT, MOCK_PORT, SCREENS_TOKEN, appEnv, basic, call, log, mock, sleep, uberWebhook, waitFor } from './e2e/platform-mock.mjs';
+import { APP, APP_PORT, MOCK_PORT, SCREENS_TOKEN, appEnv, basic, call, log, mock, mockState, sleep, uberWebhook, waitFor } from './e2e/platform-mock.mjs';
 import { startRestProxy } from './e2e/postgrest.mjs';
 
 const REST = String(process.env.FOODHUB_CRASH_POSTGREST_URL || '').replace(/\/+$/, '');
@@ -45,9 +46,13 @@ function check(name, cond, detail = '') {
   if (cond) { passed += 1; console.log(`  PASS  ${name}`); } else { failed += 1; console.log(`  FAIL  ${name}${detail ? ` — ${detail}` : ''}`); }
 }
 
-// ---- the database, read directly through PostgREST (never through the app under test) ----
-async function rest(query) {
-  const res = await fetch(`${REST}/${query}`, { headers: { authorization: `Bearer ${KEY}`, apikey: KEY, accept: 'application/json' } });
+// ---- the disposable database, read directly and seeded through PostgREST ----
+async function rest(query, fixturePatch) {
+  const headers = { authorization: `Bearer ${KEY}`, apikey: KEY, accept: 'application/json' };
+  if (fixturePatch) Object.assign(headers, { 'content-type': 'application/json', prefer: 'return=representation' });
+  const res = await fetch(`${REST}/${query}`, {
+    method: fixturePatch ? 'PATCH' : 'GET', headers, body: fixturePatch ? JSON.stringify(fixturePatch) : undefined,
+  });
   const text = await res.text();
   if (!res.ok) throw new Error(`PostgREST ${res.status} on ${query}: ${text.slice(0, 300)}`);
   return text ? JSON.parse(text) : null;
@@ -297,6 +302,66 @@ try {
     && destinationIncident?.data.status === 'open' && sourceIncident.id !== destinationIncident.id);
   check('one new simulated call targets the destination kitchen phone',
     newRequests.length === 1 && new URLSearchParams(newRequests[0].body).get('To') === destinationPhone);
+
+  console.log('\n5. A second worker sees a manager call in progress and acknowledges the alert');
+  const manager = '+15145550126';
+  const backup = '+15145550127';
+  const managers = await Promise.all([manager, backup].map((number, index) => call('POST', '/api/foodhub/users', { body: {
+    username: `watch-manager-${index}`, name: `Watch test manager ${index}`, role: 'manager', locations: [destination], phone: number,
+  } })));
+  const rungs = await call('PUT', '/api/foodhub/watch/settings', { body: { settings: { callAfterMin: 1, ownerAfterMin: 4 } } });
+  if (!managers.every((result) => result.status === 200) || rungs.json?.settings?.callAfterMin !== 1 || destinationIncident?.data.level !== 1) {
+    throw new Error('Expected two on-duty managers and a destination incident past the first call.');
+  }
+  // Give the destination a due manager rung and keep its predecessor older in the canonical lookup.
+  const agedAt = Date.now() - 2 * 60_000;
+  const setOpenedAt = (incident, openedAt) => rest(`fh_docs?collection=eq.incidents&id=eq.${q(incident.id)}`, { at: openedAt, data: { ...incident.data, openedAt } });
+  await setOpenedAt(sourceIncident, new Date(agedAt - 1_000).toISOString());
+  const [aged] = await setOpenedAt(destinationIncident, new Date(agedAt).toISOString());
+  const mark5 = log.length;
+  const dialed = () => since(mark5, 'POST', /Calls\.json$/).map((entry) => new URLSearchParams(entry.body).get('To'));
+  const readDestination = async () => (await screenIncidents()).find((entry) => entry.id === destinationIncident.id)?.data;
+  const run = async (origin) => {
+    const response = await fetch(`${origin}/api/foodhub/watch/run`, { method: 'POST', headers: { authorization: basic }, signal: AbortSignal.timeout(20_000) });
+    return (await response.json()).report;
+  };
+  let releaseCall;
+  const heldManagerCall = new Promise((resolve) => { releaseCall = resolve; });
+  let heldFirstCall = false;
+  let released = false;
+  const release = () => { released = true; releaseCall(); };
+  mockState.beforeTwilioCall = (to) => {
+    if (to === manager && !heldFirstCall) { heldFirstCall = true; return heldManagerCall; }
+  };
+  const callDeadline = setTimeout(release, 8_000);
+  const managerRun = run(APP).catch(() => null);
+  let acknowledged;
+  try {
+    const started = await waitFor(() => heldFirstCall, 4_000);
+    const firstWrite = await readDestination();
+    const otherRun = await run(secondary);
+    const otherWrite = await readDestination();
+    check('the second process reads the newer incident revision while the first manager request is held and sends no duplicate',
+      started && !released && firstWrite?.revision !== aged?.data.revision && firstWrite?.level === 1
+      && otherRun?.ran && otherWrite?.revision !== firstWrite.revision && otherWrite?.level === 1 && dialed().length === 1,
+      JSON.stringify({ started, released, firstLevel: firstWrite?.level, secondLevel: otherWrite?.level, requests: dialed().length }));
+    const ack = await fetch(`${secondary}/api/foodhub/incidents`, {
+      method: 'POST', headers: { authorization: basic, 'content-type': 'application/json' }, signal: AbortSignal.timeout(8_000),
+      body: JSON.stringify({ id: destinationIncident.id, action: 'ack' }),
+    });
+    acknowledged = ack.ok && (await ack.json()).incident?.status === 'acknowledged' && !released;
+  } finally {
+    clearTimeout(callDeadline);
+    release();
+    mockState.beforeTwilioCall = null;
+  }
+  const firstReport = await managerRun;
+  const finalIncident = await readDestination();
+  const savedCalls = finalIncident?.steps.filter((step) => step.kind === 'call').length;
+  check('acknowledgement keeps the first manager result and stops the backup manager call',
+    acknowledged && firstReport?.ran && finalIncident?.status === 'acknowledged' && dialed().length === 1 && dialed()[0] === manager
+    && savedCalls === 2, JSON.stringify({ acknowledged, managerRequests: dialed().filter((to) => to === manager).length,
+      backupRequests: dialed().filter((to) => to === backup).length, savedCalls }));
 
   const crashes = appLog.split('\n').filter((l) => /\[foodhub\] .* failed|Unhandled|TypeError|ReferenceError/.test(l) && !/kept in the inbox/.test(l));
   check('no background job crashed during the checks', crashes.length === 0, crashes.slice(0, 3).join(' | '));

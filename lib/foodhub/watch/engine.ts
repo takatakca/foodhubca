@@ -466,6 +466,21 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
   const deviceLocation = dispatchCatalog?.locations.find((location) => location.code === i.locationCode);
   if (deviceAlert && (!dispatchCatalog || deviceLocation?.active === false)) return false;
 
+  // A reservation uses the latest successful check. Only a provider attempt makes that check stale for the next send.
+  let recheckBeforeSend = false;
+  const mayContinue = async () => {
+    if (!recheckBeforeSend) return true;
+    const latest = await getCatalog({ strict: true }).catch(() => null);
+    if (!latest || latest.locations.some((location) => location.code === i.locationCode && location.active === false)) return false;
+    recheckBeforeSend = false;
+    return true;
+  };
+  const alertSms = async (to: string, body: string, purpose: string) => {
+    if (!(await mayContinue())) return null;
+    recheckBeforeSend = deviceAlert;
+    return sendSms({ to, body }, { purpose, incidentId: i.id });
+  };
+
   let changed = false;
   const step = (kind: Incident['steps'][number]['kind'], to: string, ok: boolean, message: string, uncertain?: boolean) => {
     i.steps.push({ at: new Date(now).toISOString(), kind, to, ok, message, ...(uncertain ? { uncertain } : {}) });
@@ -477,10 +492,13 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
   const called = new Set<string>();
   const call = async (to: string, label: string, lang: 'fr' | 'en', purpose: string) => {
     const destination = normalizePhone(to) ?? to;
-    if (called.has(destination)) return;
+    if (called.has(destination)) return true;
+    if (!(await mayContinue())) return false;
     called.add(destination);
+    recheckBeforeSend = deviceAlert;
     const result = await placeCall({ to: destination, say: callText(i, lang), lang }, { purpose, incidentId: i.id });
     step('call', `${label} (${maskContact(destination)})`, result.ok, result.message, result.uncertain);
+    return true;
   };
 
   if (firstCallDue) {
@@ -497,8 +515,9 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
         if (!i.screenFirstCallPending) { i.screenFirstCallPending = true; changed = true; }
       } else {
         if (i.screenFirstCallPending) { delete i.screenFirstCallPending; changed = true; }
-        if (claimed) await call(target.to, target.purpose === 'alert_shared_screen' ? 'screen hotline' : i.locationCode ?? 'kitchen', 'fr', target.purpose);
-        else called.add(normalizePhone(target.to) ?? target.to);
+        if (claimed) {
+          if (!(await call(target.to, target.purpose === 'alert_shared_screen' ? 'screen hotline' : i.locationCode ?? 'kitchen', 'fr', target.purpose))) return changed;
+        } else called.add(normalizePhone(target.to) ?? target.to);
       }
     } else if (screenAlert) {
       if (!i.screenFirstCallPending) { i.screenFirstCallPending = true; changed = true; }
@@ -509,36 +528,44 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
     }
   }
   if (smsDue) {
+    if (!(await mayContinue())) return changed;
     i.level = 1; changed = true;
     const to = recipients(users, i, ['manager'], 'sms');
     const list = to.length ? to : recipients(users, i, ['owner'], 'sms');
     for (const u of list) {
-      const r = await sendSms({ to: u.phone!, body: smsText(i, u.prefs?.lang ?? 'fr') }, { purpose: 'alert', incidentId: i.id });
+      const r = await alertSms(u.phone!, smsText(i, u.prefs?.lang ?? 'fr'), 'alert');
+      if (!r) return changed;
       step('sms', `${u.name} (${maskContact(u.phone!)})`, r.ok, r.message);
     }
     if (i.severity === 'critical') {
       for (const p of s.supportPhones) {
-        const r = await sendSms({ to: p, body: smsText(i, 'fr') }, { purpose: 'alert_support', incidentId: i.id });
+        const r = await alertSms(p, smsText(i, 'fr'), 'alert_support');
+        if (!r) return changed;
         step('sms', `support (${maskContact(p)})`, r.ok, r.message);
       }
     }
     if (!list.length) step('sms', '—', false, 'Aucun gérant de garde avec un cellulaire. / No manager on duty with a phone.');
   }
   if (managerCallDue) {
+    if (!(await mayContinue())) return changed;
     i.level = 2; changed = true;
     const to = recipients(users, i, ['manager'], 'call');
     for (const u of (to.length ? to : recipients(users, i, ['owner'], 'call')).slice(0, 2)) {
-      await call(u.phone!, u.name, u.prefs?.lang ?? 'fr', 'alert');
+      if (!(await call(u.phone!, u.name, u.prefs?.lang ?? 'fr', 'alert'))) return changed;
     }
   }
   if (ownerStageDue) {
+    if (!(await mayContinue())) return changed;
     i.level = 3; changed = true;
     for (const u of recipients(users, i, ['owner'], 'sms')) {
-      const r = await sendSms({ to: u.phone!, body: `${smsText(i, u.prefs?.lang ?? 'fr')}\n(${Math.round(elapsed)} min sans réponse / no answer)` }, { purpose: 'alert_owner', incidentId: i.id });
+      const r = await alertSms(u.phone!, `${smsText(i, u.prefs?.lang ?? 'fr')}\n(${Math.round(elapsed)} min sans réponse / no answer)`, 'alert_owner');
+      if (!r) return changed;
       step('owner', `${u.name} (${maskContact(u.phone!)})`, r.ok, r.message);
-      if (u.prefs?.alertCall !== false) await call(u.phone!, u.name, u.prefs?.lang ?? 'fr', 'alert_owner');
+      if (u.prefs?.alertCall !== false && !(await call(u.phone!, u.name, u.prefs?.lang ?? 'fr', 'alert_owner'))) return changed;
     }
-    for (const p of s.supportPhones) await call(p, 'support', 'fr', 'alert_support');
+    for (const p of s.supportPhones) {
+      if (!(await call(p, 'support', 'fr', 'alert_support'))) return changed;
+    }
   }
   return changed;
 }

@@ -1,8 +1,11 @@
 import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { GET as cronWatch } from '../app/api/foodhub/cron/watch/route';
+import { GET as incidentsById } from '../app/api/foodhub/incidents/route';
+import { GET as getCallStatus } from '../app/api/foodhub/messages/call-status/route';
 import { POST as relayHeartbeat } from '../app/api/foodhub/screens/heartbeat/route';
 import type { Actor } from '../lib/foodhub/activity';
+import { hashPassword } from '../lib/foodhub/auth';
 import { saveLocation } from '../lib/foodhub/catalog';
 import { allDayWeek, saveHours } from '../lib/foodhub/hours';
 import { enrollDevice, heartbeat as tabletHeartbeat } from '../lib/foodhub/identity/devices';
@@ -206,4 +209,101 @@ it('leaves a later incident unclaimed when its kitchen is deactivated during ano
   expect(receipts.filter((entry) => entry.incidentId === later.id)).toEqual([]);
   expect(await getRepo().getKv(`watch:first-screen-call:${later.id}`)).toBeNull();
   expect(await getRepo().getKv(`watch:screen-stage:${later.id}:1`)).toBeNull();
+});
+
+const ACCEPTED_CALL_SID = `CA${'2'.repeat(32)}`;
+const BACKUP_PHONE = '+15145550106';
+const OWNER_PHONE = '+15145550107';
+const SUPPORT_PHONE = '+15145550108';
+
+async function configureSameIncidentRecipients() {
+  await getRepo().saveUser({ username: 'backup-manager', name: 'Backup manager', role: 'manager', locations: [KITCHEN.code], active: true, phone: BACKUP_PHONE, passwordHash: 'unused-fixture-hash' });
+  await getRepo().saveUser({ username: 'next-owner', name: 'Fixture escalation owner', role: 'owner', locations: [], active: true, phone: OWNER_PHONE, passwordHash: 'unused-fixture-hash' });
+  await saveWatchSettings({ callAfterMin: 2, ownerAfterMin: 3, supportPhones: [SUPPORT_PHONE] }, OWNER);
+}
+
+function afterFirstAcceptedCall(work: () => Promise<unknown>) {
+  const respond = provider.getMockImplementation();
+  if (!respond) throw new Error('Missing simulated provider');
+  provider.mockImplementationOnce(async (...args) => {
+    expect(String(args[0])).toMatch(/Calls\.json$/);
+    expect(new URLSearchParams(String(args[1]?.body)).get('To')).toBe(HOTLINE);
+    const response = await respond(...args);
+    await work();
+    return response;
+  });
+}
+
+it('keeps the accepted receipt and stops all remaining sends for the same incident after kitchen deactivation', async () => {
+  await configureSameIncidentRecipients();
+  const password = 'same-incident-synthetic-session-password';
+  vi.stubEnv('DASHBOARD_PASSWORD', password);
+  const manager = { username: 'scoped-receipt-manager', name: 'Scoped manager', role: 'manager' as const, active: true, passwordHash: hashPassword(password), locations: [KITCHEN.code] };
+  await getRepo().saveUser(manager);
+  const actorHeaders = (username: string) => ({ authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}` });
+  const { incident, tick } = await openIncident('device_offline');
+  const focus = (username: string) => incidentsById(new Request(`${BASE}/incidents?id=${incident.id}`, { headers: actorHeaders(username) }), undefined);
+  expect(await (await focus(manager.username)).json()).toMatchObject({ incidents: [{ id: incident.id }] });
+
+  afterFirstAcceptedCall(() => saveLocation({ ...KITCHEN, active: false }));
+  expect(await tick(9)).toMatchObject({ escalated: 1 });
+  const [receipt] = await listOutbox();
+  expect(await listOutbox()).toMatchObject([{ channel: 'call', purpose: 'alert_shared_screen', ref: ACCEPTED_CALL_SID, ok: true, incidentId: incident.id }]);
+  expect(provider).toHaveBeenCalledTimes(1);
+  expect(await tick(10)).toMatchObject({ resolved: 1, escalated: 0 });
+  const final = await (await focus('owner')).json();
+  const resolved = final.incidents[0];
+  expect(resolved).toMatchObject({ id: incident.id, status: 'resolved', resolvedBy: 'auto' });
+  expect(resolved.steps).toContainEqual(expect.objectContaining({ kind: 'call', ok: true }));
+  expect(resolved.steps.at(-1)).toMatchObject({ kind: 'resolved', message: expect.stringContaining('inactive kitchen') });
+
+  await getRepo().saveUser({ ...manager, locations: [LEGACY_KITCHEN] });
+  expect(await (await focus(manager.username)).json()).toMatchObject({ incidents: [] });
+  const receiptRequest = (username: string) => getCallStatus(new Request(`${BASE}/messages/call-status?id=${receipt.id}`, { headers: actorHeaders(username) }), undefined);
+  expect((await receiptRequest(manager.username)).status).toBe(403);
+  expect(provider).toHaveBeenCalledTimes(1);
+  provider.mockResolvedValueOnce(Response.json({ sid: ACCEPTED_CALL_SID, status: 'completed', to: 'provider-only fixture value' }));
+  const status = await receiptRequest('owner');
+  expect(status.headers.get('Cache-Control')).toBe('private, no-store');
+  expect(await status.json()).toEqual({ ok: true, status: 'completed' });
+  expect(provider.mock.calls.map(([, init]) => init?.method)).toEqual(['POST', 'GET']);
+});
+
+it('recovers unstarted stages after a same-incident read failure without replaying its accepted call', async () => {
+  await configureSameIncidentRecipients();
+  const { incident, tick } = await openIncident('screen_waiting');
+  const repo = getRepo();
+  const readCatalog = repo.getKv.bind(repo);
+  let catalogFailurePending = false;
+  let failureSeen = false;
+  const fault = vi.spyOn(repo, 'getKv').mockImplementation(async <T>(key: string) => {
+    if (key === 'catalog' && catalogFailurePending) {
+      catalogFailurePending = false;
+      failureSeen = true;
+      throw new Error('Temporary catalog read error after the accepted call');
+    }
+    return readCatalog<T>(key);
+  });
+  afterFirstAcceptedCall(async () => { catalogFailurePending = true; });
+  try {
+    expect(await tick(9)).toMatchObject({ escalated: 1, resolved: 0 });
+  } finally {
+    fault.mockRestore();
+  }
+  expect(await listOutbox()).toMatchObject([{ channel: 'call', purpose: 'alert_shared_screen', ref: ACCEPTED_CALL_SID, ok: true, incidentId: incident.id }]);
+  expect(failureSeen).toBe(true);
+  expect(provider).toHaveBeenCalledTimes(1);
+
+  expect(await tick(10)).toMatchObject({ escalated: 1, resolved: 0 });
+  const entries = await listOutbox();
+  expect(entries.filter((entry) => entry.purpose === 'alert_shared_screen')).toHaveLength(1);
+  const requests = provider.mock.calls.map(([input, init]) => ({ path: String(input).split('/').at(-1), to: new URLSearchParams(String(init?.body)).get('To') }));
+  expect(requests.filter((request) => request.to === HOTLINE)).toEqual([{ path: 'Calls.json', to: HOTLINE }]);
+  expect(requests).toEqual(expect.arrayContaining([
+    { path: 'Messages.json', to: MANAGER_PHONE }, { path: 'Messages.json', to: BACKUP_PHONE },
+    { path: 'Calls.json', to: MANAGER_PHONE }, { path: 'Calls.json', to: BACKUP_PHONE },
+    { path: 'Messages.json', to: OWNER_PHONE }, { path: 'Calls.json', to: OWNER_PHONE },
+    { path: 'Messages.json', to: SUPPORT_PHONE }, { path: 'Calls.json', to: SUPPORT_PHONE },
+  ]));
+  expect(entries.every((entry) => entry.incidentId === incident.id)).toBe(true);
 });

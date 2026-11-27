@@ -1,3 +1,11 @@
+## 2026-11-26 — Désactivation pendant un appel de relève
+
+Après une demande téléphonique ou un texto, Watchtower vérifie à nouveau le catalogue avant l’envoi suivant pour les incidents de tablette et de relais. Une cuisine désactivée ou un catalogue indisponible suspend les envois restants. L’appel déjà accepté reste consigné. Lorsque la lecture redevient possible, un palier qui n’avait pas commencé peut reprendre sans rejouer le premier appel. Un palier déjà commencé garde son comportement de non-répétition.
+
+Les essais signés reproduisent une désactivation pendant la réponse du fournisseur, la reprise après une lecture indisponible et la conservation de la preuve d’appel dans le périmètre d’accès prévu. Les preuves de réception réelle restent suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Surveillance des cuisines désactivées
 
 Watchtower cesse de détecter les alertes de tablette et de relais pour une cuisine désactivée dans le catalogue. Les appareils restent jumelés et la surveillance reprend à la réactivation. L’historique d’un incident déjà ouvert précise le motif de fermeture. Avant chaque incident d’appareil admissible à la relève, une lecture récente du catalogue reporte l’ensemble de sa relève si la cuisine est devenue inactive ou si son état ne peut être lu. Un ancien jumelage vers une cuisine absente d’un catalogue accessible garde son comportement. Si la lecture des écrans du relais échoue, Watchtower conserve leur dernier état et reporte leur relève. La surveillance des tablettes natives continue, et le passage partiel ne remplace pas le dernier passage complet.

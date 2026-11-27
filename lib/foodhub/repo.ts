@@ -12,6 +12,10 @@ export interface DocFilter { since?: string; until?: string; keys?: string[]; li
 
 type StoreSnapshot = Pick<ChannelStore, 'channel' | 'channelStoreId' | 'locationCode' | 'updatedAt' | 'meta'>;
 
+const KV_UPDATE_ATTEMPTS = 4;
+export class KvReadError extends Error {}
+export class KvUpdateConflict extends Error {}
+
 export interface FoodHubRepo {
   mode: 'supabase' | 'memory';
   insertOrderIfNew(order: NormalizedOrder & { locationCode?: string; createdAt?: string }): Promise<{ order: StoredOrder; isNew: boolean }>;
@@ -44,6 +48,8 @@ export interface FoodHubRepo {
   /** Small key/value store (last sync report, Clover sales cache). */
   getKv<T = unknown>(key: string): Promise<T | null>;
   setKv(key: string, value: unknown): Promise<void>;
+  /** Apply a pure change to the current value. Conflicts re-read the row before retrying. */
+  updateKv<T>(key: string, change: (current: T | null) => T): Promise<T>;
   /**
    * Write `key` only if it does not exist yet, in one atomic step (Supabase: INSERT on the primary key; the database
    * refuses a duplicate). True = this caller claimed it; false = it was already there (another run or container).
@@ -182,6 +188,20 @@ const memoryRepo: FoodHubRepo = {
   },
   async getKv<T>(key: string) { return (memState().kv.get(key) as T) ?? null; },
   async setKv(key, value) { memState().kv.set(key, JSON.parse(JSON.stringify(value))); },
+  async updateKv<T>(key: string, change: (current: T | null) => T) {
+    const kv = memState().kv;
+    for (let attempt = 0; attempt < KV_UPDATE_ATTEMPTS; attempt++) {
+      const before = kv.get(key);
+      const current = await memoryRepo.getKv<T>(key).catch((cause) => {
+        throw new KvReadError('Saved setting could not be read.', { cause });
+      });
+      if (!Object.is(kv.get(key), before)) continue;
+      const value = change(current);
+      kv.set(key, JSON.parse(JSON.stringify(value)));
+      return value;
+    }
+    throw new KvUpdateConflict('Saved setting changed during update.');
+  },
   async claimKv(key, value) {
     const kv = memState().kv;
     if (kv.has(key)) return false;
@@ -480,6 +500,29 @@ function supabaseRepo(): FoodHubRepo {
     },
     async setKv(key, value) {
       must(await db.from('fh_kv').upsert({ key, value, updated_at: nowIso() }, { onConflict: 'key' }));
+    },
+    async updateKv<T>(key: string, change: (current: T | null) => T) {
+      for (let attempt = 0; attempt < KV_UPDATE_ATTEMPTS; attempt++) {
+        let current;
+        try {
+          current = must(await db.from('fh_kv').select('value,updated_at').eq('key', key).maybeSingle());
+        } catch (cause) {
+          throw new KvReadError('Saved setting could not be read.', { cause });
+        }
+        const value = change(current ? current.value as T : null);
+        if (!current) {
+          if (await repo.claimKv(key, value)) return value;
+          continue;
+        }
+        const previous = Date.parse(current.updated_at);
+        if (!Number.isFinite(previous)) throw new KvReadError('Saved setting has an invalid revision.');
+        // Always advance the database revision, even when two servers share a millisecond or their clocks differ.
+        const nextRevision = new Date(Math.max(Date.now(), previous + 1)).toISOString();
+        const saved = must(await db.from('fh_kv').update({ value, updated_at: nextRevision })
+          .eq('key', key).eq('updated_at', current.updated_at).select('key').maybeSingle());
+        if (saved) return value;
+      }
+      throw new KvUpdateConflict('Saved setting changed during update.');
     },
     async claimKv(key, value) {
       const res = await db.from('fh_kv').insert({ key, value, updated_at: nowIso() });

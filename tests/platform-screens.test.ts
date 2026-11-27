@@ -437,6 +437,31 @@ describe('Watchtower: calls a configured phone for screen and tablet incidents',
     expect(owner.status).toBe(200);
     expect((await getWatchSettings()).screenAlertPhone).toBeNull();
   });
+
+  it('leaves the common destination untouched if saved settings cannot be loaded', async () => {
+    const before = await saveWatchSettings({ screenAlertPhone: sharedPhone, smsAfterMin: 3 }, ACTOR);
+    const repo = getRepo();
+    const username = 'alert-scoped-owner';
+    const password = 'local-alert-settings-test';
+    await repo.saveUser({ username, name: 'Scoped owner', role: 'owner', locations: ['SAINT_LEONARD'], active: true, passwordHash: hashPassword(password) });
+    const uri = 'http://hub.local/api/foodhub/watch/settings';
+    const headers = { authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}` };
+    const originalRead = repo.getKv.bind(repo);
+    const read = vi.spyOn(repo, 'getKv').mockImplementation((key) => key === 'watch:settings' ? Promise.reject(new Error('Fixture read unavailable')) : originalRead(key));
+    const write = vi.spyOn(repo, 'setKv');
+    try {
+      expect.soft((await watchSettingsRoute(new Request(uri, { headers }), {})).status).toBe(503);
+      const response = await saveWatchSettingsRoute(new Request(uri, {
+        method: 'PUT', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ settings: { smsAfterMin: 7 } }),
+      }), {});
+      expect.soft(response.status).toBe(503);
+      expect.soft(write).not.toHaveBeenCalled();
+    } finally {
+      read.mockRestore();
+      write.mockRestore();
+    }
+    expect(await getWatchSettings()).toEqual(before);
+  });
 });
 
 describe('screens wall: when the one device rings', () => {

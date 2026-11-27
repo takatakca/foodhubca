@@ -2,10 +2,11 @@ import { approvalGate, withPerm, type AuthUser } from '@/lib/foodhub/auth';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { channelsStatus } from '@/lib/foodhub/notify';
 import { can } from '@/lib/foodhub/session';
-import { getWatchSettings, saveWatchSettings } from '@/lib/foodhub/watch/engine';
+import { getWatchSettings, saveWatchSettings, WatchSettingsReadError } from '@/lib/foodhub/watch/engine';
 import { INCIDENT_KINDS, KIND_LABEL, type WatchSettings } from '@/lib/foodhub/watch/types';
 
 export const dynamic = 'force-dynamic';
+const unavailable = () => fail('Impossible de charger les réglages d’alerte enregistrés. / Could not load the saved alert settings.', 503);
 
 function canManageSharedPhone(actor: AuthUser): boolean {
   return can(actor.role, 'admin') && !actor.locations.length && !actor.deviceId;
@@ -22,7 +23,8 @@ function settingsResponse(settings: WatchSettings, actor: AuthUser, extra: Recor
 
 // Watchtower rules: what to watch, when to text / call / wake the owner, quiet hours, chat, AI.
 export const GET = withPerm('view', async (_req, _ctx, actor) => {
-  const settings = await getWatchSettings();
+  const settings = await getWatchSettings({ strict: true }).catch(() => null);
+  if (!settings) return unavailable();
   return settingsResponse(settings, actor, {
     screenAlertPhoneConfigured: Boolean(settings.screenAlertPhone),
     kinds: INCIDENT_KINDS.map((k) => ({ kind: k, ...KIND_LABEL[k] })),
@@ -38,5 +40,10 @@ export const PUT = withPerm('admin', async (req, _ctx, actor) => {
   }
   const gate = await approvalGate(req, actor, 'team.manage', null, 'alert rules');
   if (gate) return gate;
-  return settingsResponse(await saveWatchSettings(patch, actor), actor);
+  try {
+    return settingsResponse(await saveWatchSettings(patch, actor), actor);
+  } catch (error) {
+    if (error instanceof WatchSettingsReadError) return unavailable();
+    throw error;
+  }
 });

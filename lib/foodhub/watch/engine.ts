@@ -31,8 +31,9 @@ const OPEN_ORDER: StoredOrder['status'][] = ['new', 'accepted', 'ready', 'dispat
 
 // ---------- settings ----------
 
-export async function getWatchSettings(): Promise<WatchSettings> {
-  const stored = (await getRepo().getKv<Partial<WatchSettings>>(SETTINGS_KEY).catch(() => null)) ?? {};
+export async function getWatchSettings(opts: { strict?: boolean } = {}): Promise<WatchSettings> {
+  const read = getRepo().getKv<Partial<WatchSettings>>(SETTINGS_KEY);
+  const stored = (await (opts.strict ? read : read.catch(() => null))) ?? {};
   const rules = { ...DEFAULT_RULES };
   for (const k of INCIDENT_KINDS) if (stored.rules?.[k]) rules[k] = { ...DEFAULT_RULES[k], ...stored.rules[k] };
   return {
@@ -45,8 +46,12 @@ export async function getWatchSettings(): Promise<WatchSettings> {
 const clampN = (v: unknown, lo: number, hi: number, def: number) => { const n = Number(v); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, Math.round(n))) : def; };
 const hhmm = (v: unknown, def: string) => (typeof v === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(v) ? v : def);
 
+export class WatchSettingsReadError extends Error {}
+
 export async function saveWatchSettings(patch: Partial<WatchSettings>, actor: Actor): Promise<WatchSettings> {
-  const cur = await getWatchSettings();
+  const cur = await getWatchSettings({ strict: true }).catch((cause) => {
+    throw new WatchSettingsReadError('Saved alert settings unavailable.', { cause });
+  });
   const rules = { ...cur.rules };
   for (const k of INCIDENT_KINDS) {
     const r = patch.rules?.[k];

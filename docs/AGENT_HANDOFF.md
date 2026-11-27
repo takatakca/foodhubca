@@ -8,6 +8,8 @@ La correction utilise `fh_kv.updated_at` et la clé primaire existants. Vérifie
 
 Le propriétaire qui a accès à toutes les cuisines peut consulter et modifier le numéro commun dans Réglages → Alertes depuis une session de console. Les vues à périmètre limité gardent l’indication qu’un numéro est configuré et les autres réglages autorisés. Si les réglages enregistrés sont indisponibles, l’écran signale la panne et suspend la sauvegarde jusqu’au retour de la lecture. Les incidents restent rattachés à la cuisine et à l’appareil concernés. Les essais simulés couvrent les permissions et une même destination avec des incidents de deux cuisines distinctes. À la réconciliation de #185 et #188, conserver le contrôle de périmètre et leurs vérifications respectives. La vérification du téléphone réel reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
 
+Quand la lecture des réglages d’alerte renvoie HTTP 503, la page Mise en service garde les autres contrôles visibles et laisse la vérification des alertes à faire. Les réglages de l’appel des écrans sont alors signalés comme indisponibles. Les essais de chargement couvrent les deux langues, la réponse normale et les autres erreurs.
+
 — signé : Codex @ cloud · 2026-11-27
 
 ## 2026-11-26 — Numéro de commande saisi à partir d’un écran

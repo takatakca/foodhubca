@@ -14,6 +14,7 @@ import { TgtgEmailSection } from './tgtg-email';
 import { DoorDashSandboxTests } from './doordash-sandbox';
 import { api } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
+import { countEn, countFr } from '@/lib/ui/count-label';
 
 type Channel = {
   channel: string; label: string; configured: boolean; canSend: boolean; missing: string[]; note: string; noteFr?: string; viaClover?: boolean; webhookUrl: string;
@@ -76,7 +77,7 @@ function CloverPrinting() {
     setBusy(true);
     try {
       const res = await api<{ added: number; label: string }>('/api/foodhub/clover-labels', { method: 'POST', json: { merchantId: r.merchantId, tagId: tag, all: true } });
-      setMsg({ tone: 'go', text: t(`${res.added} article(s) s’imprimeront maintenant à la cuisine (« ${res.label} »).`, `${res.added} item(s) now print in the kitchen ("${res.label}").`) });
+      setMsg({ tone: 'go', text: t(`Étiquette de cuisine « ${res.label} » ajoutée à ${countFr(res.added, 'article')}.`, `Kitchen label "${res.label}" added to ${countEn(res.added, 'item')}.`) });
       await check(r.merchantId);
     } catch (e) { setMsg({ tone: 'stop', text: e instanceof Error ? e.message : String(e) }); } finally { setBusy(false); }
   };
@@ -106,9 +107,9 @@ function CloverPrinting() {
       {r?.ok && (
         <div className="mt-3 space-y-2 text-[13px]">
           {r.kitchenLabels.length === 0 && <Banner tone="warn">{t('Aucune étiquette n’est reliée à une imprimante. Dans Clover : Configuration → Imprimantes → Reçus de commande → étiquettes.', 'No label is linked to a printer. In Clover: Setup → Printers → Order receipts → labels.')}</Banner>}
-          {r.unprintedCount === 0
-            ? <Banner tone="go">{t(`Les ${r.items} articles s’impriment en cuisine.`, `All ${r.items} items print in the kitchen.`)}</Banner>
-            : <Banner tone="warn">{t(`${r.unprintedCount} article(s) sur ${r.items} ne s’impriment pas en cuisine :`, `${r.unprintedCount} of ${r.items} item(s) never print in the kitchen:`)} {r.unprinted.slice(0, 12).map((i) => i.name).join(', ')}{r.unprintedCount > 12 ? '…' : ''}</Banner>}
+          {r.items === 0 ? <Banner tone="info">{t('Aucun article actif à vérifier.', 'No active items to check.')}</Banner> : r.unprintedCount === 0
+            ? <Banner tone="go">{t(`Étiquette reliée à une imprimante de cuisine pour ${countFr(r.items, 'article')} sur ${r.items}.`, `Kitchen printer label assigned to ${r.items} of ${countEn(r.items, 'item')}.`)}</Banner>
+            : <Banner tone="warn">{t(`${countFr(r.unprintedCount, 'article')} sur ${r.items} sans étiquette reliée à une imprimante de cuisine.`, `Missing kitchen printer label on ${r.unprintedCount} of ${countEn(r.items, 'item')}.`)} {r.unprinted.slice(0, 12).map((i) => i.name).join(', ')}{r.unprintedCount > 12 ? '…' : ''}</Banner>}
           {r.unprintedCount > 0 && r.kitchenLabels.length > 0 && can('admin') && (
             <div className="flex flex-wrap items-center gap-2">
               <Select selectSize="sm" value={tag} onChange={(e) => setTag(e.target.value)}>{r.kitchenLabels.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.printers} {t('imprimante(s)', 'printer(s)')})</option>)}</Select>

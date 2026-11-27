@@ -15,7 +15,7 @@ export interface KnownStore {
   address: string | null;
   suggestedBrand: string | null;
   suggestedLocation: string | null;
-  /** Read from Uber (address confirmed) or only from the name the owner gave. */
+  /** The current Uber address yielded the suggested kitchen. */
   confirmedByPlatform: boolean;
   mapped: { id: string; brandName: string; locationCode: string } | null;
   /** The store's kitchen: Matching live address, or the active recorded kitchen when Uber supplied no address. */

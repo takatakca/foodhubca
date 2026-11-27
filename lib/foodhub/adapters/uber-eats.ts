@@ -400,7 +400,7 @@ export async function fetchUberStoreStatus(storeId: string): Promise<{ ok: boole
 export async function fetchUberStoreDetails(storeId: string): Promise<{ ok: boolean; name?: string; address?: string; error?: string }> {
   if (!readiness().configured) return { ok: false, error: 'Uber Eats credentials missing' };
   try {
-    const res = await timedFetch(`${base()}/v1/eats/stores/${encodeURIComponent(storeId)}`, { headers: await headers() });
+    const res = await uberFetch(`${base()}/v1/eats/stores/${encodeURIComponent(storeId)}`, {}, 'store-inspection');
     if (!res.ok) return { ok: false, error: `Uber store HTTP ${res.status}` };
     const s = await res.json();
     const address = [s?.location?.address, s?.location?.address_2, s?.location?.city].filter(Boolean).join(', ') || undefined;
@@ -434,7 +434,7 @@ export async function listUberStorePages(get: (url: string) => Promise<Response>
 
 /** Lists stores provisioned to this app — used for one-click store discovery. */
 export async function discoverUberStores(): Promise<Array<{ id: string; name: string; address?: string }>> {
-  const rows = await listUberStorePages((url) => uberFetch(url));
+  const rows = await listUberStorePages((url) => uberFetch(url, {}, 'store-inspection'));
   return rows.map((s) => ({ id: String(s.store_id ?? s.id), name: String(s.name ?? ''), address: s.location?.address ?? undefined }));
 }
 

@@ -72,6 +72,23 @@ describe('Stores → Mapping: known Uber stores', () => {
     expect(list.every((k) => !k.confirmedByPlatform && k.suggestedLocation === 'SAINT_LEONARD' && k.expectedLocation === 'SAINT_LEONARD' && !k.locationMismatch)).toBe(true);
   });
 
+  it('keeps the recorded kitchen distinct from a kitchen suggested by a current Uber address', async () => {
+    vi.spyOn(uber.uberEatsAdapter, 'readiness').mockReturnValue({ ...uber.uberEatsAdapter.readiness(), configured: true });
+    const details = vi.spyOn(uber, 'fetchUberStoreDetails');
+    for (const result of [
+      { ok: false, error: 'invalid_scope' }, { ok: true, name: 'Test brand' },
+    ]) {
+      details.mockResolvedValue(result);
+      const list = await knownStores();
+      expect(list[0]).toMatchObject({ confirmedByPlatform: false, expectedLocation: 'SAINT_LEONARD' });
+    }
+    details.mockResolvedValue({ ok: true, address: '100 Example Street' });
+    expect((await knownStores())[0]).toMatchObject({ confirmedByPlatform: false, expectedLocation: null, suggestedLocation: null });
+    details.mockResolvedValue({ ok: true, address: '6280 Avenue Somerled' });
+    const list = await knownStores();
+    expect(list[0]).toMatchObject({ confirmedByPlatform: true, expectedLocation: 'NDG_MAIN' });
+  });
+
   it('flags a store mapped to NDG_6284 and moves it only with an explicit destination Clover merchant', async () => {
     const id = '627d09f0-8fb4-57f2-8ec1-6a71984ad267';
     const mapping = { channel: 'uber_eats', channelStoreId: id, brandName: 'PPP Pizzeria' };
@@ -186,7 +203,7 @@ describe('scope of merchant inventory route results', () => {
       { id: 'test-moved-uber-store', name: 'Address conflicts with mapping', address: ndgAddress },
     ];
     const readiness = uber.uberEatsAdapter.readiness();
-    vi.spyOn(uber.uberEatsAdapter, 'readiness').mockReturnValue({ ...readiness, canSend: true });
+    vi.spyOn(uber.uberEatsAdapter, 'readiness').mockReturnValue({ ...readiness, configured: true, canSend: false });
     vi.spyOn(uber, 'discoverUberStores').mockResolvedValue(stores);
     await linkStore('test-mapped-uber-store', 'SAINT_LEONARD');
     await linkStore(conflicting, 'NDG_6284');

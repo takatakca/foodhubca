@@ -109,7 +109,7 @@ export type RelayGoLiveInput = {
     enabled: boolean;
     sharedPhoneConfigured: boolean;
     callConfigured: boolean;
-    rules: Partial<Record<'screen_down' | 'screen_waiting', RuleSetting>>;
+    rules: Partial<Record<'device_offline' | 'screen_down' | 'screen_waiting', RuleSetting>>;
   } | null;
   kitchenPhoneLocations: string[];
 };
@@ -164,6 +164,44 @@ export function nativeTabletGoLiveStep(
     return { ...base, state: 'warn', body: t(`Aucune tablette en ligne pour ${names}.`, `No tablet online for ${names}.`) };
   }
   return { ...base, state: 'done', body: t('Chaque cuisine active a une tablette en ligne.', 'Every active kitchen has a tablet online.') };
+}
+
+type NativeTabletCallInput = Pick<RelayGoLiveInput, 'watch' | 'kitchenPhoneLocations'> & {
+  activeLocations: ReadonlySet<string>;
+  devices: ReadonlyArray<GoLiveTablet>;
+};
+
+export function nativeTabletCallGoLiveSteps(
+  { activeLocations, devices, watch, kitchenPhoneLocations }: NativeTabletCallInput, t: T, locName: (code: string) => string,
+): Step[] {
+  const kitchens = new Set(devices.filter((d) => d.status !== 'revoked' && activeLocations.has(d.locationCode)).map((d) => d.locationCode));
+  if (!kitchens.size) return [];
+  const base: Step = {
+    group: t('Cuisine', 'Kitchen'), key: 'tablet-calls', title: t('Appels pour les tablettes hors ligne', 'Calls for offline tablets'),
+    state: 'warn', optional: true, body: '', href: '/settings/alerts', cta: t('Alertes', 'Alerts'),
+  };
+  if (!watch) return [{ ...base, body: t('Réglages des appels indisponibles.', 'Call settings unavailable.') }];
+  if (!watch.enabled) return [{ ...base, body: t('Activez le Watchtower pour surveiller les tablettes.', 'Turn on Watchtower to monitor the tablets.') }];
+  if (!watch.rules.device_offline?.enabled) return [{ ...base, body: t('Activez la règle « Tablette éteinte ».', 'Enable the “Tablet off” rule.') }];
+  if (!watch.rules.device_offline.escalate) return [{ ...base, body: t('Activez l’escalade de la règle « Tablette éteinte » pour permettre les appels.', 'Enable escalation for the “Tablet off” rule to allow calls.') }];
+  if (!watch.callConfigured) return [{ ...base, body: t('Configurez Twilio Voice pour passer les appels d’alerte.', 'Set up Twilio Voice to make alert calls.') }];
+
+  if (!watch.sharedPhoneConfigured) {
+    const knownPhones = new Set(kitchenPhoneLocations);
+    const missing = [...kitchens].filter((code) => !knownPhones.has(code));
+    if (missing.length) {
+      const listed = missing.slice(0, 4).map(locName).join(', ') + (missing.length > 4 ? ` (+${missing.length - 4})` : '');
+      return [{ ...base, href: '/settings/business', cta: t('Téléphones', 'Phones'), body: t(
+        `Ajoutez un téléphone de cuisine pour ${listed} ou un numéro commun dans Alertes.`,
+        `Add a kitchen phone for ${listed} or a shared number in Alerts.`,
+      ) }];
+    }
+  }
+  const destination = watch.sharedPhoneConfigured
+    ? t('La ligne partagée est configurée pour les tablettes.', 'The shared line is configured for the tablets.')
+    : t('Un téléphone est configuré pour chaque cuisine avec une tablette jumelée.', 'A phone is configured for each kitchen with a paired tablet.');
+  const verification = t('Confirmez la réception du premier appel lors d’un essai contrôlé.', 'Confirm receipt of the first call in a controlled test.');
+  return [{ ...base, state: 'done', body: `${destination} ${verification}` }];
 }
 
 function relayScreenStep(relay: RelayGoLiveInput['relay'], t: T): Step {

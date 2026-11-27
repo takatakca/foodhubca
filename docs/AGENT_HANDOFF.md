@@ -1,3 +1,9 @@
+## 2026-11-26 — Appels pour les tablettes hors ligne dans la mise en service
+
+La mise en service indique la configuration de la relève pour les cuisines du périmètre qui ont une tablette jumelée. La règle « Tablette éteinte », son escalade, Twilio Voice et une destination configurée doivent être disponibles pour que cette vérification affiche « Prêt ». Une ligne commune peut servir de destination, ou le téléphone de chaque cuisine concernée. Les destinations ne sont pas affichées. Un essai contrôlé reste nécessaire pour vérifier la réception du premier appel dans [la checklist #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Préparation des plateformes et du téléphone de relève
 
 Mise en service distingue les liaisons directes, le relais de commandes, DoorDash en bac à sable et l’import Clover. Un relais nécessite son webhook et une liaison de magasin vers une cuisine active. Une liaison directe enregistrée indique le niveau de configuration et invite à vérifier la réception par une commande d’essai. La confirmation Uber enregistrée est comptée pour les cuisines actives du périmètre. Si la lecture du catalogue échoue, la checklist signale que la confirmation est à vérifier. Le bandeau de fin indique que la configuration est terminée.

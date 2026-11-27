@@ -19,7 +19,7 @@ import { CELEBRATION_KEYS } from '@/lib/ui/celebrate';
 import { cn } from '@/lib/ui/cn';
 import type { GoLiveFacts } from '@/lib/foodhub/go-live';
 import {
-  alertSteps, cloverAppSteps, goLiveKitchenCoverage, goLiveProgress, goLiveStages, nativeTabletGoLiveStep, platformGoLiveStep, relayGoLiveSteps,
+  alertSteps, cloverAppSteps, goLiveKitchenCoverage, goLiveProgress, goLiveStages, nativeTabletCallGoLiveSteps, nativeTabletGoLiveStep, platformGoLiveStep, relayGoLiveSteps,
   stepBadge, stepKind, stepTally, stepText, tallyLine,
   type CloverAppInfo, type GoLiveStage, type GoLiveTablet, type PlatformGoLiveInput, type RelayGoLiveInput, type Step,
 } from './steps';
@@ -196,14 +196,11 @@ export default function GoLivePage() {
       const unconfirmed = ['uber_eats', 'doordash', 'skip'].filter((k) => !f.fees.confirmed[k]);
       const list = (xs: Array<{ name: string }>) => xs.map((l) => shortLoc(l.name)).join(', ');
       const shortName = (code: string) => shortLoc(locName(code));
-      const relayChecks = relayGoLiveSteps({
-        relay: scopedRelay,
-        watch: w.settings ? {
-          enabled: w.settings.enabled, rules: w.settings.rules, callConfigured: w.channels.call,
-          sharedPhoneConfigured: w.screenAlertPhoneConfigured === true,
-        } : null,
-        kitchenPhoneLocations,
-      }, t, shortName);
+      const watch = w.settings ? {
+        enabled: w.settings.enabled, rules: w.settings.rules, callConfigured: w.channels.call,
+        sharedPhoneConfigured: w.screenAlertPhoneConfigured === true,
+      } : null;
+      const relayChecks = relayGoLiveSteps({ relay: scopedRelay, watch, kitchenPhoneLocations }, t, shortName);
 
       const out: Step[] = [
         { group: t('Fondations', 'Foundations'), key: 'db', state: ch.mode === 'memory' ? 'todo' : 'done', title: t('Base de données Supabase', 'Supabase database'), body: ch.mode === 'memory' ? t('Mode démo : rien n’est gardé au redémarrage. Lancez npm run setup avec l’URL et la clé Supabase, puis exécutez INSTALL_ALL.sql.', 'Demo mode: nothing is kept across restarts. Run npm run setup with the Supabase URL and key, then run INSTALL_ALL.sql.') : t('Branchée.', 'Connected.'), href: '/settings/channels', cta: t('Voir', 'See') },
@@ -214,6 +211,7 @@ export default function GoLivePage() {
         { group: t('Équipe', 'Team'), key: 'managers', state: locNoManager.length ? 'todo' : 'done', title: t('Un gérant joignable par succursale', 'A reachable manager per location'), body: locNoManager.length ? `${t('Sans gérant avec cellulaire et NIP :', 'No manager with cell and PIN:')} ${list(locNoManager)}` : t('Chaque succursale a un gérant avec cellulaire et NIP.', 'Every location has a manager with a cell and a PIN.'), href: '/settings/team', cta: t('Équipe', 'Team') },
         { group: t('Équipe', 'Team'), key: 'pins', state: staffNoPin ? 'warn' : 'done', title: t('NIP des employés', 'Staff PINs'), body: staffNoPin ? t(`${staffNoPin} employé(s) sans NIP — ils ne peuvent pas déverrouiller une tablette.`, `${staffNoPin} staff without a PIN — they cannot unlock a tablet.`) : t('Tous les employés ont un NIP.', 'All staff have a PIN.'), href: '/settings/team', cta: t('Équipe', 'Team') },
         nativeTabletGoLiveStep(activeLocations, d.devices, t, shortName),
+        ...nativeTabletCallGoLiveSteps({ activeLocations, devices: d.devices, watch, kitchenPhoneLocations }, t, shortName),
         { group: t('Cuisine', 'Kitchen'), key: 'kphone', state: !kitchenCount || noPhone.length ? 'warn' : 'done', title: t('Téléphone de chaque cuisine', 'Each kitchen’s phone'), body: !kitchenCount
           ? t('Aucune cuisine active dans votre périmètre.', 'No active kitchens in your scope.')
           : noPhone.length ? t(`Téléphone de cuisine à vérifier pour ${list(noPhone)}.`, `Check the kitchen phone for ${list(noPhone)}.`)

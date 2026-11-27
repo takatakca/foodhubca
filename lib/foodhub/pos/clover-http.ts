@@ -23,12 +23,17 @@ export function cloverRetryDelayMs(retryAfter: string | null, attempt: number, b
   return Math.min(base * 2 ** attempt, MAX_WAIT_MS);
 }
 
-/** For a caller with a time budget (the live-call entitlement check): a short timeout, no 429 retry. */
-export interface CloverFetchOptions { timeoutMs?: number; retries?: number }
+export interface CloverFetchOptions {
+  timeoutMs?: number;
+  retries?: number;
+  /** After token resolution, check the write again on each attempt, including after a 429. */
+  beforeAttempt?: () => Promise<void>;
+}
 
 export async function cloverFetch(url: string, init: RequestInit = {}, opts: CloverFetchOptions = {}): Promise<Response> {
   const retries = typeof opts.retries === 'number' && opts.retries >= 0 ? opts.retries : MAX_RETRIES;
   for (let attempt = 0; ; attempt++) {
+    if (opts.beforeAttempt) await opts.beforeAttempt();
     const res = await timedFetch(url, init, { timeoutMs: opts.timeoutMs });
     if (res.status !== 429 || attempt >= retries) return res;
     const wait = cloverRetryDelayMs(res.headers.get('retry-after'), attempt);

@@ -200,6 +200,76 @@ describe('Skip driver observations cannot reopen a terminal order', () => {
     }
   });
 
+  it.each([true, false])('stops Clover writes when a signed cancellation is saved during tender lookup (existing tender: %s)', async (hasTender) => {
+    const repo = getRepo();
+    const id = await seed();
+    const fetchingTender = gate();
+    const tenderArrived = gate();
+    const mock = provider.getMockImplementation()!;
+    provider.mockImplementation(async (input, init) => {
+      if (new URL(String(input)).pathname.endsWith('/tenders')) {
+        fetchingTender.release();
+        await tenderArrived.waiting;
+        if (!hasTender) return Response.json({ elements: [] });
+      }
+      return mock(input, init);
+    });
+
+    const run = (await receive('driver', driver('onItsWay')))();
+    const fetching = await Promise.race([fetchingTender.waiting.then(() => true), run.then(() => false)]);
+    expect(fetching).toBe(true);
+    let finishCancel: (() => Promise<unknown>) | undefined;
+    try {
+      expect(await repo.getOrder(id)).toMatchObject({ status: 'dispatched' });
+      finishCancel = await receive('cancel', cancel());
+    } finally {
+      tenderArrived.release();
+      await run;
+    }
+    try {
+      expect(provider.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0);
+      expect(await repo.getOrder(id)).toMatchObject({ status: 'cancelled', timeline: { courier: { status: 'picked_up' } } });
+      expect((await repo.getOrder(id))?.timeline?.posPaymentId).toBeUndefined();
+    } finally {
+      await finishCancel?.();
+    }
+  });
+
+  it('stops a retry after Clover refuses an attempt with HTTP 429 and Skip cancels', async () => {
+    const repo = getRepo();
+    const id = await seed();
+    const mock = provider.getMockImplementation()!;
+    let finishCancel: (() => Promise<unknown>) | undefined;
+    provider.mockImplementation(async (input, init) => {
+      if (String(input).endsWith('/payments') && init?.method === 'POST' && !finishCancel) {
+        finishCancel = await receive('cancel', cancel());
+        return Response.json({ message: 'Fixture rate limit' }, { status: 429, headers: { 'Retry-After': '0' } });
+      }
+      return mock(input, init);
+    });
+    try {
+      await (await receive('driver', driver('onItsWay')))();
+      expect(finishCancel).toBeDefined();
+      expect(await repo.getOrder(id)).toMatchObject({ status: 'cancelled', timeline: { courier: { status: 'picked_up' } } });
+      expect((await repo.getOrder(id))?.timeline?.posPaymentId).toBeUndefined();
+      expect(provider.mock.calls.filter(([url, init]) => String(url).endsWith('/payments') && init?.method === 'POST')).toHaveLength(1);
+    } finally {
+      await finishCancel?.();
+    }
+  });
+
+  it('uses the confirmed receipt merchant even when a store changes its configured register', async () => {
+    const repo = getRepo();
+    const id = await seed();
+    const store = (await repo.findStore('skip', STORE))!;
+    await repo.updateStore(store.id, { cloverMerchantId: 'fixture-replacement-merchant' });
+    vi.stubEnv('CLOVER_MERCHANT_TOKENS', JSON.stringify({ 'fixture-replacement-merchant': 'fixture-replacement-token' }));
+    await (await receive('driver', driver('onItsWay')))();
+    expect(await repo.getOrder(id)).toMatchObject({ status: 'dispatched', timeline: { posMerchantId: MERCHANT, posPaymentId: 'fixture-payment' } });
+    expect(provider.mock.calls.filter(([, init]) => init?.method === 'POST').map(([url]) => new URL(String(url)).pathname))
+      .toEqual([`/v3/merchants/${MERCHANT}/orders/${POS}/payments`]);
+  });
+
   it('keeps existing driver details and records a real progress update once in the simulated Clover ledger', async () => {
     const repo = getRepo();
     const id = await seed();

@@ -72,7 +72,8 @@ export async function settleInClover(order: StoredOrder | null): Promise<StoredO
 }
 
 async function settleCloverOnly(order: StoredOrder | null): Promise<StoredOrder | null> {
-  if (!order?.posOrderId) return order;
+  const posOrderId = order?.posOrderId;
+  if (!order || !posOrderId) return order;
   // Orders that came through Clover's own platform integration are already paid / closed by that integration.
   if (order.viaPos) return order;
   const repo = getRepo();
@@ -84,12 +85,26 @@ async function settleCloverOnly(order: StoredOrder | null): Promise<StoredOrder 
     const paidOnAccept = order.viaHub === 'screen' && (order.status === 'accepted' || order.status === 'ready');
     if ((leftKitchen || paidOnAccept) && !order.timeline?.posPaymentId) {
       const store = await repo.findStore(order.channel, order.channelStoreId);
-      const r = await recordCloverPayment(order, store?.cloverMerchantId);
+      const exactSkipMerchant = order.channel === 'skip' && !order.viaHub ? order.timeline?.posMerchantId : undefined;
+      let latest = order;
+      const checkSkipPayment = exactSkipMerchant ? async () => {
+        const receipt = await repo.applySkipLifecycle({
+          kind: 'check_receipt', externalOrderId: order.externalOrderId, orderId: order.id,
+          posOrderId, merchantId: exactSkipMerchant,
+        });
+        latest = receipt.order ?? (await repo.getOrder(order.id)) ?? latest;
+        return Boolean(receipt.order && (latest.status === 'dispatched' || latest.status === 'completed')
+          && !latest.timeline?.posPaymentId && !latest.timeline?.posClosedAt);
+      } : undefined;
+      const r = await recordCloverPayment(order, exactSkipMerchant ?? store?.cloverMerchantId, checkSkipPayment);
       if (r.ok) {
         await repo.addEvent(order.id, 'pos_paid', { message: `Recorded as paid in Clover (${r.amount.toFixed(2)} $, ${CHANNEL_LABELS[order.channel]} tender)`, paymentId: r.paymentId });
         return patch(order, { posPaymentId: r.paymentId, posPaymentError: undefined });
       }
-      if ('skipped' in r && r.skipped) return order;
+      if ('skipped' in r && r.skipped) {
+        return exactSkipMerchant && latest.timeline?.posMerchantId === exactSkipMerchant && latest.posOrderId === posOrderId && isTerminal(latest)
+          ? settleCloverOnly(latest) : latest;
+      }
       await repo.addEvent(order.id, 'pos_payment_failed', { error: r.error });
       return patch(order, { posPaymentError: r.error });
     }

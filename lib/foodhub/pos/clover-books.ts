@@ -36,13 +36,13 @@ export function platformLabel(channel: ChannelKey) {
   return CHANNEL_LABELS[channel];
 }
 
-async function cloverJson(mid: string, path: string, init: RequestInit = {}): Promise<{ ok: boolean; status: number; json: any }> {
+async function cloverJson(mid: string, path: string, init: RequestInit = {}, beforeAttempt?: () => Promise<void>): Promise<{ ok: boolean; status: number; json: any }> {
   const token = await cloverToken(mid);
   if (!token) return { ok: false, status: 0, json: { message: `No Clover API token for merchant ${mid}` } };
   const res = await cloverFetch(`${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(mid)}${path}`, {
     ...init,
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json', ...(init.headers || {}) },
-  });
+  }, beforeAttempt ? { beforeAttempt } : undefined);
   const text = await res.text();
   let json: any = {};
   try { json = text ? JSON.parse(text) : {}; } catch { json = { raw: text.slice(0, 300) }; }
@@ -77,7 +77,7 @@ function tenderBodies(label: string) {
 }
 
 /** Finds (or creates once) a Clover object by label — tenders and order types work the same way. */
-async function ensureLabeled(mid: string, kind: 'tenders' | 'orderTypes', label: string): Promise<LabeledRef> {
+async function ensureLabeled(mid: string, kind: 'tenders' | 'orderTypes', label: string, beforeWrite?: () => Promise<void>): Promise<LabeledRef> {
   const refs = await readRefs();
   const known = refs[mid]?.[kind]?.[label];
   if (known) return { id: known };
@@ -90,7 +90,7 @@ async function ensureLabeled(mid: string, kind: 'tenders' | 'orderTypes', label:
   const bodies: object[] = kind === 'tenders' ? tenderBodies(label) : [{ label, taxable: true }];
   const answers: string[] = [];
   for (const body of bodies) {
-    const created = await cloverJson(mid, path, { method: 'POST', body: JSON.stringify(body) });
+    const created = await cloverJson(mid, path, { method: 'POST', body: JSON.stringify(body) }, beforeWrite);
     if (created.ok && created.json?.id) { await saveRef(mid, kind, label, String(created.json.id)); return { id: String(created.json.id) }; }
     answers.push(cloverAnswer(created));
     // Only a refusal is tried again: a 2xx without an id may have made it (the next lookup by label finds it — never
@@ -137,12 +137,17 @@ export type BookResult = { ok: true; paymentId: string; amount: number } | { ok:
  * Clover's own order total is only a fallback when the platform numbers are missing.
  * Never blocks the order: a failure is logged on the order and shown in alerts.
  */
-export async function recordCloverPayment(order: StoredOrder, mid: string | null | undefined): Promise<BookResult> {
+class CloverPaymentHeld extends Error {}
+
+export async function recordCloverPayment(order: StoredOrder, mid: string | null | undefined, beforePost?: () => Promise<boolean>): Promise<BookResult> {
   if (!cloverRecordPaymentEnabled()) return { ok: false, skipped: true, error: 'Payment recording is off (FOODHUB_CLOVER_RECORD_PAYMENT=off).' };
   const merchant = mid || process.env.CLOVER_MERCHANT_ID;
   if (!merchant || !order.posOrderId) return { ok: false, skipped: true, error: 'Order is not in Clover.' };
+  const checkWrite = beforePost && (async () => {
+    if (!(await beforePost())) throw new CloverPaymentHeld();
+  });
   try {
-    const tender = await ensureLabeled(merchant, 'tenders', platformLabel(order.channel));
+    const tender = await ensureLabeled(merchant, 'tenders', platformLabel(order.channel), checkWrite);
     if (!tender.id) return { ok: false, error: `Could not find or create the "${platformLabel(order.channel)}" tender in Clover: ${tender.error}` };
     const tenderId = tender.id;
     const amounts = cloverPaymentAmounts(order);
@@ -164,10 +169,11 @@ export async function recordCloverPayment(order: StoredOrder, mid: string | null
         externalPaymentId: externalPaymentId(order),
         result: 'SUCCESS',
       }),
-    });
+    }, checkWrite);
     if (!res.ok || !res.json?.id) return { ok: false, error: `Clover payment HTTP ${res.status}: ${JSON.stringify(res.json).slice(0, 200)}` };
     return { ok: true, paymentId: String(res.json.id), amount: amount / 100 };
   } catch (error) {
+    if (error instanceof CloverPaymentHeld) return { ok: false, skipped: true, error: 'The Clover receipt is no longer eligible for payment.' };
     return { ok: false, error: `Clover payment error: ${error instanceof Error ? error.message : String(error)}` };
   }
 }

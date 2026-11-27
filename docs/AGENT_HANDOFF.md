@@ -1,3 +1,9 @@
+## 2026-11-26 — Compteurs de la tablette après un déplacement
+
+Le signal natif vérifie de nouveau la cuisine et le jumelage juste avant de renvoyer les compteurs. Une tablette déplacée relit sa nouvelle affectation au signal suivant. Une tablette révoquée ou absente reçoit une demande de reconnexion. Les réponses d’erreur ne contiennent ni compteur ni identifiant. Un signal normal conserve ses compteurs courants.
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Signal natif concurrent d’un déplacement ou d’une révocation
 
 Une révision interne empêche un signal de tablette déjà en cours de restaurer une ancienne cuisine ou un jumelage révoqué. Un signal qui croise un déplacement demande une nouvelle lecture. Un signal dont le jumelage est révoqué est refusé. Le signal signé suivant peut lire la nouvelle cuisine. Les anciennes fiches de tablette continuent d’être utilisables et la révision reste interne.

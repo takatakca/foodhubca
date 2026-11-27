@@ -1,6 +1,6 @@
 import { getActor } from '@/lib/foodhub/auth';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
-import { DeviceHeartbeatConflict, deviceFromRequest, heartbeat } from '@/lib/foodhub/identity/devices';
+import { DeviceHeartbeatConflict, deviceFromRequest, getDevice, heartbeat } from '@/lib/foodhub/identity/devices';
 import { getRepo } from '@/lib/foodhub/repo';
 import { isWaitingScheduled } from '@/lib/foodhub/scheduling';
 
@@ -28,5 +28,12 @@ export async function POST(req: Request) {
   // Cancelled by the customer / platform in the last 30 min and not yet confirmed in the kitchen.
   const cancelled = recent.filter((o) => o.status === 'cancelled' && o.timeline?.cancelledBy && o.timeline.cancelledBy !== 'store' && !o.timeline.cancelSeenAt
     && Date.now() - Date.parse(o.timeline.cancelledAt ?? o.updatedAt) < 30 * 60_000).length;
+
+  // Confirm that the tablet is still authorized for the kitchen whose counters were loaded.
+  const current = await getDevice(d.id);
+  if (!current || current.revoked) return fail('Not an enrolled device', 403);
+  if (current.id !== d.id || current.locationCode !== d.locationCode || current.enrolledAt !== d.enrolledAt) {
+    return fail('Device location changed. Retry with the current location.', 409);
+  }
   return ok({ device: { id: d.id, name: d.name, locationCode: d.locationCode }, waiting, cancelled, serverTime: new Date().toISOString() });
 }

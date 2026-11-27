@@ -5,13 +5,13 @@ import { cloverLabelReport } from '../lib/foodhub/pos/clover-labels';
 const mid = 'TESTREGISTER';
 const printedTag = { id: 'kitchen', name: 'Kitchen', printers: { elements: [{ id: 'printer' }] } };
 const item = (id: string, printed = false) => ({ id, name: id, tags: { elements: printed ? [{ id: printedTag.id }] : [] } });
-type Page = (resource: string, offset: number, limit: number) => unknown;
+type Page = (resource: string, offset: number, limit: number, filter: string | null) => unknown;
 
 function mockClover(page: Page) {
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
     const path = new URL(url);
     if (init?.method === 'POST') return Response.json({});
-    const body = page(path.pathname.split('/').pop()!, Number(path.searchParams.get('offset')), Number(path.searchParams.get('limit')));
+    const body = page(path.pathname.split('/').pop()!, Number(path.searchParams.get('offset')), Number(path.searchParams.get('limit')), path.searchParams.get('filter'));
     return body instanceof Response ? body : Response.json(body);
   });
   vi.stubGlobal('fetch', fetch);
@@ -43,6 +43,17 @@ describe('complete Clover kitchen print coverage', () => {
     mockClover((resource, offset, limit) => ({ elements: resource === 'tags' ? [printedTag] :
       Array.from({ length: Math.min(limit, Math.max(0, 20001 - offset)) }, (_, i) => item('i' + (offset + i), offset + i < 20000)) }));
     expect(await cloverLabelReport(mid)).toMatchObject({ ok: true, items: 20001, unprinted: [{ id: 'i20000' }] });
+  });
+
+  it('checks the printer label against Clover when an item has reached the 100 embedded tag limit', async () => {
+    const fullTags = { elements: Array.from({ length: 100 }, (_, i) => ({ id: 'reporting' + i })) };
+    const inventory = ['covered', 'uncovered'].map((id) => ({ ...item(id), tags: fullTags }));
+    const fetch = mockClover((resource, _offset, _limit, filter) => {
+      if (resource === 'tags') return { elements: [printedTag] };
+      return { elements: filter === 'tags.id=kitchen' ? [item('covered')] : inventory };
+    });
+    expect(await cloverLabelReport(mid)).toMatchObject({ ok: true, items: 2, unprinted: [{ id: 'uncovered' }] });
+    expect(fetch.mock.calls.some(([url]) => new URL(url).searchParams.get('filter') === 'tags.id=kitchen')).toBe(true);
   });
 
   it.each(['failed', 'malformed', 'repeated'])('refuses an assignment when a later tag page is %s', async (failure) => {

@@ -36,12 +36,12 @@ type InventoryRow = {
   printers?: { elements?: Array<{ id: string }> }; tags?: { elements?: Array<{ id: string }> };
 };
 
-async function readPrintInventory(mid: string, token: string, path: 'tags' | 'items'): Promise<InventoryRow[]> {
+async function readPrintInventory(mid: string, token: string, path: 'tags' | 'items', printerLabel?: string): Promise<InventoryRow[]> {
   const limit = 1000;
   const rows = new Map<string, InventoryRow>();
-  const expand = path === 'tags' ? 'printers' : 'tags';
+  const query: Record<string, string> = printerLabel ? { filter: `tags.id=${printerLabel}` } : { expand: path === 'tags' ? 'printers' : 'tags' };
   for (let offset = 0; ; offset += limit) {
-    const page = await cloverGet(mid, token, path, { expand, limit: String(limit), offset: String(offset) });
+    const page = await cloverGet(mid, token, path, { ...query, limit: String(limit), offset: String(offset) });
     if (!Array.isArray(page?.elements)) throw new Error(`Clover returned an incomplete ${path} page. Retry the printing check.`);
     for (const row of page.elements) {
       if (!row?.id || rows.has(row.id)) throw new Error(`Clover returned a missing or repeated ${path} ID. Retry the printing check.`);
@@ -61,9 +61,22 @@ export async function cloverLabelReport(mid: string): Promise<CloverLabelReport>
     const kitchen = new Set(labels.filter((label) => label.printers > 0).map((label) => label.id));
     const items = await readPrintInventory(mid, token, 'items');
     const live = items.filter((i) => !i.hidden && !i.deleted);
-    const unprinted = live
-      .filter((i) => !(i.tags?.elements ?? []).some((tag) => kitchen.has(tag.id)))
-      .map((i) => ({ id: String(i.id), name: String(i.name ?? '') }))
+    const uncovered = new Map<string, InventoryRow>();
+    const truncated = new Set<string>();
+    for (const item of live) {
+      const tags = item.tags?.elements ?? [];
+      if (tags.some((tag) => kitchen.has(tag.id))) continue;
+      uncovered.set(item.id, item);
+      // Clover's expanded fields stop at 100. The printer tag can be outside this item's embedded list.
+      if (tags.length >= 100) truncated.add(item.id);
+    }
+    for (const printerLabel of kitchen) {
+      if (!truncated.size) break;
+      for (const item of await readPrintInventory(mid, token, 'items', printerLabel)) {
+        if (truncated.delete(item.id)) uncovered.delete(item.id);
+      }
+    }
+    const unprinted = [...uncovered.values()].map((item) => ({ id: item.id, name: item.name ?? '' }))
       .sort((a, b) => a.name.localeCompare(b.name));
     return { merchantId: mid, ok: true, labels, kitchenLabels: labels.filter((l) => l.printers > 0), items: live.length, unprinted };
   } catch (error) {

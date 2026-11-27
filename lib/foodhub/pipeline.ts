@@ -442,6 +442,23 @@ async function recoverSkipCloverAttempt(order: StoredOrder, createError?: string
   return { ok: false, skipped: true, uncertain: true, error: reason };
 }
 
+/** A signed terminal notice can settle the original copy after automatic intake has expired. */
+export async function settleTerminalSkipOrder(order: StoredOrder): Promise<void> {
+  if (order.status !== 'cancelled' && order.status !== 'failed') return;
+  if (!hasPendingSkipCloverAttempt(order)) {
+    await settleInClover(order);
+    return;
+  }
+  const startedAt = Date.parse(order.timeline?.posCreateAttempt?.at ?? '');
+  if (!order.posError && Date.now() - startedAt < RESUME_AFTER_MS) {
+    throw new Error('Waiting for the pending Skip Clover request before checking its receipt.');
+  }
+  const pos = await recoverSkipCloverAttempt(order);
+  if (!pos.ok) throw new Error(pos.error);
+  const receipt = await recordSkipCloverReceipt(order, pos, { source: 'signed_skip_notice' });
+  if (receipt.order.status === 'cancelled' || receipt.order.status === 'failed') await settleInClover(receipt.order);
+}
+
 /** Puts an order into Clover (the store's merchant, the right order type); its lines are already linked to the inventory. */
 export async function sendToClover(order: StoredOrder, store: ChannelStore | null): Promise<InjectResult> {
   if (hasPendingSkipCloverAttempt(order)) return recoverSkipCloverAttempt(order);
@@ -473,6 +490,15 @@ export async function sendToClover(order: StoredOrder, store: ChannelStore | nul
   return recoverSkipCloverAttempt(prepared, prepare.result.outcome === 'prepared' ? pos.error : undefined);
 }
 
+async function recordSkipCloverReceipt(order: StoredOrder, pos: Extract<InjectResult, { ok: true }>, evidence: Record<string, unknown>) {
+  if (!pos.merchantId) throw new Error('The confirmed Skip Clover receipt needs its originating register.');
+  const receipt = await getRepo().applySkipLifecycle({ kind: 'record_receipt', externalOrderId: order.externalOrderId, orderId: order.id,
+    posOrderId: pos.posOrderId, merchantId: pos.merchantId, adopted: Boolean(pos.adopted), evidence });
+  if (!receipt.order) throw new Error('The received Skip Clover receipt conflicts with the stored order.');
+  if (receipt.transitioned) await logSkipReceiptCancellation(receipt.order);
+  return { order: receipt.order, recorded: receipt.recorded };
+}
+
 /**
  * Clover confirmed the order: keep its id, say how the lines were linked, flag a Clover total that differs from what
  * the platform charged (usually a Clover tax setting — flagged, never changed), then print the kitchen ticket.
@@ -488,11 +514,8 @@ export async function recordCloverSuccess(order: StoredOrder, store: ChannelStor
   const directSkip = isDirectSkipSource(order);
   let current: StoredOrder;
   if (directSkip) {
-    if (!pos.merchantId) throw new Error('The confirmed Skip Clover receipt needs its originating register.');
-    const receipt = await repo.applySkipLifecycle({ kind: 'record_receipt', externalOrderId: order.externalOrderId, orderId: order.id, posOrderId: pos.posOrderId, merchantId: pos.merchantId, adopted: Boolean(pos.adopted), evidence });
-    if (!receipt.order) throw new Error('The received Skip Clover receipt conflicts with the stored order.');
+    const receipt = await recordSkipCloverReceipt(order, pos, evidence);
     current = receipt.order;
-    if (receipt.transitioned) await logSkipReceiptCancellation(current);
     if (current.status === 'cancelled' || current.status === 'failed') return (await settleInClover(current)) ?? current;
     if (!receipt.recorded || current.timeline?.printedAt) return current;
   } else {

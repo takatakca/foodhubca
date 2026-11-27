@@ -45,6 +45,8 @@ export interface OrderTimeline {
   posPaymentError?: string;
   /** Clover: the cancelled order was removed from (or marked cancelled in) Clover. */
   posClosedAt?: string;
+  /** The worker closing an exact terminal Skip receipt in Clover. */
+  posCloseClaim?: { id: string; at: string };
   /** Items reported missing to the platform after accepting (Skip modification, DoorDash order adjustment). */
   missingItems?: Array<{ name: string; ref?: string; quantity: number; at: string }>;
   /** DoorDash: the Auto Order Release event arrived (a Dasher is near the store: start preparing now). */

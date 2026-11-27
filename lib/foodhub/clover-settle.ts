@@ -6,6 +6,7 @@
 //   cancelled before   → removed from the Clover register (or renamed "CANCELLED" if Clover refuses)
 // Payments cannot be deleted or refunded through Clover's REST API, so they are only recorded once the
 // order can no longer be cancelled by the restaurant — that keeps Clover's sales equal to the real sales.
+import { randomUUID } from 'node:crypto';
 import { logActivity } from './activity';
 import { mevOnOrderChange } from './mev/hooks';
 import { CHANNEL_LABELS, nowIso } from './config';
@@ -16,6 +17,40 @@ import type { OrderTimeline, StoredOrder } from './types';
 
 async function patch(order: StoredOrder, t: OrderTimeline): Promise<StoredOrder> {
   return (await getRepo().patchOrder(order.id, t)) ?? { ...order, timeline: { ...(order.timeline ?? {}), ...t } };
+}
+
+const CLOVER_CLOSE_CLAIM_MS = 5 * 60_000;
+
+function isTerminal(order: StoredOrder): boolean {
+  return order.status === 'cancelled' || order.status === 'failed';
+}
+
+function canCloseSkipReceipt(fresh: StoredOrder, receipt: StoredOrder): boolean {
+  return fresh.channel === 'skip' && !fresh.viaHub && !fresh.viaPos && isTerminal(fresh) && !fresh.timeline?.posClosedAt
+    && fresh.posOrderId === receipt.posOrderId && fresh.timeline?.posMerchantId === receipt.timeline?.posMerchantId;
+}
+
+async function claimSkipReceiptClose(order: StoredOrder) {
+  const repo = getRepo();
+  const claim = { id: randomUUID(), at: nowIso() };
+  for (let retry = 0; retry < 2; retry += 1) {
+    let sameRevisionTime = false;
+    const claimed = await repo.patchOrder(order.id, { posCloseClaim: claim }, {}, (fresh) => {
+      if (!canCloseSkipReceipt(fresh, order)) return false;
+      const previous = fresh.timeline?.posCloseClaim;
+      const now = Date.now();
+      if (previous && !(now - Date.parse(previous.at) >= CLOVER_CLOSE_CLAIM_MS)) return false;
+      // The conditional SQL write compares updated_at. Avoid writing its existing millisecond back unchanged.
+      if (repo.mode === 'supabase' && Date.parse(fresh.updatedAt) === now) {
+        sameRevisionTime = true;
+        return false;
+      }
+      return true;
+    });
+    if (claimed || !sameRevisionTime) return { claimed, claim };
+    await new Promise<void>((resolve) => setTimeout(resolve, 2));
+  }
+  return { claimed: null, claim };
 }
 
 /**
@@ -51,21 +86,31 @@ async function settleCloverOnly(order: StoredOrder | null): Promise<StoredOrder 
       return patch(order, { posPaymentError: r.error });
     }
     // 'failed' = handed to the Skip tablet: the kitchen makes it from the tablet, so the Clover copy must go too.
-    if ((order.status === 'cancelled' || order.status === 'failed') && !order.timeline?.posClosedAt) {
-      if (order.timeline?.posPaymentId) {
+    if (isTerminal(order) && !order.timeline?.posClosedAt) {
+      const guarded = order.channel === 'skip' && !order.viaHub && Boolean(order.timeline?.posMerchantId);
+      const reservation = guarded ? await claimSkipReceiptClose(order) : null;
+      if (reservation && !reservation.claimed) return (await repo.getOrder(order.id)) ?? order;
+      const closing = reservation?.claimed ?? order;
+      const finishClaim = (t: OrderTimeline) => repo.patchOrder(order.id, { ...t, posCloseClaim: undefined }, {}, (fresh) =>
+        canCloseSkipReceipt(fresh, order) && fresh.timeline?.posCloseClaim?.id === reservation?.claim.id);
+      if (closing.timeline?.posPaymentId) {
+        const closed = reservation ? await finishClaim({ posClosedAt: nowIso() }) : null;
+        if (reservation && !closed) return (await repo.getOrder(order.id)) ?? order;
         await repo.addEvent(order.id, 'pos_paid_then_cancelled', { message: 'Cancelled after it was recorded as paid in Clover — refund it in the Clover app if the platform did not pay you.' });
         await logActivity({ actor: 'Food Hub', source: 'automation', kind: 'order', action: 'clover_paid_cancelled', status: 'failed', channel: order.channel, brandName: order.brandName, locationCode: order.locationCode, orderId: order.id,
           summary: `${tag} was cancelled after it was recorded as paid in Clover — check the payout; refund it in Clover if the platform did not pay you.` });
-        return patch(order, { posClosedAt: nowIso() });
+        return closed ?? patch(order, { posClosedAt: nowIso() });
       }
-      const merchantId = order.timeline?.posMerchantId || (await repo.findStore(order.channel, order.channelStoreId))?.cloverMerchantId;
-      const r = await closeCancelledCloverOrder(order, merchantId, { flagOnly: isTgtgEmailOrder(order) });
-      if (r.skipped) return order;
-      await repo.addEvent(order.id, r.ok ? 'pos_cancelled' : 'pos_cancel_failed', { message: order.status === 'failed' ? `${r.message} (order handed to the Skip tablet)` : r.message });
+      const merchantId = closing.timeline?.posMerchantId || (await repo.findStore(order.channel, order.channelStoreId))?.cloverMerchantId;
+      const r = await closeCancelledCloverOrder(closing, merchantId, { flagOnly: isTgtgEmailOrder(closing) });
+      const finished = reservation ? await finishClaim(r.ok ? { posClosedAt: nowIso() } : {}) : null;
+      if (reservation && !finished) return (await repo.getOrder(order.id)) ?? order;
+      if (r.skipped) return finished ?? order;
+      await repo.addEvent(order.id, r.ok ? 'pos_cancelled' : 'pos_cancel_failed', { message: closing.status === 'failed' ? `${r.message} (order handed to the Skip tablet)` : r.message });
       if (!r.ok) {
         await logActivity({ actor: 'Food Hub', source: 'automation', kind: 'order', action: 'clover_cancel_failed', status: 'failed', channel: order.channel, brandName: order.brandName, locationCode: order.locationCode, orderId: order.id, summary: `${tag} ${order.status === 'failed' ? 'moved to the Skip tablet' : 'cancelled'}, but Clover still has the order: ${r.message}` });
       }
-      return r.ok ? patch(order, { posClosedAt: nowIso() }) : order;
+      return finished ?? (r.ok ? patch(order, { posClosedAt: nowIso() }) : order);
     }
   } catch (error) {
     await repo.addEvent(order.id, 'pos_settle_failed', { error: error instanceof Error ? error.message : String(error) }).catch(() => undefined);

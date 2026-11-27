@@ -1,7 +1,6 @@
 import { logActivity } from '../activity';
 import { parseSkipCancelNotice, parseSkipFailedOrder } from '../adapters/skip';
-import { settleInClover } from '../clover-settle';
-import { mevOnOrderChange } from '../mev/hooks';
+import { settleTerminalSkipOrder } from '../pipeline';
 import { getRepo } from '../repo';
 
 export async function handleSkipCancelWebhook(body: unknown) {
@@ -15,7 +14,7 @@ export async function handleSkipCancelWebhook(body: unknown) {
       await logActivity({ actor: 'SkipTheDishes', source: 'platform', kind: 'order', action: 'platform_cancel', status: 'info', channel: 'skip', brandName: order.brandName, locationCode: order.locationCode, orderId: order.id,
         summary: `Skip cancelled #${order.displayId || order.externalOrderId.slice(0, 8)}${reason ? ` — ${reason}` : ''}` });
     }
-    await settleInClover(order);
+    await settleTerminalSkipOrder(order);
     return { result: 'Skip cancellation recorded.', orderId: order.id };
   }
   return { result: result.outcome === 'parked' ? 'Skip cancellation kept for the matching order.' : 'Skip order left unchanged.', orderId: result.order?.id };
@@ -34,11 +33,10 @@ export async function handleSkipBackupWebhook(body: unknown) {
     detail: { validationError: raw.validationError, unknownReference: raw.unknownReference, menuId: raw.menuId },
   });
   if (applied.outcome === 'conflicting_store') throw new Error('Skip backup notice names a different mapped store than the stored order.');
-  if (applied.outcome === 'cancelled' && applied.order && !applied.isNew) await settleInClover(applied.order);
+  if (applied.outcome === 'cancelled' && applied.order && !applied.isNew) await settleTerminalSkipOrder(applied.order);
   if (applied.outcome !== 'backed_up' || !applied.order) return { result: 'Skip backup notice kept without changing kitchen instructions.', orderId: applied.order?.id };
 
-  // MEV re-reads the committed order by id. The database decides whether this is a backup sale or a cancellation.
-  await mevOnOrderChange(applied.order);
+  await settleTerminalSkipOrder(applied.order);
   if (applied.isNew) {
     await logActivity({ actor: 'SkipTheDishes', source: 'platform', kind: 'order', action: 'skip_backup_flow', status: 'failed', channel: 'skip', brandName: applied.order.brandName, locationCode: applied.order.locationCode, orderId: applied.order.id,
       summary: `Skip #${order.displayId || order.externalOrderId.slice(0, 8)} failed validation and went to the Skip tablet — ${failure}` });

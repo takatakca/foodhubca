@@ -1,3 +1,7 @@
+## 2026-11-26 — Avis Skip après la fenêtre de reprise d’une commande
+
+Une annulation signée ou un transfert signé vers la tablette peut déclencher la recherche du reçu Clover d’origine après la fin de la fenêtre de la commande. La recherche relit la caisse de la tentative et exige le marqueur Food Hub unique. Un résultat absent ou ambigu reste lié à l’avis pour vérification ou relance. Si le reçu est confirmé et que la commande demeure annulée ou transférée, la fermeture se fait sur la caisse qui l’a reçu. Une réservation temporaire empêche deux traitements simultanés de fermer de nouveau le même reçu. Cette reprise d’un avis terminal ne crée, n’imprime et ne confirme aucune commande à JET.
+
 ## 2026-11-26 — Réponse Clover perdue après la création d’une commande Skip
 
 Avant le POST Clover, Food Hub réserve une tentative par commande dans PostgreSQL et conserve la caisse utilisée. Si la réponse est perdue, la reprise cherche une copie qui porte la référence Food Hub sur cette caisse, même si la liaison du magasin a changé. Une annulation durable est vérifiée avant d’imprimer ou de répondre à JET. Quand le reçu est confirmé pour une commande annulée, il est conservé et la copie est fermée sur la caisse d’origine. Tant que le résultat est absent ou ambigu, la commande reste à vérifier et une relance cherche le reçu sans envoyer une nouvelle création ni demander le repli JET. Un refus explicite de Clover peut libérer la tentative pour le repli habituel.

@@ -2,10 +2,11 @@ import crypto from 'node:crypto';
 import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { POST as receiveSkipCancellation } from '../app/api/foodhub/webhooks/skip/cancel/route';
+import { POST as receiveSkipBackup } from '../app/api/foodhub/webhooks/skip/failed/route';
 import { POST as receiveSkipOrder } from '../app/api/foodhub/webhooks/skip/orders/route';
 import { parseSkipOrder } from '../lib/foodhub/adapters/skip';
 import { readPending } from '../lib/foodhub/courier';
-import { INBOX, sweepInbox, type InboxEntry } from '../lib/foodhub/inbox';
+import { INBOX, inboxOrderCutoff, runInboxEntry, sweepInbox, type InboxEntry } from '../lib/foodhub/inbox';
 import { autoAcceptAfterClover, processIncomingOrder, runOrderAction } from '../lib/foodhub/pipeline';
 import { cloverOrderTitle } from '../lib/foodhub/pos/clover-order';
 import { getRepo } from '../lib/foodhub/repo';
@@ -61,6 +62,23 @@ async function saveCancellationWithWorkerWithheld(orderId: string) {
   expect(delayed).toHaveLength(1);
   expect(await readPending('skip', orderId)).toBeNull();
   return delayed[0];
+}
+
+async function processSignedBackup(orderId: string) {
+  const body = { validationError: 'fixture fallback', order: {
+    orderId, totalPrice: 1150, restaurant: { id: STORE }, items: [{ name: 'Fixture meal', plu: 'fixture-plu', price: 1150, quantity: 1 }],
+  } };
+  const raw = JSON.stringify(body);
+  const signature = crypto.createHmac('sha256', SECRET).update(raw).digest('base64');
+  const queued = afterCallbacks.length;
+  const reply = await receiveSkipBackup(new NextRequest('http://hub.local/api/foodhub/webhooks/skip/failed', {
+    method: 'POST', headers: { 'X-JET-Connect-Hash': `HMAC-SHA256 t=${Date.now()},signature=${signature}` }, body: raw,
+  }));
+  expect(reply.status).toBe(200);
+  expect(await reply.json()).toEqual(body);
+  const work = afterCallbacks.splice(queued);
+  expect(work).toHaveLength(1);
+  await work[0]();
 }
 
 async function processQueuedOrder(order = event()) {
@@ -603,6 +621,94 @@ describe('automatic receipt of direct Skip orders', () => {
     expect(await repo.getOrder(first.id)).toMatchObject({ status: cancelBeforeRetry ? 'cancelled' : 'accepted', posOrderId: POS });
     expect(outbound()).toEqual([create, print, cancelBeforeRetry ? close : jetRequest(incoming.id, 'success')]);
     expect((await repo.getDoc<InboxEntry>(INBOX, failed.id))?.data).toMatchObject({ status: 'done', attempts: 2, orderId: first.id });
+  });
+
+  it.each(['cancel', 'backup'] as const)('reconciles a lost Clover confirmation when a signed %s arrives after the order retry deadline', async (notice) => {
+    vi.stubEnv('FOODHUB_POS_INJECTION', undefined);
+    vi.stubEnv('FOODHUB_CLOVER_AUTOPRINT', 'on');
+    vi.stubEnv('FOODHUB_CLOVER_DELETE_CANCELLED', 'on');
+    const repo = getRepo();
+    const incoming = event();
+    const register = `${CLOVER}/v3/merchants/${MERCHANT}`;
+    const create = `${register}/atomic_order/orders`;
+    const lookup = `${register}/orders?filter=`;
+    const close = `${register}/orders/${POS}`;
+    let remoteCopy: { id: string; title: string; note: string } | undefined;
+    let visible = false;
+    const respond = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (url, init) => {
+      const address = String(url);
+      if (address === create && init?.method === 'POST') {
+        const { title, note } = JSON.parse(String(init.body)).orderCart;
+        remoteCopy = { id: POS, title, note };
+        throw new Error('Synthetic loss after Clover committed the order');
+      }
+      if (address.startsWith(lookup)) return Response.json({ elements: visible && remoteCopy ? [remoteCopy] : [] });
+      if (address === close && init?.method === 'DELETE') {
+        remoteCopy = undefined;
+        return new Response(null, { status: 204 });
+      }
+      return respond(url, init);
+    });
+
+    const first = await processQueuedOrder(incoming);
+    expect(first).toMatchObject({ status: 'new', timeline: { posCreateAttempt: { merchantId: MERCHANT } } });
+    expect(first.posOrderId).toBeUndefined();
+    expect(remoteCopy?.note).toMatch(new RegExp(`\\[FH:${first.id}\\]$`));
+    const inbox = (await repo.listDocs<InboxEntry>(INBOX))[0];
+    const cutoff = await inboxOrderCutoff(inbox.data);
+    expect(cutoff?.deadline).toBe(true);
+    expect(await runInboxEntry(inbox.id, { now: cutoff!.at + 1 })).toMatchObject({ status: 'failed', attempts: 1, nextAt: null, lastError: expect.stringContaining('answer window') });
+    expect(outbound()).toEqual([create, expect.stringContaining(lookup)]);
+
+    const store = (await repo.findStore('skip', STORE))!;
+    await repo.upsertStore({ ...store, locationCode: 'MOVED', cloverMerchantId: 'OTHER-REGISTER' });
+    visible = true;
+    const processNotice = async () => {
+      if (notice === 'backup') await processSignedBackup(incoming.id);
+      else await (await saveCancellationWithWorkerWithheld(incoming.id))();
+    };
+    await processNotice();
+    await processNotice();
+
+    expect(await repo.getOrder(first.id)).toMatchObject({
+      status: notice === 'backup' ? 'failed' : 'cancelled', locationCode: 'TEST', posOrderId: POS,
+      timeline: { posMerchantId: MERCHANT, posClosedAt: expect.any(String) },
+    });
+    expect(remoteCopy).toBeUndefined();
+    expect(outbound()).toEqual([create, expect.stringContaining(lookup), expect.stringContaining(lookup), close]);
+    expect((await repo.getDoc<InboxEntry>(INBOX, inbox.id))?.data).toMatchObject({ status: 'failed', attempts: 1, nextAt: null });
+    const events = (await repo.listEvents(first.id)).map(({ type }) => type);
+    for (const type of ['pos_adopted', 'pos_cancelled', notice === 'backup' ? 'routed_to_skip_tablet' : 'platform_status']) {
+      expect(events.filter((eventType) => eventType === type)).toHaveLength(1);
+    }
+  });
+
+  it('closes a known receipt only once on its original register when the signed tablet backup arrives', async () => {
+    vi.stubEnv('FOODHUB_POS_INJECTION', undefined);
+    vi.stubEnv('FOODHUB_CLOVER_DELETE_CANCELLED', 'on');
+    const repo = getRepo();
+    const incoming = event();
+    const register = `${CLOVER}/v3/merchants/${MERCHANT}`;
+    const close = `${register}/orders/${POS}`;
+    const respond = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (url, init) => {
+      if (String(url) === close && init?.method === 'DELETE') return new Response(null, { status: 204 });
+      return respond(url, init);
+    });
+    const first = await processQueuedOrder(incoming);
+    expect(first).toMatchObject({ status: 'accepted', posOrderId: POS, timeline: { posMerchantId: MERCHANT } });
+    const store = (await repo.findStore('skip', STORE))!;
+    await repo.upsertStore({ ...store, locationCode: 'MOVED', cloverMerchantId: 'OTHER-REGISTER' });
+
+    await processSignedBackup(incoming.id);
+    await processSignedBackup(incoming.id);
+
+    expect(await repo.getOrder(first.id)).toMatchObject({ status: 'failed', posOrderId: POS, timeline: { posMerchantId: MERCHANT, posClosedAt: expect.any(String) } });
+    expect(outbound()).toEqual([`${register}/atomic_order/orders`, jetRequest(incoming.id, 'success'), close]);
+    const events = (await repo.listEvents(first.id)).map(({ type }) => type);
+    expect(events.filter((type) => type === 'pos_cancelled')).toHaveLength(1);
+    expect(events.filter((type) => type === 'routed_to_skip_tablet')).toHaveLength(1);
   });
 
   it('does not acknowledge a resumed delivery without a receipt', async () => {

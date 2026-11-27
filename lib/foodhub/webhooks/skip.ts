@@ -32,7 +32,7 @@ export async function handleSkipBackupWebhook(body: unknown) {
     kind: 'backup', order: { ...order, brandName: store?.brandName, locationCode: store?.locationCode }, mappedStore: Boolean(store), message,
     detail: { validationError: raw.validationError, unknownReference: raw.unknownReference, menuId: raw.menuId },
   });
-  if (applied.outcome === 'conflicting_store') throw new Error('Skip backup notice names a different mapped store than the stored order.');
+  if (applied.outcome === 'conflicting_store') throw new Error('Skip backup notice does not match the stored order’s store.');
   if (applied.outcome === 'cancelled' && applied.order && !applied.isNew) await settleTerminalSkipOrder(applied.order);
   if (applied.outcome !== 'backed_up' || !applied.order) return { result: 'Skip backup notice kept without changing kitchen instructions.', orderId: applied.order?.id };
 

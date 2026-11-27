@@ -261,6 +261,10 @@ export async function processIncomingOrder(n: NormalizedOrder, opts: { holdClove
       const latest = await checkSkipBeforeClover(order);
       if (hasPendingSkipCloverAttempt(latest.order)) throw new Error(pos.error);
       if (latest.order.status === 'cancelled') return stopCancelledSkipIntake(latest.order, latest.transitioned);
+      if (latest.order.status === 'failed') {
+        const backedUp = (await settleInClover(latest.order)) ?? latest.order;
+        return { order: backedUp, duplicate: false, pos: { ok: false, skipped: true, error: 'Skip sent this order to its tablet.' } };
+      }
       if (latest.outcome !== 'received' || hasPendingSkipJetAttempt(latest.order)) return { order: latest.order, duplicate: true };
       current = latest.order;
     }
@@ -612,8 +616,11 @@ export async function autoAcceptAfterClover(order: StoredOrder, posOrderId?: str
       await mevOnOrderChange(current);
     } else if (decision.finished && !accept.ok) {
       await repo.addEvent(order.id, 'accept_failed', { auto: true, status: accept.status, message: accept.message, ...(decision.outcome === 'uncertain' ? { uncertain: true } : {}) });
-    } else if (accept.ok && current.status === 'cancelled') {
-      await repo.addEvent(order.id, 'needs_attention', { reason: 'Skip confirmed the order while it was being cancelled. The receipt remains linked for settlement.' });
+    } else if (accept.ok && (current.status === 'cancelled' || current.status === 'failed')) {
+      const reason = current.status === 'cancelled'
+        ? 'Skip confirmed the order while it was being cancelled. The receipt remains linked for settlement.'
+        : 'Skip confirmed the order while tablet handoff was being recorded. The receipt remains linked for settlement.';
+      await repo.addEvent(order.id, 'needs_attention', { reason });
     }
     return { order: current, accept };
   }

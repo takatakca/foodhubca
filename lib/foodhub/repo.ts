@@ -140,6 +140,20 @@ function pendingInboxCancel(state: MemState, reference: string): PendingPlatform
   return { platformState: 'cancelled', detail: { reason: reason?.code, happenedAt }, at: entry.receivedAt };
 }
 
+function pendingInboxBackup(state: MemState, order: StoredOrder): Record<string, unknown> | undefined {
+  const storeId = order.channelStoreId;
+  if (!storeId?.trim() || !['new', 'accepted', 'ready'].includes(order.status)) return undefined;
+  const reference = order.externalOrderId;
+  const isReference = (value: unknown, expected: string) =>
+    (typeof value === 'string' || typeof value === 'number') && String(value) === expected;
+  const candidates = [...(state.docs.get('webhook_inbox')?.values() ?? [])].filter(({ data, key }) =>
+    data?.channel === 'skip' && data.kind === 'skip_backup' && data.reference === reference.slice(0, 200)
+    && isReference(data.body?.order?.orderId, reference) && isReference(data.body?.order?.restaurant?.id, storeId)
+    && ['received', 'processing', 'failed', 'done'].includes(key ?? ''));
+  candidates.sort((a, b) => (b.at ?? '').localeCompare(a.at ?? '') || b.id.localeCompare(a.id));
+  return candidates[0]?.data?.body;
+}
+
 function validSkipJetAttempt(attempt: SkipJetAttempt | undefined): attempt is SkipJetAttempt {
   return typeof attempt?.id === 'string' && Boolean(attempt.id) && typeof attempt.at === 'string' && Boolean(attempt.at)
     && (attempt.signal === 'accept' || attempt.signal === 'fallback')
@@ -256,13 +270,15 @@ function applySkipLifecycleInMemory(input: SkipLifecycleInput): SkipLifecycleRes
     ? { platformState: 'cancelled', detail: input.detail, at: now }
     : parked?.status ?? pendingInboxCancel(state, externalOrderId);
 
-  if (jet && existing && !cancellation) {
+  const backup = (preparing || jet || receipt) && direct && existing && !cancellation ? pendingInboxBackup(state, existing) : undefined;
+
+  if (jet && existing && !cancellation && !backup) {
     const result = skipJetResult(existing, jet, now);
     if (result.order && (result.finished || result.outcome === 'jet_prepared')) state.orders.set(existing.id, result.order);
     return result;
   }
 
-  if (preparing && existing && !cancellation) {
+  if (preparing && existing && !cancellation && !backup) {
     if (existing.status === 'cancelled') return { order: existing, isNew: false, outcome: 'cancelled' };
     if (invalidAttempt || knownMerchant) return { order: null, isNew: false, outcome: 'conflicting_attempt' };
     if (attempt) return { order: existing, isNew: false, outcome: 'attempt_pending' };
@@ -295,7 +311,8 @@ function applySkipLifecycleInMemory(input: SkipLifecycleInput): SkipLifecycleRes
     state.kv.set(key, { ...previous, status: cancellation });
     return { order: null, isNew: false, outcome: 'parked' };
   }
-  if (input.kind === 'backup' && input.mappedStore && existing?.channelStoreId && existing.channelStoreId !== input.order.channelStoreId) {
+  if (input.kind === 'backup' && existing?.channelStoreId && existing.channelStoreId !== input.order.channelStoreId
+    && (input.mappedStore || (direct && existing.channelStoreId.trim()))) {
     return { order: null, isNew: false, outcome: 'conflicting_store' };
   }
   if (input.kind === 'backup' && !existing && (input.order.viaHub || input.order.viaPos)) {
@@ -333,6 +350,14 @@ function applySkipLifecycleInMemory(input: SkipLifecycleInput): SkipLifecycleRes
     }
   }
   const receiptOutcome = recorded ? { recorded } : {};
+  if (backup) {
+    const message = 'Skip sent this order to the tablet. Make it from the Skip tablet.';
+    const backedUp = { ...order, status: 'failed' as const, channelError: message, updatedAt: now };
+    state.orders.set(order.id, backedUp);
+    const { validationError, unknownReference, menuId } = backup;
+    addEvent('routed_to_skip_tablet', { validationError, unknownReference, menuId, message, source: 'signed_skip_backup_inbox' });
+    return { order: backedUp, isNew: false, outcome: 'backed_up', ...receiptOutcome };
+  }
   if (receipt && existing && !cancellation) {
     return { order: existing, isNew: false, outcome: existing.status === 'cancelled' ? 'cancelled' : 'received', ...receiptOutcome };
   }

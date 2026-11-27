@@ -1,3 +1,7 @@
+## 2026-11-26 — Avis Skip déjà reçu avant le traitement du repli
+
+Quand le webhook de repli signé est enregistré, l’arbitrage vérifie le numéro complet de la commande et le magasin du fournisseur. Un avis correspondant bloque la prise en charge Clover et JET même si le traitement de l’avis attend. Si Clover avait déjà reçu la création, le reçu demeure lié et la copie est fermée sur la caisse d’origine sans impression. Une annulation signée reste prioritaire. Un magasin différent ou manquant ne peut pas modifier une commande directe dont le magasin est connu.
+
 ## 2026-11-26 — Arbitrage des sorties Skip et Clover
 
 Avant une confirmation, un repli JET ou une création Clover, la transaction vérifie l’état réel, le reçu attendu et les annulations Skip déjà enregistrées. Elle réserve une seule décision pour la commande. Un refus JET explicite libère la prise en charge. Un résultat incertain reste visible et bloque un nouvel envoi jusqu’à vérification. Une confirmation manuelle déjà enregistrée bloque aussi l’admission automatique devenue périmée. Un renvoi Clover expressément demandé depuis une commande déjà acceptée reste possible. Un avis de repli signé peut reprendre le traitement après un arrêt entre la confirmation du fournisseur et le journal d’activité.

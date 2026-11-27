@@ -144,6 +144,8 @@ begin;
 -- Signed Skip lifecycle receipts are matched by both the recorded and the signed order reference.
 create index if not exists fh_skip_cancel_inbox_reference_idx on public.fh_docs ((data->>'reference'), at desc)
   where collection = 'webhook_inbox' and data->>'channel' = 'skip' and data->>'kind' = 'skip_cancel';
+create index if not exists fh_skip_backup_inbox_reference_idx on public.fh_docs ((data->>'reference'), at desc)
+  where collection = 'webhook_inbox' and data->>'channel' = 'skip' and data->>'kind' = 'skip_backup';
 
 -- Arbitrate direct JET Connect intake and lifecycle notices on the same order lock, even before a row exists.
 create or replace function public.fh_apply_skip_lifecycle(
@@ -159,6 +161,8 @@ declare
   pending jsonb;
   cancellation jsonb;
   inbox_notice jsonb;
+  inbox_backup jsonb;
+  backup_message constant text := 'Skip sent this order to the tablet. Make it from the Skip tablet.';
   event_detail jsonb;
   cancel_timeline jsonb := '{}'::jsonb;
   pending_key text := 'pending:skip:' || p_external_id;
@@ -350,6 +354,29 @@ begin
     if cancellation is not null then desired_status := 'cancelled'; end if;
   end if;
 
+  if (prepare_mode or jet_mode or receipt_mode) and cancellation is null and current_order.status in ('new', 'accepted', 'ready')
+      and coalesce(btrim(current_order.channel_store_id, blank_store_chars), '') <> '' then
+    -- The failed-order route persisted this authenticated notice before starting its worker.
+    select data->'body' into inbox_backup from public.fh_docs
+      where collection = 'webhook_inbox' and data->>'channel' = 'skip' and data->>'kind' = 'skip_backup'
+        and data->>'reference' = left(p_external_id, 200) and data->'body'->'order'->>'orderId' = p_external_id
+        and jsonb_typeof(data->'body'->'order'->'orderId') in ('string', 'number')
+        and data->'body'->'order'->'restaurant'->>'id' = current_order.channel_store_id
+        and jsonb_typeof(data->'body'->'order'->'restaurant'->'id') in ('string', 'number')
+        and key in ('received', 'processing', 'failed', 'done')
+      order by at desc, id desc limit 1;
+    if inbox_backup is not null then
+      update public.fh_orders set status = 'failed', channel_error = backup_message, updated_at = observed_at
+        where id = current_order.id returning * into current_order;
+      insert into public.fh_order_events (order_id, type, detail) values (current_order.id, 'routed_to_skip_tablet',
+        jsonb_strip_nulls(jsonb_build_object('validationError', inbox_backup->'validationError',
+          'unknownReference', inbox_backup->'unknownReference', 'menuId', inbox_backup->'menuId',
+          'message', backup_message, 'source', 'signed_skip_backup_inbox')));
+      return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'backed_up')
+        || case when recorded then '{"recorded":true}'::jsonb else '{}'::jsonb end;
+    end if;
+  end if;
+
   if jet_mode and cancellation is null then
     if current_order.status = 'cancelled' then
       return jsonb_build_object('order', to_jsonb(current_order), 'isNew', false, 'outcome', 'cancelled');
@@ -475,8 +502,10 @@ begin
     end if;
   end if;
 
-  if p_kind = 'backup' and p_mapped and coalesce(current_order.channel_store_id, '') <> ''
-      and current_order.channel_store_id is distinct from seed.channel_store_id then
+  if p_kind = 'backup' and coalesce(current_order.channel_store_id, '') <> ''
+      and current_order.channel_store_id is distinct from seed.channel_store_id
+      and (p_mapped or (coalesce(btrim(current_order.channel_store_id, blank_store_chars), '') <> ''
+        and coalesce(current_order.data->>'viaHub', '') = '' and coalesce(current_order.data->>'viaPos', '') = '')) then
     return jsonb_build_object('order', null, 'isNew', false, 'outcome', 'conflicting_store');
   end if;
   -- An intake outside this lock may have won the unique insert since the first read.

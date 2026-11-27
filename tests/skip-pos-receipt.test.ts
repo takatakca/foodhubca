@@ -70,9 +70,9 @@ async function saveCancellationWithWorkerWithheld(orderId: string) {
   return delayed[0];
 }
 
-async function processSignedBackup(orderId: string) {
+async function saveBackupWithWorkerWithheld(orderId: string, storeId = STORE) {
   const body = { validationError: 'fixture fallback', order: {
-    orderId, totalPrice: 1150, restaurant: { id: STORE }, items: [{ name: 'Fixture meal', plu: 'fixture-plu', price: 1150, quantity: 1 }],
+    orderId, totalPrice: 1150, restaurant: { id: storeId }, items: [{ name: 'Fixture meal', plu: 'fixture-plu', price: 1150, quantity: 1 }],
   } };
   const raw = JSON.stringify(body);
   const signature = crypto.createHmac('sha256', SECRET).update(raw).digest('base64');
@@ -82,9 +82,25 @@ async function processSignedBackup(orderId: string) {
   }));
   expect(reply.status).toBe(200);
   expect(await reply.json()).toEqual(body);
+  expect((await getRepo().listDocs<InboxEntry>(INBOX)).map(({ data }) => data)).toContainEqual(expect.objectContaining({ kind: 'skip_backup', status: 'received', body }));
   const work = afterCallbacks.splice(queued);
   expect(work).toHaveLength(1);
-  await work[0]();
+  return work[0];
+}
+
+async function processSignedBackup(orderId: string) {
+  const work = await saveBackupWithWorkerWithheld(orderId);
+  await work();
+}
+
+async function processOrdinaryWhileBackupWaits(incoming = event()) {
+  const reply = await handleSignedOrder(incoming);
+  expect(reply.status).toBe(202);
+  expect(await reply.json()).toEqual({ OrderId: incoming.id });
+  const process = afterCallbacks.shift();
+  expect(process).toBeDefined();
+  await process?.();
+  return getRepo().findOrder('skip', incoming.id);
 }
 
 async function processQueuedOrder(order = event()) {
@@ -148,6 +164,119 @@ afterEach(() => {
 });
 
 describe('automatic receipt of direct Skip orders', () => {
+  it.each(['OTHER_UNMAPPED_STORE', ''] as const)('holds a signed backup with a different or missing store after its worker runs (%s)', async (storeId) => {
+    const repo = getRepo();
+    const incoming = event();
+    const { order } = await repo.insertOrderIfNew({ ...parseSkipOrder(incoming)!, locationCode: 'TEST' });
+    await (await saveBackupWithWorkerWithheld(incoming.id, storeId))();
+    expect(await repo.getOrder(order.id)).toMatchObject({ status: 'new', channelStoreId: STORE });
+    const notice = (await repo.listDocs<InboxEntry>(INBOX)).find(({ data }) => data.kind === 'skip_backup');
+    expect(notice?.data).toMatchObject({ status: 'failed', lastError: expect.stringContaining('does not match the stored order') });
+    expect(await repo.listEvents(order.id)).toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])('respects a matching signed backup before first intake even while its worker is withheld (mapped: %s)', async (mapped) => {
+    vi.stubEnv('FOODHUB_POS_INJECTION', undefined);
+    const repo = getRepo();
+    if (!mapped) {
+      const store = await repo.findStore('skip', STORE);
+      if (!store) throw new Error('The fixture mapping is missing');
+      await repo.deleteStore(store.id);
+    }
+    const incoming = event('fixture-backup-before-intake');
+    const backup = await saveBackupWithWorkerWithheld(incoming.id);
+    expect(await repo.findOrder('skip', incoming.id)).toBeNull();
+
+    const order = await processOrdinaryWhileBackupWaits(incoming);
+
+    expect({ requests: outbound(), receipt: order?.posOrderId }).toEqual({ requests: [], receipt: undefined });
+    await backup();
+    expect(await repo.findOrder('skip', incoming.id)).toMatchObject({ status: 'failed' });
+  });
+
+  it('does not call Clover when a matching signed backup is saved just before the Clover reservation', async () => {
+    vi.stubEnv('FOODHUB_POS_INJECTION', undefined);
+    const repo = getRepo();
+    const incoming = event('fixture-backup-before-clover');
+    const apply = repo.applySkipLifecycle.bind(repo);
+    let backup: Awaited<ReturnType<typeof saveBackupWithWorkerWithheld>> | undefined;
+    vi.spyOn(repo, 'applySkipLifecycle').mockImplementation(async (input) => {
+      if (!backup && input.kind === 'prepare_clover') backup = await saveBackupWithWorkerWithheld(incoming.id);
+      return apply(input);
+    });
+
+    const order = await processOrdinaryWhileBackupWaits(incoming);
+
+    expect(backup).toBeDefined();
+    expect({ requests: outbound(), receipt: order?.posOrderId }).toEqual({ requests: [], receipt: undefined });
+  });
+
+  it('closes the original receipt without printing when a matching signed backup is saved during Clover creation', async () => {
+    vi.stubEnv('FOODHUB_POS_INJECTION', undefined);
+    vi.stubEnv('FOODHUB_CLOVER_AUTOPRINT', 'on');
+    vi.stubEnv('FOODHUB_CLOVER_DELETE_CANCELLED', 'on');
+    const incoming = event('fixture-backup-during-clover');
+    const register = `${CLOVER}/v3/merchants/${MERCHANT}`;
+    const create = `${register}/atomic_order/orders`;
+    const close = `${register}/orders/${POS}`;
+    const print = `${register}/print_event`;
+    const respond = fetchMock.getMockImplementation()!;
+    let backup: Awaited<ReturnType<typeof saveBackupWithWorkerWithheld>> | undefined;
+    fetchMock.mockImplementation(async (url, init) => {
+      const address = String(url);
+      if (address === create && init?.method === 'POST') {
+        backup = await saveBackupWithWorkerWithheld(incoming.id);
+        return Response.json({ id: POS });
+      }
+      if (address === print && init?.method === 'POST') return Response.json({ id: 'fixture-printed' });
+      if (address === close && init?.method === 'DELETE') return new Response(null, { status: 204 });
+      return respond(url, init);
+    });
+
+    const order = await processOrdinaryWhileBackupWaits(incoming);
+
+    expect(backup).toBeDefined();
+    expect({ status: order?.status, receipt: order?.posOrderId, merchant: order?.timeline?.posMerchantId,
+      closed: Boolean(order?.timeline?.posClosedAt), requests: outbound() })
+      .toEqual({ status: 'failed', receipt: POS, merchant: MERCHANT, closed: true, requests: [create, close] });
+  });
+
+  it('does not call JET when a matching signed backup is saved just before the confirmation transaction', async () => {
+    vi.stubEnv('FOODHUB_POS_INJECTION', undefined);
+    const repo = getRepo();
+    const incoming = event('fixture-backup-before-jet');
+    const apply = repo.applySkipLifecycle.bind(repo);
+    let backup: Awaited<ReturnType<typeof saveBackupWithWorkerWithheld>> | undefined;
+    vi.spyOn(repo, 'applySkipLifecycle').mockImplementation(async (input) => {
+      if (!backup && input.kind === 'prepare_jet' && input.signal === 'accept') backup = await saveBackupWithWorkerWithheld(incoming.id);
+      return apply(input);
+    });
+
+    const order = await processOrdinaryWhileBackupWaits(incoming);
+
+    expect(backup).toBeDefined();
+    expect(order?.posOrderId).toBe(POS);
+    expect(outbound().filter((url) => url.startsWith(JET))).toEqual([]);
+  });
+
+  it.each([
+    { name: 'a different mapped store', store: 'FIXTURE-OTHER-MAPPED', otherMapped: true },
+    { name: 'a different unmapped store', store: 'FIXTURE-OTHER-UNMAPPED' },
+    { name: 'a blank store id', store: '' },
+    { name: 'a different order at the same store', store: STORE, otherOrder: true },
+    { name: 'another order sharing the truncated inbox reference', store: STORE, longReference: true },
+  ])('continues ordinary intake when the withheld backup names $name', async ({ store, otherMapped, otherOrder, longReference }) => {
+    vi.stubEnv('FOODHUB_POS_INJECTION', undefined);
+    const prefix = 'a'.repeat(200);
+    const incoming = event(longReference ? `${prefix}-ordinary` : 'fixture-ordinary-order');
+    if (otherMapped) await getRepo().upsertStore({ channel: 'skip', channelStoreId: store, brandName: 'Other fixture', locationCode: 'OTHER', autoAccept: true, online: true, meta: {} });
+    await saveBackupWithWorkerWithheld(longReference ? `${prefix}-foreign` : otherOrder ? 'fixture-unrelated-order' : incoming.id, store);
+
+    expect(await processOrdinaryWhileBackupWaits(incoming)).toMatchObject({ status: 'accepted', posOrderId: POS });
+    expect(outbound()).toEqual([`${CLOVER}/v3/merchants/${MERCHANT}/atomic_order/orders`, jetRequest(incoming.id, 'success')]);
+  });
+
   it.each(['first order', 'interrupted order'] as const)('applies a saved Skip cancellation before Clover work on a %s', async (scenario) => {
     vi.stubEnv('FOODHUB_POS_INJECTION', undefined);
     const repo = getRepo();

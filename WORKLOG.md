@@ -1,3 +1,4 @@
+- 2026-11-26 | Codex @ cloud | fix/watchtower-inactive-kitchen → PR #193 | distinguer un relevé Watchtower partiel du passage complet | suivre la CI et la preuve terrain — signé : Codex @ cloud · 2026-11-26
 - 2026-11-26 | Codex @ cloud | fix/watchtower-inactive-kitchen → PR #193 | vérifier le jumelage et le signal de l’appareil entre les envois | suivre CI et preuves dans #105 et #46 — signé : Codex @ cloud · 2026-11-26
 - 2026-11-26 | Codex @ cloud | fix/watchtower-inactive-kitchen → PR #193 | revérification de la cuisine entre les envois d’un incident | suivre CI et preuves marchandes dans #105 et #46 — signé : Codex @ cloud · 2026-11-26
 - 2026-11-26 | Codex @ cloud | fix/watchtower-inactive-kitchen | correctif et essais sur la surveillance des cuisines désactivées | suivre la CI et les preuves de publication dans #105 et #46 — signé : Codex @ cloud · 2026-11-26

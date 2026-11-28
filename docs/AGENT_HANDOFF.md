@@ -1,6 +1,6 @@
 ## 2026-11-28 — Liaison modifiée pendant un débranchement Uber
 
-Lorsque Uber accepte le débranchement, Food Hub vérifie la liaison et l’état Uber enregistré avant de mettre à jour le magasin. Une nouvelle liaison ou une confirmation plus récente reste intacte, même si le magasin n’était pas lié au départ. L’écran garde le gestionnaire inconnu jusqu’à une nouvelle vérification Uber. Les autres données enregistrées en parallèle restent présentes. Le groupe de magasins du compte Uber et l’interrupteur des écritures restent nécessaires. Un compte limité à des cuisines doit avoir une liaison autorisée avant toute demande. Les essais utilisent des sessions et commerces fictifs et ne contactent aucun fournisseur.
+Lorsque Uber accepte le débranchement, Food Hub vérifie la liaison et l’état Uber enregistré avant de mettre à jour le magasin. Une nouvelle liaison ou une confirmation plus récente reste intacte, même si le magasin n’était pas lié au départ. L’écran garde le gestionnaire inconnu jusqu’à une nouvelle vérification Uber. L’activation, la vérification et le débranchement se font une action à la fois. Le résultat d’un magasin reste affiché quand une autre liaison change. Les autres données enregistrées en parallèle restent présentes. Le groupe de magasins du compte Uber et l’interrupteur des écritures restent nécessaires. Un compte limité à des cuisines doit avoir une liaison autorisée avant toute demande. Les essais utilisent des sessions et commerces fictifs et ne contactent aucun fournisseur.
 
 — signé : Codex @ cloud · 2026-11-28
 

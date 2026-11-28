@@ -1184,11 +1184,13 @@ try {
   uberCreated.get('uber-new-1').unshift({ id: 'uber-mismatch-1', current_state: 'CREATED', placed_at: ago(2) });
   const sy41 = await call('POST', '/api/foodhub/sync', { body: { force: true } });
   check('sync finds the order no webhook announced and processes it (Clover first, then accept)', sy41.json?.report?.uberMissed?.recovered === 1 && !!(await waitFor(async () => { const o = await findOrder('uber-missed-1'); return o?.posOrderId && o.status === 'accepted' && o.channelStoreId === 'uber-new-1' && o.locationCode === 'HOCHELAGA' ? o : null; })), JSON.stringify(sy41.json?.report?.uberMissed));
-  const heldIdentity = ((await call('GET', '/api/foodhub/channels')).json?.unparsed ?? []).find((job) => job.reference === 'uber-mismatch-1');
+  const reviewPage = await call('GET', '/api/foodhub/channels/uber-review?offset=0');
+  const heldIdentity = (reviewPage.json?.notices ?? []).find((notice) => notice.orderRef === 'uber-mismatch-1');
+  const recentUnparsed = (await call('GET', '/api/foodhub/channels')).json?.unparsed ?? [];
   const replayIdentity = heldIdentity && await call('POST', '/api/foodhub/inbox', { body: { jobId: heldIdentity.id } });
-  check('a contradictory Uber read is retained for review and cannot be replayed as a webhook',
-    heldIdentity?.request?.replayable === false && heldIdentity.request?.body?.meta?.user_id === 'uber-new-1'
-      && !heldIdentity.request.body.event_type && !heldIdentity.request.body.resource_href && replayIdentity?.status === 409
+  check('a contradictory Uber read appears in the review page and cannot be replayed as a webhook',
+    reviewPage.status === 200 && heldIdentity?.reason === 'order_store_mismatch' && heldIdentity.storeRef === 'uber-new-1'
+      && !recentUnparsed.some((job) => job.id === heldIdentity?.id) && replayIdentity?.status === 409
       && !(await findOrder('uber-mismatch-1')) && sent('GET', /\/v2\/eats\/order\/uber-mismatch-1$/).length === 1
       && !sent('POST', /\/uber-mismatch-1\//).length);
   uberCreated.set('uber-new-1', uberCreated.get('uber-new-1').filter(({ id }) => id !== 'uber-mismatch-1'));

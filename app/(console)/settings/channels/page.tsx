@@ -15,6 +15,7 @@ import { DoorDashSandboxTests } from './doordash-sandbox';
 import { api } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import { countEn, countFr } from '@/lib/ui/count-label';
+import { UBER_REVIEW_PAGE_SIZE, type UberReviewPage } from '@/lib/foodhub/uber-review';
 
 type Channel = {
   channel: string; label: string; configured: boolean; canSend: boolean; missing: string[]; note: string; noteFr?: string; viaClover?: boolean; webhookUrl: string;
@@ -125,6 +126,61 @@ function CloverPrinting() {
 type InboxEntry = { id: string; channel: string; kind: string; reference: string | null; status: 'received' | 'processing' | 'done' | 'failed'; receivedAt: string; updatedAt: string; attempts: number; nextAt?: string | null; lastError?: string | null; result?: string | null; orderId?: string | null };
 type InboxData = { received: number; stuck: number; failed: number; waiting: number; lastAt: string | null; entries: InboxEntry[] };
 
+function UberReviewNotices({ when }: { when: (iso: string) => string }) {
+  const { t } = useI18n();
+  const [page, setPage] = useState<UberReviewPage | null>(null);
+  const [busy, setBusy] = useState(true);
+  const [failedOffset, setFailedOffset] = useState<number | null>(null);
+  const load = useCallback(async (offset: number) => {
+    setBusy(true);
+    setFailedOffset(null);
+    try {
+      setPage(await api<UberReviewPage>(`/api/foodhub/channels/uber-review?offset=${offset}`));
+    } catch {
+      setFailedOffset(offset);
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+  useEffect(() => { void load(0); }, [load]);
+  return (
+    <div className="mt-5 border-t border-line pt-4" aria-busy={busy}>
+      <div className="font-bold text-ink">{t('Avis Uber à examiner', 'Uber notices to review')}</div>
+      {failedOffset !== null && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <Banner tone="stop">{t('Impossible de charger les avis Uber.', 'Could not load Uber notices.')}</Banner>
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => load(failedOffset)}>{t('Réessayer', 'Retry')}</Button>
+        </div>
+      )}
+      {page?.notices.length === 0 && <p className="mt-2 text-sm text-ink-3">{t('Aucun avis Uber à examiner.', 'No Uber notices to review.')}</p>}
+      {!page && busy && <p className="mt-2 text-sm text-ink-3" role="status">{t('Chargement des avis Uber…', 'Loading Uber notices…')}</p>}
+      {!!page?.notices.length && (
+        <ul className="mt-2 space-y-2">
+          {page.notices.map((notice) => (
+            <li key={notice.id} className="rounded-md border border-line px-3 py-2 text-sm">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-ink-3">{when(notice.createdAt)}</span>
+                <Badge tone="neutral">{t('À vérifier', 'Review only')}</Badge>
+              </div>
+              <p>{t('Les détails Uber diffèrent de la commande ou du magasin indiqué.', 'Uber’s details differ from the listed order or store.')}</p>
+              <div className="flex flex-wrap gap-x-4 text-xs text-ink-3">
+                {notice.orderRef && <span className="break-all">{t('Commande', 'Order')} <span className="font-mono">{notice.orderRef}</span></span>}
+                {notice.storeRef && <span className="break-all">{t('Magasin', 'Store')} <span className="font-mono">{notice.storeRef}</span></span>}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {page && (page.offset > 0 || page.hasMore) && (
+        <div className="mt-3 flex gap-2">
+          <Button size="sm" variant="outline" disabled={busy || page.offset === 0} onClick={() => load(Math.max(0, page.offset - UBER_REVIEW_PAGE_SIZE))}>{t('Précédent', 'Previous')}</Button>
+          <Button size="sm" variant="outline" disabled={busy || !page.hasMore} onClick={() => load(page.offset + UBER_REVIEW_PAGE_SIZE)}>{t('Suivant', 'Next')}</Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * Webhook inbox: every platform message is saved before Food Hub answers; what still needs a look is listed here with
  * Replay (an order is never duplicated — same platform + order id = same order).
@@ -180,6 +236,7 @@ function WebhookInbox({ unparsed, onChanged }: { unparsed: Job[]; onChanged: () 
           </Table>
         </div>
       )}
+      <UberReviewNotices when={when} />
       {unparsed.length > 0 && (
         <div className="mt-5 border-t border-line pt-4">
           <div className="font-bold text-ink">{t(`Messages illisibles gardés (${unparsed.length})`, `Kept unreadable payloads (${unparsed.length})`)}</div>

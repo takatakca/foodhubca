@@ -9,6 +9,7 @@ import { applyExternalStatus, pipelineOutcomeText, processIncomingOrder } from '
 import { handleUberReportWebhook } from '../recon/automation';
 import { getRepo } from '../repo';
 import type { ChannelStore, PlatformStatus } from '../types';
+import { UBER_POLL_MISMATCH_REASON } from '../uber-review';
 import { listUberCanceledOrders } from './uber-api';
 import { uberPosForStore } from './uber-link';
 import { keepUnparsed, uberDeliveryStatus } from '../webhook-utils';
@@ -54,7 +55,7 @@ export async function handleUberEvent(
     const detailStoreId = details?.store?.id;
     if (polled && (String(details?.id ?? '') !== polled.orderId
       || (detailStoreId != null && String(detailStoreId) !== polled.storeId))) {
-      const reason = 'Uber polled order details do not match the listed order and store';
+      const reason = UBER_POLL_MISMATCH_REASON;
       const repo = getRepo();
       const previous = await repo.findJobByReference(polled.orderId, {
         kind: 'webhook_unparsed', channel: 'uber_eats', reason, listedStoreId: polled.storeId, reviewOnly: true,

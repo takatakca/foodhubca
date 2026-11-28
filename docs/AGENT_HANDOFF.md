@@ -2,6 +2,8 @@
 
 La reprise vérifie que les détails concernent la commande et le magasin de la liste Uber avant d’enregistrer, d’annuler ou d’envoyer une commande en cuisine. Quand Uber omet le magasin des détails, la commande doit correspondre à l’identifiant exact de la liste pour conserver ce magasin. Un désaccord conserve seulement l’avis de recherche et laisse les autres commandes de la liste avancer. Si le même désaccord revient, la reprise conserve l’avis existant. L’avis est consultable dans Canaux et ne peut pas être rejoué. Une réponse corrigée permet ensuite à la reprise de traiter la commande. Les deux essais fictifs reproduisent un envoi vers une autre cuisine et une annulation de la mauvaise commande avant correction. La vérification marchande reste dans [la checklist #46](https://github.com/takatakca/foodhubca/issues/46).
 
+Le suivi de revue #218 recherche l’avis par commande, magasin, canal, marqueur de consultation et motif avant de retenir le résultat. Une page dédiée dans Canaux expose les métadonnées des avis Uber par groupe de cinq, en appliquant le périmètre des cuisines avant la limite. La vue récente conserve le parcours de rejeu des autres messages. Les tests de régression couvrent un message intermédiaire plus récent, deux magasins pour une référence et la consultation d’un avis ancien.
+
 — signé : Codex @ cloud · 2026-11-28
 
 ## 2026-11-26 — Paiement Clover après déplacement d’une liaison

@@ -10,6 +10,7 @@ import { cloverAppsOverview } from '@/lib/foodhub/pos/clover-apps-status';
 import { cloverOrderTypesEnabled, cloverRecordPaymentEnabled } from '@/lib/foodhub/pos/clover-books';
 import { lastCloverTestOrder } from '@/lib/foodhub/pos/clover-test-order';
 import { getRepo } from '@/lib/foodhub/repo';
+import { isUberPollReviewNotice } from '@/lib/foodhub/uber-review';
 import { relayReadiness } from '@/lib/foodhub/adapters/relay';
 import { goLiveFacts } from '@/lib/foodhub/go-live';
 
@@ -71,7 +72,7 @@ export const GET = withPerm('stores:map', async (req, _ctx, actor) => {
       revealed: reveal,
     },
     jobs: jobs.filter((j) => j.kind !== 'webhook_unparsed'),
-    unparsed: jobs.filter((j) => j.kind === 'webhook_unparsed'),
+    unparsed: jobs.filter((j) => j.kind === 'webhook_unparsed' && !isUberPollReviewNotice(j)),
     // Settings → Go-live: local Clover routing, saved Uber activation evidence and session-secret status.
     goLive: await goLiveFacts(actor),
   });

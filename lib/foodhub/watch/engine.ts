@@ -406,11 +406,15 @@ async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
 
 // ---------- escalation ----------
 
-function recipients(users: FoodHubUser[], i: Incident, roles: Array<FoodHubUser['role']>, kind: 'sms' | 'call') {
-  return users.filter((u) => u.active && u.phone && roles.includes(u.role)
+function isRecipient(u: FoodHubUser, i: Incident, kind: 'sms' | 'call') {
+  return u.active && u.phone
     && (!i.locationCode || !u.locations?.length || u.locations.includes(i.locationCode))
     && u.prefs?.onDuty !== false
-    && (kind === 'sms' ? u.prefs?.alertSms !== false : u.prefs?.alertCall !== false));
+    && (kind === 'sms' ? u.prefs?.alertSms !== false : u.prefs?.alertCall !== false);
+}
+
+function recipients(users: FoodHubUser[], i: Incident, roles: Array<FoodHubUser['role']>, kind: 'sms' | 'call') {
+  return users.filter((u) => roles.includes(u.role) && isRecipient(u, i, kind));
 }
 
 function smsText(i: Incident, lang: 'fr' | 'en') {
@@ -455,11 +459,13 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
   // can be listed in multiple roles; later ticks can still escalate normally.
   const called = new Set<string>();
   const call = async (to: string, label: string, lang: 'fr' | 'en', purpose: string) => {
-    const destination = normalizePhone(to) ?? to;
-    if (called.has(destination)) return;
+    const normalized = normalizePhone(to);
+    const destination = normalized ?? to;
+    if (called.has(destination)) return false;
     called.add(destination);
     const result = await placeCall({ to: destination, say: callText(i, lang), lang }, { purpose, incidentId: i.id });
     step('call', `${label} (${maskContact(destination)})`, result.ok, result.message, result.uncertain);
+    return Boolean(normalized && !result.skipped);
   };
 
   const firstStageDue = elapsed >= s.smsAfterMin;
@@ -506,11 +512,22 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
     if (!list.length) step('sms', '—', false, 'Aucun gérant de garde avec un cellulaire. / No manager on duty with a phone.');
   }
   if (i.level < 2 && elapsed >= s.callAfterMin && i.severity === 'critical') {
-    i.level = 2; changed = true;
     const to = recipients(users, i, ['manager'], 'call');
-    for (const u of (to.length ? to : recipients(users, i, ['owner'], 'call')).slice(0, 2)) {
-      await call(u.phone!, u.name, u.prefs?.lang ?? 'fr', 'alert');
+    let attempted = false;
+    for (const candidate of (to.length ? to : recipients(users, i, ['owner'], 'call')).slice(0, 2)) {
+      let user: FoodHubUser | null;
+      try {
+        user = await getRepo().getUser(candidate.username);
+      } catch {
+        // Retry a stage that has not sent anything. Once a call was attempted,
+        // keeping its progress prevents replaying a provider request on the next tick.
+        if (!attempted) return changed;
+        break;
+      }
+      if (user?.id !== candidate.id || user.role !== candidate.role || !isRecipient(user, i, 'call')) continue;
+      if (await call(user.phone!, user.name, user.prefs?.lang ?? 'fr', 'alert')) attempted = true;
     }
+    i.level = 2; changed = true;
   }
   if (i.level < 3 && elapsed >= s.ownerAfterMin && i.severity === 'critical') {
     i.level = 3; changed = true;

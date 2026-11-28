@@ -9,7 +9,7 @@ import { GET as listKnown } from '../app/api/foodhub/stores/known/route';
 import { POST as discover } from '../app/api/foodhub/stores/discover/route';
 import { POST as activate } from '../app/api/foodhub/uber-connect/activate/route';
 import * as uber from '../lib/foodhub/adapters/uber-eats';
-import { hashPassword } from '../lib/foodhub/auth';
+import { hashPassword, sessionCookieFor } from '../lib/foodhub/auth';
 import * as uberProvision from '../lib/foodhub/adapters/uber-provision';
 import { KNOWN_UBER_KITCHENS, knownStores } from '../lib/foodhub/known-stores';
 import { saveLocation } from '../lib/foodhub/catalog';
@@ -299,6 +299,44 @@ describe('Clover register selection in the Uber connection flow', () => {
     expect((await session('new')).suggestedClover).toBeUndefined();
     delete process.env.CLOVER_MERCHANT_ID;
     expect((await session('new')).suggestedClover).toBeUndefined();
+  });
+
+  it.each([
+    { state: 'inactive', status: 400, error: /inactive/i },
+    { state: 'unavailable', status: 503, error: /catalog could not be loaded/i },
+  ])('blocks a mixed activation batch when the kitchen catalogue is $state', async ({ state, status, error }) => {
+    const inactiveKitchen = 'NDG_6284';
+    await saveLocation({ code: inactiveKitchen, name: 'Fixture disabled kitchen', address: '', active: false });
+    const repo = getRepo();
+    if (state === 'unavailable') {
+      const readKv = repo.getKv.bind(repo);
+      vi.spyOn(repo, 'getKv').mockImplementation((key) => key === 'catalog'
+        ? Promise.reject(new Error('Fixture catalog read unavailable'))
+        : readKv(key));
+    }
+    const readiness = uber.uberEatsAdapter.readiness();
+    vi.spyOn(uber.uberEatsAdapter, 'readiness').mockReturnValue({ ...readiness, canSend: true });
+    const provider = vi.spyOn(uberProvision, 'activateUberStores').mockImplementation(async (_id, picks) => picks.map((pick) => ({
+      storeId: pick.storeId, result: { channel: 'uber_eats', status: 'done', ok: true, message: 'OK' }, enabled: null, pos: null, message: 'OK',
+    })));
+    const cookie = (await sessionCookieFor(null, 'password')).split(';')[0];
+    const response = await activate(new Request('http://hub.local/api/foodhub/uber-connect/activate', {
+      method: 'POST',
+      headers: { cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        id: sessionId,
+        stores: [
+          { storeId: 'fixture-active-destination', brandName, locationCode: kitchen },
+          { storeId: 'fixture-inactive-destination', brandName, locationCode: inactiveKitchen },
+        ],
+      }),
+    }), ctx);
+    expect({
+      status: response.status,
+      providerRequests: provider.mock.calls.length,
+      savedMappings: (await repo.listStores('uber_eats')).length,
+    }).toEqual({ status, providerRequests: 0, savedMappings: 0 });
+    expect((await response.json()).error).toMatch(error);
   });
 
   it('rechecks a stale suggestion and the whole batch before activation, then accepts a deliberate choice', async () => {

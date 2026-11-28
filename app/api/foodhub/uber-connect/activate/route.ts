@@ -21,11 +21,14 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
   // Same rules as POST /api/foodhub/stores: only your locations, only known brands/locations.
   const outside = picks.filter((p) => !inScope(actor, p.locationCode));
   if (outside.length) return fail(`You can only map stores at your locations (${actor.locations.join(', ')}).`, 403);
-  const catalog = await getCatalog();
+  const catalog = await getCatalog({ strict: true }).catch(() => null);
+  if (!catalog) return fail('The saved kitchen catalog could not be loaded. Try again before activating stores.', 503);
   const badBrand = picks.find((p) => !catalog.brands.some((x) => x.name === p.brandName));
   if (badBrand) return fail(`Unknown brand "${badBrand.brandName}". Add it in Brands & Locations first.`);
   const badLocation = picks.find((p) => !catalog.locations.some((l) => l.code === p.locationCode));
   if (badLocation) return fail(`Unknown location "${badLocation.locationCode}". Add it in Brands & Locations first.`);
+  const inactiveLocation = picks.find((p) => catalog.locations.some((l) => l.code === p.locationCode && l.active === false));
+  if (inactiveLocation) return fail(`Location "${inactiveLocation.locationCode}" is inactive. Enable it in Brands & Locations before activation.`);
   const repo = getRepo();
   const [mapped, defaultMerchantId] = await Promise.all([repo.listStores(), defaultCloverMerchant()]);
   for (const p of picks) {

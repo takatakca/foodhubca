@@ -1,3 +1,11 @@
+## 2026-11-26 — Vérification de la liaison au moment de la saisie d’écran
+
+La saisie d’une commande depuis un écran vérifie que la liaison choisie correspond encore à la cuisine, à la marque et à la caisse Clover au moment de traiter la commande. Si la liaison a été modifiée, supprimée ou recréée pendant la saisie, Food Hub demande de recharger l’écran et de confirmer la cuisine. Le conflit est signalé avant l’enregistrement de la commande et l’envoi à Clover. Le paiement de la saisie utilise la même liaison que la création de la commande Clover. Les essais marchands restent suivis dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+Sur l’arbre attendu de #178 `85c8163`, les 158 tests ciblés, TypeScript et ESLint passent. Le contrôle de liaison à la saisie coexiste avec la déduplication par magasin. En cas de doublon, la réponse de la saisie garde le format de #178.
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Paiement Clover après déplacement d’une liaison
 
 La réconciliation locale de #183 sur `86d190c` conserve les références par magasin de #178 pour la saisie, la reprise, l’import et le paiement Clover. Les 161 essais ciblés couvrent aussi le règlement et l’impression sur la caisse confirmée et le contrôle manuel d’une liaison Uber Eats. Les réponses des fournisseurs sont simulées. La CI du SHA réconcilié et la réception marchande restent à vérifier avant publication.

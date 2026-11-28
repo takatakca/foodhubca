@@ -21,7 +21,7 @@ import { CHANNEL_LABELS, round2 } from './config';
 import { isProtectedDoorDashId } from './doordash/guard';
 import { getBrandMenu } from './menu/shared';
 import { modifierPriceFor, priceFor, sortedCategories } from './menu/translate';
-import { processIncomingOrder } from './pipeline';
+import { processIncomingOrder, StoreMappingChangedError } from './pipeline';
 import { FORBIDDEN_STORE_IDS } from './public-directory';
 import { getRepo } from './repo';
 import { SCREEN_ENTRY_PREFIX, screenEntryOrderId } from './screen-entry-id';
@@ -204,6 +204,7 @@ export async function enterScreenOrder(screen: PlatformScreen, body: unknown, ac
   if (input.channelStoreId && isProtectedStore(input.channelStoreId)) return { ok: false, status: 403, error: 'Magasin protégé : personne n’agit dessus depuis Food Hub. / Protected store: nobody acts on it from Food Hub.' };
   const store = input.channelStoreId ? stores.find((s) => s.channelStoreId === input.channelStoreId) : stores.length === 1 ? stores[0] : undefined;
   if (!store) return { ok: false, status: 400, error: stores.length ? 'Choisissez le magasin (la marque) de la commande. / Choose the order’s store (brand).' : noStoreMessage(channel) };
+  const expectedStoreMapping = { id: store.id, locationCode: screen.locationCode, brandName: store.brandName, cloverMerchantId: store.cloverMerchantId };
 
   const code = normalizeOrderCode(input.orderCode);
   if (!code) return { ok: false, status: 400, error: INVALID_ORDER_CODE };
@@ -220,7 +221,11 @@ export async function enterScreenOrder(screen: PlatformScreen, body: unknown, ac
   const built = buildScreenEntryOrder(input, { channel, store, menu, province: locationProvince(location), screen, enteredBy: actor.name, now });
   if ('error' in built) return { ok: false, status: 400, error: built.error };
 
-  const out = await processIncomingOrder(built.order);
+  const out = await processIncomingOrder(built.order, { expectedStoreMapping }).catch((error) => {
+    if (error instanceof StoreMappingChangedError) return null;
+    throw error;
+  });
+  if (!out) return { ok: false, status: 409, error: 'La liaison du magasin a changé. Actualisez l’écran et vérifiez la cuisine avant de reprendre la saisie. / Store mapping changed. Refresh the screen and verify the kitchen before entering the order again.' };
   if (out.duplicate) return { ok: false, status: 409, error: `${CHANNEL_LABELS[channel]} #${code} est déjà entrée. / ${CHANNEL_LABELS[channel]} #${code} was already entered.` };
   const order = (await repo.getOrder(out.order.id)) ?? out.order;
   await repo.addEvent(order.id, 'screen_entry', { message: `Entered by hand by ${actor.name} from the screen "${screen.name}" (${screen.id})`, by: actor.name, screenId: screen.id });

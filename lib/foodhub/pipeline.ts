@@ -8,7 +8,7 @@ import { CHANNEL_LABELS, nowIso } from './config';
 import { allCloverMerchants, cloverAutoPrintEnabled, cloverBaseUrl, cloverExpected, cloverInjectionEnabled, cloverToken, defaultCloverMerchant, injectOrder, type InjectResult } from './pos/clover';
 import { CLOVER_REPRINT_KITCHEN_CHANGED, cloverKitchenChanged, cloverOrderTypeForOrder, cloverTotalGap, describeMappingWarnings, findCloverOrderByTitle, mapOrderLines, platformFoodCents, printKitchenTicket } from './pos/clover-order';
 import { cloverRetryDelaysS, noteLastOrder, scheduleCloverRetry } from './order-retry';
-import { settleInClover } from './clover-settle';
+import { settleInClover, type VerifiedCloverStore } from './clover-settle';
 import { mevOnOrderChange } from './mev/hooks';
 import { closeCancelledCloverOrder } from './pos/clover-books';
 import { doorDashMerchantCancelEnabled } from './adapters/doordash';
@@ -33,6 +33,10 @@ export interface PipelineOutcome {
   pos?: { ok: boolean; posOrderId?: string; error?: string; skipped?: boolean };
   accept?: ChannelResult;
 }
+
+type StoreMapping = Pick<ChannelStore, 'id' | 'locationCode' | 'brandName' | 'cloverMerchantId'>;
+
+export class StoreMappingChangedError extends Error {}
 
 /** One line for the webhook inbox: what became of an incoming order. */
 export function pipelineOutcomeText(out: PipelineOutcome): string {
@@ -102,10 +106,16 @@ export function screenActions(channel: ChannelKey): Pick<ChannelAdapter, 'accept
  * opts.holdClover: the source knows the order must not reach any register yet (a Too Good To Go e-mail whose store
  * name is not mapped): it is stored and shown on the Command Center, never sent to Clover, never printed, never
  * accepted automatically — the reason is kept as its POS error until the store is mapped (or a person sends it).
+ * opts.expectedStoreMapping: hand entry already authorized a store mapping. Refuse any change before saving the order.
  */
-export async function processIncomingOrder(n: NormalizedOrder, opts: { holdClover?: string } = {}): Promise<PipelineOutcome> {
+export async function processIncomingOrder(n: NormalizedOrder, opts: { holdClover?: string; expectedStoreMapping?: StoreMapping } = {}): Promise<PipelineOutcome> {
   const repo = getRepo();
   const store = n.channelStoreId ? await repo.findStore(n.channel, n.channelStoreId) : null;
+  const expected = opts.expectedStoreMapping;
+  if (expected && (!store || store.id !== expected.id || store.locationCode !== expected.locationCode
+    || store.brandName !== expected.brandName || (store.cloverMerchantId || null) !== (expected.cloverMerchantId || null))) {
+    throw new StoreMappingChangedError('Store mapping changed while processing the order.');
+  }
   const brandName = store?.brandName || n.brandName;
 
   // Link every line and option to the Clover inventory through the brand's master menu (or the menu it shares):
@@ -125,7 +135,7 @@ export async function processIncomingOrder(n: NormalizedOrder, opts: { holdClove
   if (!isNew) {
     // Stored, but the server stopped before Clover was even tried: this later delivery (inbox recovery, a platform
     // re-delivery, a Replay) finishes the job instead of answering "duplicate" and leaving the kitchen without it.
-    if (neverSentToClover(order)) return resumeUnsentOrder(order);
+    if (!expected && neverSentToClover(order)) return resumeUnsentOrder(order);
     await repo.addEvent(order.id, 'duplicate_delivery', { note: 'Webhook delivered again; ignored.' });
     return { order, duplicate: true };
   }
@@ -195,7 +205,7 @@ export async function processIncomingOrder(n: NormalizedOrder, opts: { holdClove
   // soon as Clover has it — never before (posBlocksAccept), and only for a mapped store.
   const acceptNow = Boolean(store) && (store?.autoAccept || n.viaHub === 'screen');
   if (acceptNow && !posBlocksAccept && !opts.holdClover) {
-    const r = await autoAcceptAfterClover(current, pos.ok ? pos.posOrderId : undefined);
+    const r = await autoAcceptAfterClover(current, pos.ok ? pos.posOrderId : undefined, expected ? store ?? undefined : undefined);
     current = r.order;
     accept = r.accept;
   } else if (posBlocksAccept) {
@@ -328,13 +338,13 @@ export async function recordCloverSuccess(order: StoredOrder, store: ChannelStor
  * Accept on the platform once Clover has the order, or when Clover is optional for this deployment. Direct Skip
  * requires a receipt. A cancellation that lands meanwhile always wins, and the Clover copy is removed.
  */
-export async function autoAcceptAfterClover(order: StoredOrder, posOrderId?: string): Promise<{ order: StoredOrder; accept?: ChannelResult }> {
+export async function autoAcceptAfterClover(order: StoredOrder, posOrderId?: string, verifiedStore?: VerifiedCloverStore): Promise<{ order: StoredOrder; accept?: ChannelResult }> {
   const repo = getRepo();
   const cancelledMeanwhile = async () => (await repo.getOrder(order.id))?.status === 'cancelled';
   let current = order;
   if (await cancelledMeanwhile()) {
     await repo.addEvent(order.id, 'accept_skipped', { reason: 'Cancelled by the platform while it was being put in Clover — nothing sent to the platform; the Clover copy is removed.' });
-    return { order: (await settleInClover((await repo.getOrder(order.id)) ?? current)) ?? current };
+    return { order: (await settleInClover((await repo.getOrder(order.id)) ?? current, verifiedStore)) ?? current };
   }
   if (isDirectSkipOrder(order) && !posOrderId?.trim() && !order.posOrderId?.trim()) {
     return { order, accept: { channel: 'skip', status: 'blocked', ok: false, message: 'Skip requires a Clover order ID for automatic confirmation.' } };
@@ -343,13 +353,13 @@ export async function autoAcceptAfterClover(order: StoredOrder, posOrderId?: str
   if (accept.ok && (await cancelledMeanwhile())) {
     // Cancelled during the accept call itself: keep the cancellation, never write 'accepted' over it.
     await repo.addEvent(order.id, 'needs_attention', { reason: 'Accepted on the platform, but the platform cancelled the order meanwhile — check the platform; the Clover copy is removed.' });
-    current = (await settleInClover((await repo.getOrder(order.id)) ?? current)) ?? current;
+    current = (await settleInClover((await repo.getOrder(order.id)) ?? current, verifiedStore)) ?? current;
   } else if (accept.ok) {
     current = await patchTimeline(current, { acceptedAt: nowIso(), acceptedBy: 'auto' }, { status: 'accepted', channelError: undefined });
     await repo.addEvent(order.id, 'accepted', { auto: true, response: summarize(accept) });
     // Accepted = sold: the Revenu Québec invoice follows (Takatak MEV; nothing when MEV is off). An order entered by hand
     // from a platform screen is also recorded as paid in Clover now (settleInClover runs the MEV hook itself).
-    if (current.viaHub === 'screen') current = (await settleInClover(current)) ?? current;
+    if (current.viaHub === 'screen') current = (await settleInClover(current, verifiedStore)) ?? current;
     else await mevOnOrderChange(current);
   } else {
     current = (await repo.updateOrder(order.id, { channelError: accept.message })) ?? current;

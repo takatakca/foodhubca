@@ -12,7 +12,9 @@ import { CHANNEL_LABELS, nowIso } from './config';
 import { closeCancelledCloverOrder, cloverRecordPaymentEnabled, recordCloverPayment } from './pos/clover-books';
 import { getRepo } from './repo';
 import { isTgtgEmailOrder } from './tgtg-email/ids';
-import type { OrderTimeline, StoredOrder } from './types';
+import type { ChannelStore, OrderTimeline, StoredOrder } from './types';
+
+export type VerifiedCloverStore = Pick<ChannelStore, 'locationCode' | 'cloverMerchantId'>;
 
 async function patch(order: StoredOrder, t: OrderTimeline): Promise<StoredOrder> {
   return (await getRepo().patchOrder(order.id, t)) ?? { ...order, timeline: { ...(order.timeline ?? {}), ...t } };
@@ -21,14 +23,15 @@ async function patch(order: StoredOrder, t: OrderTimeline): Promise<StoredOrder>
 /**
  * Every status change of a platform order goes through here, so this is also where the Revenu Québec invoice (Takatak
  * MEV) follows the order: sale once accepted, credit note when cancelled after it (mev/hooks.ts). Off = no cost.
+ * In the same flow that creates a hand-entered order, keep using the register selected for creation.
  */
-export async function settleInClover(order: StoredOrder | null): Promise<StoredOrder | null> {
-  const settled = await settleCloverOnly(order);
+export async function settleInClover(order: StoredOrder | null, verifiedStore?: VerifiedCloverStore): Promise<StoredOrder | null> {
+  const settled = await settleCloverOnly(order, verifiedStore);
   await mevOnOrderChange(settled ?? order);
   return settled;
 }
 
-async function settleCloverOnly(order: StoredOrder | null): Promise<StoredOrder | null> {
+async function settleCloverOnly(order: StoredOrder | null, verifiedStore?: VerifiedCloverStore): Promise<StoredOrder | null> {
   if (!order?.posOrderId) return order;
   // Orders that came through Clover's own platform integration are already paid / closed by that integration.
   if (order.viaPos) return order;
@@ -40,7 +43,7 @@ async function settleCloverOnly(order: StoredOrder | null): Promise<StoredOrder 
     const leftKitchen = order.status === 'dispatched' || order.status === 'completed';
     const paidOnAccept = order.viaHub === 'screen' && (order.status === 'accepted' || order.status === 'ready');
     if ((leftKitchen || paidOnAccept) && !order.timeline?.posPaymentId && cloverRecordPaymentEnabled()) {
-      const store = await repo.findStore(order.channel, order.channelStoreId);
+      const store = verifiedStore ?? await repo.findStore(order.channel, order.channelStoreId);
       if (order.locationCode && store?.locationCode && order.locationCode !== store.locationCode) {
         const error = 'The store is now mapped to a different kitchen. Verify the payment on the original Clover order and record it on that register if needed.';
         if (order.timeline?.posPaymentError === error) return order;
@@ -64,7 +67,7 @@ async function settleCloverOnly(order: StoredOrder | null): Promise<StoredOrder 
           summary: `${tag} was cancelled after it was recorded as paid in Clover — check the payout; refund it in Clover if the platform did not pay you.` });
         return patch(order, { posClosedAt: nowIso() });
       }
-      const store = await repo.findStore(order.channel, order.channelStoreId);
+      const store = verifiedStore ?? await repo.findStore(order.channel, order.channelStoreId);
       const r = await closeCancelledCloverOrder(order, store?.cloverMerchantId, { flagOnly: isTgtgEmailOrder(order) });
       if (r.skipped) return order;
       await repo.addEvent(order.id, r.ok ? 'pos_cancelled' : 'pos_cancel_failed', { message: order.status === 'failed' ? `${r.message} (order handed to the Skip tablet)` : r.message });

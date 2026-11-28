@@ -41,6 +41,7 @@ export const ddDetails = new Map();    // msid → store_details body
 export const knownUberStores = new Set(['uber-store-uuid-1', 'uber-store-stl']);
 export const uberPosData = new Map();  // store id → this app's pos_data (after POST /pos_data)
 export const uberCreated = new Map();  // store id → orders waiting for an accept (GET created-orders)
+export const uberOrderStores = new Map(); // order id → store ID returned by GET order details
 export const cloverPayments = [
   { id: 'p1', amount: 2500, tipAmount: 300, taxAmount: 326, result: 'SUCCESS', order: { id: 'INSTORE-1' } },
   { id: 'p2', amount: 1200, tipAmount: 0, taxAmount: 156, result: 'SUCCESS', order: { id: 'INSTORE-2' } },
@@ -154,7 +155,11 @@ export const mock = http.createServer(async (req, res) => {
     const order = p.match(/^\/uber\/v2\/eats\/order\/(.+)$/);
     // "uber-flaky-…" orders: Uber refuses the fetch while mockState.uberFetchFails > 0 (webhook inbox retry checks).
     if (order && order[1].startsWith('uber-flaky') && mockState.uberFetchFails > 0) { mockState.uberFetchFails -= 1; return send(503, { message: 'temporarily unavailable' }); }
-    if (order) return send(200, UBER_ORDER(order[1], order[1].includes('stl') ? 'uber-store-stl' : order[1].includes('mev') ? 'uber-store-mev' : 'uber-store-uuid-1', order[1].includes('sched') ? 60.4 : 15));
+    if (order) {
+      const id = order[1];
+      const store = uberOrderStores.get(id) ?? (id.includes('stl') ? 'uber-store-stl' : id.includes('mev') ? 'uber-store-mev' : 'uber-store-uuid-1');
+      return send(200, UBER_ORDER(id, store, id.includes('sched') ? 60.4 : 15));
+    }
     if (p === '/uber/v1/eats/report' && req.method === 'POST') return send(200, { workflow_id: 'wf-report-1' });
     if (p === '/uber/v1/eats/stores') return send(200, { stores: [{ store_id: 'uber-store-uuid-1', name: 'Po Poulet NDG' }] });
     const st = p.match(/^\/uber\/v1\/eats\/store\/([^/]+)\/status$/);

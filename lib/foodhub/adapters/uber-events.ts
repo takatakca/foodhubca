@@ -38,7 +38,10 @@ async function kept(body: unknown, reason: string, reference: string | null = nu
 }
 
 /** Processes one Uber webhook body. Throws when the work failed (the inbox then retries it). */
-export async function handleUberEvent(body: any): Promise<HandlerOutcome> {
+export async function handleUberEvent(
+  body: any,
+  polled?: { orderId: string; storeId: string },
+): Promise<HandlerOutcome> {
   const event = String(body?.event_type || '');
   // Order events carry the order id in meta.resource_id; delivery.state_changed in meta.order_id.
   const orderId = String(body?.meta?.resource_id || body?.meta?.order_id || '');
@@ -48,7 +51,18 @@ export async function handleUberEvent(body: any): Promise<HandlerOutcome> {
     if (!href) return kept(body, 'Uber order notification without resource_href or order id');
     // One immediate retry; after that the inbox replays the notification (Uber does not resend it).
     const details = await fetchUberOrder(href).catch(() => fetchUberOrder(href));
-    const order = parseUberOrder(details, body.meta?.user_id);
+    const detailStoreId = details?.store?.id;
+    if (polled && (String(details?.id ?? '') !== polled.orderId
+      || (detailStoreId != null && String(detailStoreId) !== polled.storeId))) {
+      const reason = 'Uber polled order details do not match the listed order and store';
+      const previous = await getRepo().findJobByReference(polled.orderId);
+      if (previous?.kind === 'webhook_unparsed' && previous.channel === 'uber_eats' && previous.result?.reason === reason) {
+        return { result: `kept: ${reason}` };
+      }
+      // Retain the scoped listing notice. Another order's details are not needed for review.
+      return kept(body, reason, polled.orderId);
+    }
+    const order = parseUberOrder(details, polled?.storeId ?? body.meta?.user_id);
     if (!order) return kept(details, 'Uber order details could not be parsed', orderId || null);
     // Already cancelled / denied on Uber by the time Food Hub read it (a late replay): recorded as cancelled — never sent
     // to Clover, never accepted (the pipeline applies a cancel that arrived first).
@@ -213,7 +227,10 @@ export async function recoverMissedUberOrders(now = Date.now()): Promise<{ recov
       if (await repo.findOrder('uber_eats', o.id)) continue;
       let outcome: HandlerOutcome;
       try {
-        outcome = await handleUberEvent({ event_type: 'orders.notification', meta: { resource_id: o.id, user_id: s.channelStoreId, status: 'pos' }, resource_href: `${uberApiBase()}/v2/eats/order/${encodeURIComponent(o.id)}` });
+        outcome = await handleUberEvent(
+          { event_type: 'orders.notification', meta: { resource_id: o.id, user_id: s.channelStoreId, status: 'pos' }, resource_href: `${uberApiBase()}/v2/eats/order/${encodeURIComponent(o.id)}` },
+          { orderId: o.id, storeId: s.channelStoreId },
+        );
       } catch (e) {
         error = e instanceof Error ? e.message : String(e);
         if (/token refused/i.test(error)) break intake; // the order-details token is shared by every store

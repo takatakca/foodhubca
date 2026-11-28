@@ -251,6 +251,20 @@ class QueueLogicTest {
     }
 
     @Test
+    fun boundedHistorySurvivesKitchenChangesButResetsForAnotherServer() {
+        val original = QueueScope("https://hub.example", "A", "tablet-test")
+        val otherKitchen = original.copy(location = "B")
+        val otherServer = original.copy(origin = "https://different.example")
+        val checkpoint = QueueDrain(original, "A", "2026-10-29T15:00:00Z")
+        assertNull(QueueLogic.drainForScope(checkpoint, otherKitchen))
+        assertFalse(QueueLogic.seenOriginChanged(original.origin, otherKitchen.origin))
+        assertFalse(QueueLogic.seenOriginChanged(otherKitchen.origin, original.origin))
+        assertFalse(QueueLogic.seenOriginChanged(original.origin, null))
+        assertFalse(QueueLogic.seenOriginChanged(null, original.origin))
+        assertTrue(QueueLogic.seenOriginChanged(original.origin, otherServer.origin))
+    }
+
+    @Test
     fun oldUndatedReceiptsSurviveAnOverlapAndThenExpire() {
         val legacy = """{"origin":"https://hub.example","requestedLocation":"","deviceId":"tablet-test","location":"A","since":"2026-10-29T15:00:00Z","handledIds":["platform:legacy:order"]}"""
         val horizon = Instant.parse("2026-10-29T16:00:00Z")

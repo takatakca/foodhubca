@@ -114,6 +114,10 @@ object QueueLogic {
 
     fun drainForScope(drain: QueueDrain?, scope: QueueScope): QueueDrain? = drain?.takeIf { it.scope == scope }
 
+    /** The bounded history deduplicates a tablet across kitchens of the same server. */
+    fun seenOriginChanged(previous: String?, current: String?): Boolean =
+        previous != null && current != null && previous != current
+
     /** Scoped tickets need a verified kitchen. Old local rows keep their startup queue within this process. */
     fun pendingMatches(ticket: QueueScope?, location: String?, startup: QueueScope?, current: QueueScope?, activeLocation: String?): Boolean =
         current != null && (ticket ?: startup) == current && (location == null || location == activeLocation)

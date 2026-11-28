@@ -92,7 +92,7 @@ class OrderWatchService : Service() {
         startupScope = queueScope
         val savedProgress = prefs.queueDrain
         if (savedProgress == null || savedProgress.scope != queueScope) {
-            prefs.resetQueueProgress(clearSeen = savedProgress != null)
+            prefs.resetQueueProgress(queueScope?.origin)
         }
         poller = Executors.newSingleThreadScheduledExecutor().also { it.scheduleWithFixedDelay({ safePoll() }, 1, POLL_SECONDS, TimeUnit.SECONDS) }
     }
@@ -145,7 +145,7 @@ class OrderWatchService : Service() {
         queueScope = scope
         queueLocation = location
         continuation = null
-        prefs.resetQueueProgress(clearSeen = true)
+        prefs.resetQueueProgress(scope?.origin)
     }
 
     private fun poll() {

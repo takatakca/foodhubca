@@ -108,10 +108,12 @@ class Prefs(context: Context) {
     val queueDrain: QueueDrain?
         get() = sp.getString("queue_drain", null)?.let { runCatching { QueueDrain.decode(it) }.getOrNull() }
 
-    fun resetQueueProgress(clearSeen: Boolean) {
+    fun resetQueueProgress(origin: String?) {
         synchronized(LOCK) {
+            val previousOrigin = sp.getString("seen_origin", null) ?: queueDrain?.scope?.origin
             val editor = sp.edit().remove("since").remove("queue_drain")
-            if (clearSeen) editor.remove("seen")
+            if (QueueLogic.seenOriginChanged(previousOrigin, origin)) editor.remove("seen")
+            (origin ?: previousOrigin)?.let { editor.putString("seen_origin", it) }
             editor.commit()
         }
     }

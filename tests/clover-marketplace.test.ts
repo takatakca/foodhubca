@@ -2,7 +2,7 @@
 // Clover 429 back-off, SESSION_SECRET never generated at runtime, and the welcome wizard's three set-up steps.
 import fs from 'node:fs';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   functionalDescription, LISTING_APP_NAME, LISTING_BENEFITS, LISTING_CATEGORIES, LISTING_DESCRIPTION, LISTING_PERMISSIONS, LISTING_TAGLINE,
 } from '../lib/foodhub/clover-listing';
@@ -106,7 +106,9 @@ describe('welcome wizard: the three set-up steps', () => {
   beforeEach(() => {
     process.env.FOODHUB_FORCE_MEMORY = 'true';
     (globalThis as any).__foodhubMem = undefined;
-    for (const k of ['FOODHUB_VIA_CLOVER', 'FOODHUB_RELAY_CHANNELS', 'UBER_CLIENT_ID', 'UBER_CLIENT_SECRET', 'DOORDASH_DEVELOPER_ID', 'SKIP_JET_API_KEY']) delete process.env[k];
+    for (const k of ['FOODHUB_VIA_CLOVER', 'FOODHUB_RELAY_CHANNELS', 'FOODHUB_RELAY_SECRET', 'FOODHUB_POS_INJECTION',
+      'UBER_CLIENT_ID', 'UBER_CLIENT_SECRET', 'DOORDASH_DEVELOPER_ID', 'SKIP_JET_API_KEY',
+      'CLOVER_MERCHANT_ID', 'CLOVER_ACCESS_TOKEN', 'CLOVER_MERCHANT_TOKENS']) delete process.env[k];
   });
   afterEach(() => { process.env = { ...env }; });
 
@@ -117,17 +119,129 @@ describe('welcome wizard: the three set-up steps', () => {
     expect(none.map((s) => [s.key, s.done])).toEqual([['platforms', false], ['menu', false], ['kitchen', false]]);
 
     process.env.FOODHUB_VIA_CLOVER = 'doordash'; // DoorDash linked through Clover: orders arrive, read from Clover
+    process.env.CLOVER_MERCHANT_ID = 'TESTMERCH0003';
+    process.env.CLOVER_ACCESS_TOKEN = 'fixture-default-clover-token';
     const repo = getRepo();
+    await repo.upsertStore({ channel: 'doordash', channelStoreId: 'fixture-local-store', cloverMerchantId: null,
+      brandName: 'Test', locationCode: 'NDG', autoAccept: true, online: true, meta: {} });
     await repo.saveMenu({ brandName: 'Test', categories: [], modifierGroups: [], posMerchantId: 'TESTMERCH0003', updatedAt: new Date().toISOString(),
       items: [{ ref: 'i1', name: 'Poutine', price: 12.5, categoryRef: 'c1', available: true, modifierGroupRefs: [] }] } as any);
     await repo.putDocs('devices', [{ id: 'dev-1', key: 'NDG', at: new Date().toISOString(), data: { id: 'dev-1', name: 'Cuisine', locationCode: 'NDG', enrolledBy: 'Owner', enrolledAt: new Date().toISOString() } }]);
     const half = await onboardingSteps({ merchantId: 'TESTMERCH0003' });
     expect(half.map((s) => [s.key, s.done])).toEqual([['platforms', true], ['menu', true], ['kitchen', false]]); // no PIN yet
     expect(half[0].detail.en).toContain('DoorDash');
+    expect(half[0].detail.en).toContain('default Clover register');
     expect(half[1].detail.en).toContain('1 item');
     expect((await onboardingSteps({ merchantId: 'OTHERMERCH01' }))[1].done).toBe(false); // menu from another register
 
     const done = await onboardingSteps({ merchantId: 'TESTMERCH0003', viewerHasPin: true });
     expect(done.every((s) => s.done)).toBe(true);
+  });
+
+  it('does not use another kitchen to complete a new signed merchant or scoped console setup', async () => {
+    const { onboardingSteps } = await import('../lib/foodhub/onboarding');
+    const { getRepo } = await import('../lib/foodhub/repo');
+    process.env.FOODHUB_VIA_CLOVER = 'doordash';
+    process.env.CLOVER_MERCHANT_TOKENS = JSON.stringify({ TESTMERCH0003: 'fixture-clover-token' });
+    const repo = getRepo();
+    await repo.upsertStore({ channel: 'doordash', channelStoreId: 'fixture-foreign-store', cloverMerchantId: 'TESTMERCH0003',
+      brandName: 'Other brand', locationCode: 'NDG', autoAccept: true, online: true, meta: {} });
+    await repo.saveMenu({ brandName: 'Other brand', categories: [], modifierGroups: [], posMerchantId: 'TESTMERCH0003', updatedAt: new Date().toISOString(),
+      items: [{ ref: 'fixture-item', name: 'Fixture item', price: 12.5, categoryRef: 'fixture-category', available: true, modifierGroupRefs: [] }] });
+    await repo.putDocs('devices', [{ id: 'fixture-other-tablet', key: 'NDG', data: { locationCode: 'NDG', name: 'Other tablet' } }]);
+    await repo.saveUser({ username: 'fixture-other-manager', name: 'Other manager', role: 'manager', locations: ['NDG'],
+      active: true, passwordHash: 'fixture-password-hash', pinHash: 'fixture-pin-hash' });
+
+    expect((await onboardingSteps({ merchantId: 'OTHERMERCH01', viewerHasPin: true })).map(({ done }) => done)).toEqual([false, false, false]);
+    expect((await onboardingSteps({ locationCodes: ['MTL'] })).map(({ done }) => done)).toEqual([false, false, false]);
+    expect((await onboardingSteps({ merchantId: 'TESTMERCH0003', locationCodes: ['MTL'] })).map(({ done }) => done)).toEqual([false, false, false]);
+    expect((await onboardingSteps({ merchantId: 'TESTMERCH0003', locationCodes: ['NDG'] })).map(({ done }) => done)).toEqual([true, true, true]);
+    expect((await onboardingSteps()).map(({ done }) => done)).toEqual([true, true, true]);
+  });
+
+  it('excludes a disabled kitchen from the signed merchant and scoped console checks until reactivated', async () => {
+    const { saveLocation } = await import('../lib/foodhub/catalog');
+    const { onboardingSteps } = await import('../lib/foodhub/onboarding');
+    const { getRepo } = await import('../lib/foodhub/repo');
+    const merchantId = 'TESTMERCH0003';
+    const location = { code: 'FIXTURE_KITCHEN', name: 'Fixture kitchen', address: '' };
+    process.env.FOODHUB_VIA_CLOVER = 'doordash';
+    process.env.CLOVER_MERCHANT_TOKENS = JSON.stringify({ [merchantId]: 'fixture-clover-token' });
+    const repo = getRepo();
+    await repo.upsertStore({ channel: 'doordash', channelStoreId: 'fixture-disabled-store', cloverMerchantId: merchantId,
+      brandName: 'Fixture brand', locationCode: location.code, autoAccept: true, online: true, meta: {} });
+    await repo.putDocs('devices', [{ id: 'fixture-tablet', key: location.code, data: { locationCode: location.code, name: 'Fixture tablet' } }]);
+    await saveLocation({ ...location, active: false });
+
+    const merchant = await onboardingSteps({ merchantId, viewerHasPin: true });
+    const kitchen = await onboardingSteps({ locationCodes: [location.code], viewerHasPin: true });
+    for (const steps of [merchant, kitchen]) {
+      expect(steps.map(({ done }) => done)).toEqual([false, false, false]);
+      expect(steps[0]).toMatchObject({ href: '/settings/business', detail: { fr: expect.stringContaining('désactivée'), en: expect.stringContaining('disabled') } });
+      expect(steps[2]).toMatchObject({ href: '/settings/business', detail: { fr: expect.stringContaining('désactivée'), en: expect.stringContaining('disabled') } });
+    }
+    expect((await onboardingSteps({ merchantId: 'OTHERMERCH01', viewerHasPin: true }))[0]).toMatchObject({ done: false, href: '/stores/mapping' });
+    expect((await onboardingSteps({ viewerHasPin: true })).map(({ done }) => done)).toEqual([true, false, true]);
+
+    await saveLocation({ ...location, active: true });
+    expect((await onboardingSteps({ merchantId, locationCodes: [location.code], viewerHasPin: true })).map(({ done }) => done)).toEqual([true, false, true]);
+  });
+
+  it('preserves an attributed legacy kitchen and withholds scoped readiness if the catalog cannot be read', async () => {
+    const { onboardingSteps } = await import('../lib/foodhub/onboarding');
+    const { getRepo } = await import('../lib/foodhub/repo');
+    const merchantId = 'TESTMERCH0003';
+    const locationCode = 'FIXTURE_LEGACY';
+    process.env.FOODHUB_VIA_CLOVER = 'doordash';
+    process.env.CLOVER_MERCHANT_TOKENS = JSON.stringify({ [merchantId]: 'fixture-clover-token' });
+    const repo = getRepo();
+    await repo.upsertStore({ channel: 'doordash', channelStoreId: 'fixture-legacy-store', cloverMerchantId: merchantId,
+      brandName: 'Fixture brand', locationCode, autoAccept: true, online: true, meta: {} });
+    await repo.putDocs('devices', [{ id: 'fixture-tablet', key: locationCode, data: { locationCode, name: 'Fixture tablet' } }]);
+    const scope = { merchantId, locationCodes: [locationCode], viewerHasPin: true };
+    expect((await onboardingSteps(scope)).map(({ done }) => done)).toEqual([true, false, true]);
+
+    const read = repo.getKv.bind(repo);
+    const catalogOffline = vi.spyOn(repo, 'getKv').mockImplementation((key) => key === 'catalog' ? Promise.reject(new Error('fixture catalog unavailable')) : read(key));
+    try {
+      const steps = await onboardingSteps(scope);
+      expect(steps.map(({ done }) => done)).toEqual([false, false, false]);
+      expect(steps[0].detail.en).toContain('temporarily unavailable');
+      expect(steps[2].detail.fr).toContain('temporairement indisponible');
+      expect((await onboardingSteps({ viewerHasPin: true })).map(({ done }) => done)).toEqual([true, false, true]);
+    } finally {
+      catalogOffline.mockRestore();
+    }
+  });
+
+  it('uses the sole approved OAuth default on a real relay mapping and holds when that default becomes ambiguous', async () => {
+    const { onboardingSteps } = await import('../lib/foodhub/onboarding');
+    const { getRepo } = await import('../lib/foodhub/repo');
+    process.env.FOODHUB_RELAY_CHANNELS = 'skip';
+    process.env.FOODHUB_RELAY_SECRET = 'fixture-relay-secret';
+    const repo = getRepo();
+    const connection = (merchantId: string) => ({ merchantId, status: 'active', accessToken: 'fixture-oauth-token', connectedAt: new Date().toISOString() });
+    const first = connection('TESTMERCH0003');
+    await repo.setKv('clover_oauth_merchants', { [first.merchantId]: first });
+    await repo.upsertStore({ channel: 'skip', channelStoreId: 'relay:fixture-store', cloverMerchantId: null,
+      brandName: 'Fixture brand', locationCode: 'NDG', autoAccept: true, online: true, meta: {} });
+    const platform = await onboardingSteps({ merchantId: first.merchantId, locationCodes: ['NDG'] });
+    expect(platform[0]).toMatchObject({ done: true, detail: { en: expect.stringContaining('default Clover register') } });
+
+    const second = connection('OTHERMERCH01');
+    await repo.setKv('clover_oauth_merchants', { [first.merchantId]: first, [second.merchantId]: second });
+    expect((await onboardingSteps({ merchantId: first.merchantId, locationCodes: ['NDG'] }))[0]).toMatchObject({ done: false, href: '/stores/mapping' });
+  });
+
+  it('requires a scoped kitchen manager PIN to match the kitchen with the enrolled tablet', async () => {
+    const { onboardingSteps } = await import('../lib/foodhub/onboarding');
+    const { getRepo } = await import('../lib/foodhub/repo');
+    const repo = getRepo();
+    await repo.putDocs('devices', [{ id: 'fixture-tablet', key: 'NDG', data: { locationCode: 'NDG', name: 'Kitchen tablet' } }]);
+    await repo.saveUser({ username: 'fixture-other-kitchen-manager', name: 'Other manager', role: 'manager', locations: ['MTL'],
+      active: true, passwordHash: 'fixture-password-hash', pinHash: 'fixture-pin-hash' });
+
+    const steps = await onboardingSteps({ locationCodes: ['NDG', 'MTL'] });
+    expect(steps.find(({ key }) => key === 'kitchen')).toMatchObject({ done: false, href: '/settings/profile' });
   });
 });

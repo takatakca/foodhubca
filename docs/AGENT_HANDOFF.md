@@ -1,3 +1,15 @@
+## 2026-11-27 — Cuisine désactivée dans le parcours Clover
+
+Le parcours par marchand ou par cuisine exclut ses liaisons et tablettes lorsque la cuisine est explicitement désactivée. Les réglages Entreprise permettent de vérifier son état. Le parcours utilise les liaisons héritées déjà attribuées si la lecture du catalogue confirme qu’aucune désactivation ne s’y applique. Si la lecture du catalogue échoue, le parcours signale que la vérification de la cuisine est temporairement indisponible. Le propriétaire sans restriction garde son bilan global.
+
+— signé : Codex @ cloud · 2026-11-27
+
+## 2026-11-26 — Vérification de mise en route par marchand Clover
+
+L’accueil Clover évalue les liaisons de la caisse du marchand dans les cuisines autorisées. Il annonce une caisse par défaut quand celle-ci fournit la liaison, puis vérifie les tablettes et le NIP dans le même périmètre. Une caisse sans liaison renvoie vers Restaurants → Liaisons. L’accueil de la console applique les cuisines du compte et le propriétaire sans restriction garde son bilan global.
+
+Les essais simulés couvrent une caisse inconnue, les cuisines d’un gestionnaire, une liaison explicite, une caisse par défaut et la perte d’un défaut devenu ambigu. Les preuves sur les comptes marchands sont suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
 ## 2026-11-26 — Paiement Clover après déplacement d’une liaison
 
 La réconciliation locale de #183 sur `86d190c` conserve les références par magasin de #178 pour la saisie, la reprise, l’import et le paiement Clover. Les 161 essais ciblés couvrent aussi le règlement et l’impression sur la caisse confirmée et le contrôle manuel d’une liaison Uber Eats. Les réponses des fournisseurs sont simulées. La CI du SHA réconcilié et la réception marchande restent à vérifier avant publication.

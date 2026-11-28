@@ -6,6 +6,8 @@ import { Overview } from './overview';
 // working; the card hides itself once everything is done.
 export default async function Home() {
   const viewer = await getViewer();
-  const steps = viewer?.permissions.includes('stores:map') ? await onboardingSteps({ viewerHasPin: viewer.hasPin }).catch(() => null) : null;
+  const steps = viewer?.permissions.includes('stores:map')
+    ? await onboardingSteps({ viewerHasPin: viewer.hasPin, locationCodes: viewer.locations }).catch(() => null)
+    : null;
   return <Overview steps={steps} />;
 }

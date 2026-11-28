@@ -19,7 +19,7 @@ import { listDirectOrders, getDirectOrder } from '../delivery/store';
 import { KITCHEN_SOURCES } from '../delivery/kitchen';
 import type { DirectOrder } from '../delivery/types';
 import { fail } from '../http';
-import { deviceFromRequest, getDevice } from '../identity/devices';
+import { deviceFromRequest, getDevice, type Device } from '../identity/devices';
 import { getRepo } from '../repo';
 import { isWaitingScheduled } from '../scheduling';
 import { can, signPrintQueueContinuation, verifyPrintQueueContinuation } from '../session';
@@ -138,7 +138,7 @@ function directCancelledAt(o: DirectOrder): string {
 
 // ------------------------------------------------------------------ who is calling
 
-export type PrintCaller = { location: string; label: string; actor: AuthUser | null; cursorScope: string };
+export type PrintCaller = { location: string; label: string; actor: AuthUser | null; cursorScope: string; enrollment?: Device };
 
 /** A staff session (with 'view', location in scope) or an enrolled tablet's device cookie (its own location). 401 otherwise. */
 export async function resolvePrintCaller(req: Request, requested?: string | null): Promise<PrintCaller | Response> {
@@ -156,9 +156,21 @@ export async function resolvePrintCaller(req: Request, requested?: string | null
   const device = await deviceFromRequest(req);
   if (device) {
     if (want && want !== device.locationCode) return fail('This tablet is enrolled for another kitchen.', 403);
-    return { location: device.locationCode, label: `Tablet ${device.name}`, actor: null, cursorScope: `tablet:${device.id}:${device.enrolledAt}` };
+    return { location: device.locationCode, label: `Tablet ${device.name}`, actor: null, cursorScope: `tablet:${device.id}:${device.enrolledAt}`, enrollment: device };
   }
   return fail('Please sign in.', 401);
+}
+
+/** A pending ticket belongs to the enrolled kitchen even if a wider staff session is also present. */
+export async function resolvePrintEnrollment(req: Request, caller: PrintCaller): Promise<Device | null | Response> {
+  const cookieDevice = caller.enrollment ?? await deviceFromRequest(req);
+  const sessionDeviceId = caller.actor?.deviceId;
+  if (sessionDeviceId && cookieDevice && sessionDeviceId !== cookieDevice.id) return fail('Tablet sessions do not match.', 403);
+  const device = cookieDevice ?? (sessionDeviceId ? await getDevice(sessionDeviceId) : null);
+  if ((sessionDeviceId && !device) || device?.revoked || (device && device.locationCode !== caller.location)) {
+    return fail('This tablet is enrolled for another kitchen.', 403);
+  }
+  return device;
 }
 
 // ------------------------------------------------------------------ the queue
@@ -276,6 +288,8 @@ export type ClaimResult =
 
 type Found = { source: 'platform'; order: StoredOrder } | { source: 'direct'; order: DirectOrder };
 
+type PrintClaim = { deviceId: string; location?: string; enrollmentId?: string };
+
 async function findOrder(orderId: string, source?: PrintSource | null): Promise<Found | null> {
   if (source !== 'direct') {
     const o = await getRepo().getOrder(orderId);
@@ -288,13 +302,47 @@ async function findOrder(orderId: string, source?: PrintSource | null): Promise<
   return null;
 }
 
+export const MAX_PENDING_PRINT_CLAIMS = 50;
+type PendingPrintRef = { id: string; source: PrintSource; orderId: string };
+type PendingPrintStatus = 'clear' | 'cancelled' | 'unverified';
+
+export function parsePendingPrintRefs(value: unknown): PendingPrintRef[] | null {
+  if (!Array.isArray(value) || value.length < 1 || value.length > MAX_PENDING_PRINT_CLAIMS) return null;
+  const refs: PendingPrintRef[] = [];
+  const seen = new Set<string>();
+  for (const id of value) {
+    if (typeof id !== 'string' || seen.has(id) || !id.endsWith(':order')) return null;
+    const divider = id.indexOf(':');
+    const source = id.slice(0, divider);
+    const orderId = id.slice(divider + 1, -':order'.length);
+    if ((source !== 'platform' && source !== 'direct') || !orderId.trim() || orderId.length > 120) return null;
+    refs.push({ id, source, orderId });
+    seen.add(id);
+  }
+  return refs;
+}
+
+/** Resolve each already-claimed order against its current state, independently of the queue's fixed horizon. */
+export async function readPendingPrintClaims(opts: { refs: PendingPrintRef[]; deviceId: string; location: string; enrollmentId?: string }): Promise<Record<string, PendingPrintStatus>> {
+  const repo = getRepo();
+  const statuses = await Promise.all(opts.refs.map(async ({ id, source, orderId }): Promise<[string, PendingPrintStatus]> => {
+    const mark = await repo.getKv<PrintClaim>(claimKey(opts.deviceId, 'order', source, orderId));
+    if (mark?.deviceId !== opts.deviceId || (mark.location && mark.location !== opts.location)
+      || (mark.enrollmentId && mark.enrollmentId !== opts.enrollmentId)) return [id, 'unverified'];
+    const found = await findOrder(orderId, source);
+    if (!found || found.order.id !== orderId || found.order.locationCode !== opts.location) return [id, 'unverified'];
+    return [id, found.order.status === 'cancelled' ? 'cancelled' : 'clear'];
+  }));
+  return Object.fromEntries(statuses);
+}
+
 /**
  * Claims one ticket for one device, BEFORE it is printed: written once (atomic insert), then read back. Only a
  * { claimed: true } answer may print. A second call — the same device again, a retry after a lost answer — gets
  * { claimed: false, reason: 'already_printed' }; the queue then says printed: true for it, and the app prints a ticket
  * it claimed but never wrote down as handled (apps/kitchen-tablet QueueLogic.plan, step RECOVER).
  */
-export async function claimTabletPrint(opts: { orderId: string; deviceId: string; location: string; by: string; source?: PrintSource | null; kind?: PrintKind | null; now?: number }): Promise<ClaimResult> {
+export async function claimTabletPrint(opts: { orderId: string; deviceId: string; location: string; by: string; enrollmentId?: string; source?: PrintSource | null; kind?: PrintKind | null; now?: number }): Promise<ClaimResult> {
   const kind: PrintKind = opts.kind === 'cancel' ? 'cancel' : 'order';
   const found = await findOrder(opts.orderId, opts.source);
   if (!found) return { claimed: false, reason: 'not_found' };
@@ -313,7 +361,10 @@ export async function claimTabletPrint(opts: { orderId: string; deviceId: string
   const repo = getRepo();
   const key = claimKey(opts.deviceId, kind, source, order.id);
   const nonce = crypto.randomUUID();
-  const won = await repo.claimKv(key, { at: new Date(opts.now ?? Date.now()).toISOString(), deviceId: opts.deviceId, by: opts.by, nonce });
+  const won = await repo.claimKv(key, {
+    at: new Date(opts.now ?? Date.now()).toISOString(), deviceId: opts.deviceId, location: opts.location,
+    ...(opts.enrollmentId ? { enrollmentId: opts.enrollmentId } : {}), by: opts.by, nonce,
+  });
   if (!won) return { claimed: false, id, reason: 'already_printed' };
   // Read back: only the nonce we wrote may print (never twice, even if two calls raced through the insert).
   const back = await repo.getKv<{ nonce?: string }>(key);

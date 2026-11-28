@@ -11,8 +11,8 @@ import { getCatalog } from '../catalog';
 import { deadlineFor } from '../deadline';
 import { inboxSummary } from '../inbox';
 import { effectiveHours, getHours, holidaysFor, isOpenAt, localDate, openIntervals } from '../hours';
-import { DEVICE_OFFLINE_AFTER_MS, listDevices } from '../identity/devices';
-import { listScreens, SCREEN_PLATFORM_LABEL, screenStatus } from '../screens';
+import { DEVICE_OFFLINE_AFTER_MS, getDevice, listDevices, type Device } from '../identity/devices';
+import { getScreen, listScreens, SCREEN_PLATFORM_LABEL, screenStatus, type PlatformScreen } from '../screens';
 import { aiConfigured, callConfigured, maskContact, normalizePhone, placeCall, postToChat, sendSms } from '../notify';
 import { listCases, RECOVERABLE } from '../recon/engine';
 import { getRepo, KvReadError } from '../repo';
@@ -21,7 +21,7 @@ import { foodhubTimeZone, localParts } from '../time';
 import type { ChannelKey, ChannelStore, FoodHubUser, HoursConfig, PlatformStatus, StoredOrder } from '../types';
 import { explainIncident, PLAYBOOK } from './ai';
 import { customerContact, lateMessage } from './customer';
-import { DEFAULT_RULES, DEFAULT_WATCH, DEVICE_OFFLINE_RESOLUTIONS, INCIDENT_KINDS, KIND_LABEL, WATCH_BACKGROUND_COMPLETION_KEY, type DeviceOfflineResolution, type Incident, type IncidentKind, type IncidentStatus, type Severity, type WatchBackgroundCompletion, type WatchSettings } from './types';
+import { DEFAULT_RULES, DEFAULT_WATCH, DEVICE_OFFLINE_RESOLUTIONS, INACTIVE_KITCHEN_CLOSURE, INCIDENT_KINDS, KIND_LABEL, WATCH_BACKGROUND_COMPLETION_KEY, type DeviceOfflineResolution, type Incident, type IncidentKind, type IncidentStatus, type Severity, type WatchBackgroundCompletion, type WatchSettings } from './types';
 
 export const INCIDENTS = 'incidents';
 const SETTINGS_KEY = 'watch:settings';
@@ -191,6 +191,26 @@ function coveredMinutes(spans: Array<[number, number]>): number {
   return total / 60000;
 }
 
+function tabletSignal(device: Device, now: number) {
+  const seenAgo = device.lastSeenAt ? now - Date.parse(device.lastSeenAt) : Infinity;
+  if (device.revoked) return { seenAgo, kind: null };
+  if (seenAgo > DEVICE_OFFLINE_AFTER_MS) return { seenAgo, kind: 'device_offline' } as const;
+  if (seenAgo <= DEVICE_OFFLINE_AFTER_MS && (device.soundOn === false || device.visible === false)) {
+    return { seenAgo, kind: 'device_muted' } as const;
+  }
+  return { seenAgo, kind: null };
+}
+
+function screenIsDown(status: ReturnType<typeof screenStatus>) {
+  return status !== 'online' && status !== 'never';
+}
+
+function screenWaitingSeconds(screen: PlatformScreen, now: number, delaySec: number): number | null {
+  if (screenStatus(screen, now) !== 'online' || !screen.titleCount || !screen.waitingSince) return null;
+  const waited = (now - Date.parse(screen.waitingSince)) / 1000;
+  return waited >= delaySec ? waited : null;
+}
+
 interface NativeTabletObservation {
   locationCode: string;
   confirmedHeartbeatAt: number;
@@ -200,11 +220,14 @@ interface NativeTabletObservation {
 async function detect(s: WatchSettings, now: number, injectedNow?: number) {
   const repo = getRepo();
   const tz = foodhubTimeZone();
-  const [catalog, savedHours, orders, stores, deviceSnapshot, jobs, sync, screens] = await Promise.all([
-    getCatalog(), getHours({ strict: true }).catch(() => null), repo.listOrders({ since: new Date(now - 24 * 3600_000).toISOString(), limit: 3000 }),
+  const [catalog, savedHours, orders, stores, deviceSnapshot, jobs, sync, relaySnapshot] = await Promise.all([
+    getCatalog({ strict: true }), getHours({ strict: true }).catch(() => null), repo.listOrders({ since: new Date(now - 24 * 3600_000).toISOString(), limit: 3000 }),
     repo.listStores(), listDevices().then((devices) => ({ devices, readAt: injectedNow ?? Date.now() })),
-    repo.listJobs(200), repo.getKv<{ at: string }>('sync:last').catch(() => null), listScreens().catch(() => []),
+    repo.listJobs(200), repo.getKv<{ at: string }>('sync:last').catch(() => null), listScreens().catch(() => null),
   ]);
+  const screens = relaySnapshot ?? [];
+  // Only an explicit inactive flag stops monitoring. Keep older bindings.
+  const inactiveLocations = new Set(catalog.locations.filter(({ active }) => active === false).map(({ code }) => code));
   const hours = savedHours ?? { locations: {}, brands: {}, holidays: [] };
   const nativeTablets = new Map<string, NativeTabletObservation>();
   const loc = (code?: string | null) => (code ? catalog.locations.find((l) => l.code === code)?.name ?? code : 'magasin non relié');
@@ -329,15 +352,15 @@ async function detect(s: WatchSettings, now: number, injectedNow?: number) {
       confirmedHeartbeatAt: heartbeatMatchesKitchen ? heartbeatAt : NaN,
       outsideKnownHours: savedHours !== null && !open,
     });
-    if (!open) continue;
-    const seenAgo = d.lastSeenAt ? now - heartbeatAt : Infinity;
+    if (!open || inactiveLocations.has(d.locationCode)) continue;
+    const { seenAgo, kind } = tabletSignal(d, now);
     const base = { locationCode: d.locationCode, deviceId: d.id };
-    if (on('device_offline') && seenAgo > DEVICE_OFFLINE_AFTER_MS) {
+    if (on('device_offline') && kind === 'device_offline') {
       const min = Number.isFinite(seenAgo) ? Math.round(seenAgo / 60000) : null;
       out.push({ ...base, key: `device_offline:${d.id}`, kind: 'device_offline', severity: seenAgo > 5 * 60_000 ? 'critical' : 'warning',
         title: `Tablette « ${d.name} » éteinte — ${loc(d.locationCode)}`, titleEn: `Tablet “${d.name}” is off — ${loc(d.locationCode)}`,
         detail: min !== null ? `Aucun signal depuis ${min} min${d.battery !== null && d.battery !== undefined ? ` · batterie ${Math.round(d.battery * 100)} %` : ''}` : 'Jamais connectée', detailEn: min !== null ? `No signal for ${min} min` : 'Never connected' });
-    } else if (on('device_muted') && seenAgo <= DEVICE_OFFLINE_AFTER_MS && (d.soundOn === false || d.visible === false)) {
+    } else if (on('device_muted') && kind === 'device_muted') {
       out.push({ ...base, key: `device_muted:${d.id}`, kind: 'device_muted', severity: 'warning',
         title: `Tablette « ${d.name} » ${d.soundOn === false ? 'sans son' : 'écran caché'} — ${loc(d.locationCode)}`, titleEn: `Tablet “${d.name}” ${d.soundOn === false ? 'muted' : 'screen hidden'} — ${loc(d.locationCode)}` });
     }
@@ -347,8 +370,8 @@ async function detect(s: WatchSettings, now: number, injectedNow?: number) {
   // shows its sign-in page or a crashed page rings like a tablet that is off. A screen never set up (no heartbeat yet) waits.
   for (const sc of screens) {
     const st = screenStatus(sc, now);
-    if (!on('screen_down') || st === 'online' || st === 'never') continue;
-    if (!locationOpen(hours, sc.locationCode, brandsAt(sc.locationCode), now, tz)) continue;
+    if (!on('screen_down') || !screenIsDown(st)) continue;
+    if (inactiveLocations.has(sc.locationCode) || !locationOpen(hours, sc.locationCode, brandsAt(sc.locationCode), now, tz)) continue;
     const label = `${SCREEN_PLATFORM_LABEL[sc.platform]} « ${sc.name} »`;
     const labelEn = `${SCREEN_PLATFORM_LABEL[sc.platform]} “${sc.name}”`;
     const seenMin = sc.lastSeenAt ? Math.round((now - Date.parse(sc.lastSeenAt)) / 60000) : null;
@@ -364,10 +387,10 @@ async function detect(s: WatchSettings, now: number, injectedNow?: number) {
   // longer than the "order waiting" delay, during opening hours: nobody is answering that screen. Only an online screen
   // counts — a screen that is down rings as screen_down instead.
   for (const sc of screens) {
-    if (!on('screen_waiting') || screenStatus(sc, now) !== 'online' || !sc.titleCount || !sc.waitingSince) continue;
-    const waitedSec = (now - Date.parse(sc.waitingSince)) / 1000;
-    if (!(waitedSec >= s.unacceptedAfterSec)) continue;
-    if (!locationOpen(hours, sc.locationCode, brandsAt(sc.locationCode), now, tz)) continue;
+    if (!on('screen_waiting')) continue;
+    const waitedSec = screenWaitingSeconds(sc, now, s.unacceptedAfterSec);
+    if (waitedSec === null) continue;
+    if (inactiveLocations.has(sc.locationCode) || !locationOpen(hours, sc.locationCode, brandsAt(sc.locationCode), now, tz)) continue;
     const min = Math.max(1, Math.round(waitedSec / 60));
     out.push({ key: `screen_waiting:${sc.id}`, kind: 'screen_waiting', severity: 'critical', locationCode: sc.locationCode, deviceId: sc.id,
       title: `${sc.titleCount} commande(s) en attente sur ${SCREEN_PLATFORM_LABEL[sc.platform]} « ${sc.name} » — ${loc(sc.locationCode)}`,
@@ -454,7 +477,7 @@ async function detect(s: WatchSettings, now: number, injectedNow?: number) {
         detail: `${j.lastError ?? j.wait ?? ''}`.slice(0, 200) || undefined, detailEn: `${j.lastError ?? j.wait ?? ''}`.slice(0, 200) || undefined });
     }
   }
-  return { detections: out, nativeTablets, nativeTabletsReadAt: deviceSnapshot.readAt };
+  return { detections: out, nativeTablets, nativeTabletsReadAt: deviceSnapshot.readAt, inactiveLocations, relayUnavailable: relaySnapshot === null };
 }
 
 function nativeTabletResolution(i: Incident, observed: NativeTabletObservation | undefined, readAt: number): DeviceOfflineResolution {
@@ -499,6 +522,36 @@ const FIRST_SCREEN_CALL_RECEIPT_UNAVAILABLE = 'Destination du premier appel rés
 type FirstScreenCallReservation = { at: string; destinationFingerprint?: string };
 const firstScreenCallFingerprint = (destination: string) => crypto.createHash('sha256').update(destination).digest('hex');
 
+function isScreenDeviceIncident(kind: IncidentKind): boolean {
+  return kind === 'device_muted' || SHARED_PHONE_KINDS.includes(kind);
+}
+
+async function currentDeviceBinding(i: Incident, s: WatchSettings, now: number): Promise<string | null> {
+  if (!i.deviceId) return null;
+  if (i.kind === 'screen_waiting' || i.kind === 'screen_down') {
+    const screen = await getScreen(i.deviceId);
+    if (!screen || screen.locationCode !== i.locationCode) return null;
+    if (i.kind === 'screen_down' && !screenIsDown(screenStatus(screen, now))) return null;
+    if (i.kind === 'screen_waiting' && screenWaitingSeconds(screen, now, s.unacceptedAfterSec) === null) return null;
+    return JSON.stringify([
+      screen.createdAt, screen.platform, [...(screen.storeIds ?? [])].sort(),
+      i.kind === 'screen_waiting' ? screen.waitingSince : null,
+    ]);
+  }
+  const tablet = await getDevice(i.deviceId);
+  if (!tablet || tablet.locationCode !== i.locationCode || tabletSignal(tablet, now).kind !== i.kind) return null;
+  return tablet.enrolledAt;
+}
+
+async function readDeviceDispatch(i: Incident, s: WatchSettings, now: number) {
+  const scope = await Promise.all([getCatalog({ strict: true }), currentDeviceBinding(i, s, now)]).catch(() => null);
+  if (!scope) return null;
+  const [catalog, binding] = scope;
+  const location = catalog.locations.find(({ code }) => code === i.locationCode);
+  if (binding === null || location?.active === false) return null;
+  return { binding, phone: location?.phone ?? undefined };
+}
+
 /** The first destination for an incident that can be handled by the kitchen. */
 export function firstAlertCallTarget(kind: IncidentKind, sharedPhone: string | null, kitchenPhone?: string): { to: string; purpose: 'alert_shared_screen' | 'alert_kitchen' } | null {
   if (!KITCHEN_KINDS.includes(kind)) return null;
@@ -536,7 +589,7 @@ function screenStageReservations(i: Incident) {
       return previous && Number.isFinite(previous.startedAt) && startedAt - previous.startedAt >= SCREEN_STAGE_SETTLE_MS
         ? 'unconfirmed' : 'defer';
     },
-    async releaseUnsent(level: number) {
+    async releaseUnstarted(level: number) {
       const key = `watch:screen-stage:${i.id}:${level}`;
       // Never settle this reservation after an ambiguous deletion. Another worker may now hold it.
       if (owned.delete(key)) await repo.releaseKv(key);
@@ -552,12 +605,33 @@ function screenStageReservations(i: Incident) {
   };
 }
 
-async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now: number, quiet: boolean, kitchenPhones: Map<string, string> = new Map()): Promise<boolean> {
+async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now: number, quiet: boolean, ordinaryKitchenPhone: (code: string) => Promise<string | undefined>): Promise<boolean> {
   if (i.status !== 'open' || i.awaitingFreshDetection) return false;
   const rule = s.rules[i.kind] ?? { enabled: true, escalate: false };
   if (!rule.escalate || i.severity === 'info') return false;
   if (quiet && i.severity !== 'critical') return false;
   const elapsed = (now - Date.parse(i.openedAt)) / 60000;
+  const firstStageDue = elapsed >= s.smsAfterMin;
+  const smsDue = firstStageDue && i.level < 1;
+  const firstCallDue = firstStageDue && (smsDue || i.screenFirstCallPending);
+  const managerCallDue = i.severity === 'critical' && i.level < 2 && elapsed >= s.callAfterMin;
+  const ownerStageDue = i.severity === 'critical' && i.level < 3 && elapsed >= s.ownerAfterMin;
+  if (!firstCallDue && !managerCallDue && !ownerStageDue) return false;
+
+  // Check each device incident before claiming or sending anything. An earlier incident may have spent time awaiting the provider.
+  const deviceAlert = isScreenDeviceIncident(i.kind);
+  const deviceDispatch = deviceAlert ? await readDeviceDispatch(i, s, now) : null;
+  if (deviceAlert && !deviceDispatch) return false;
+
+  // Validate again before the provider attempt. A failed check after an earlier send suspends the rest of that stage.
+  let recheckBeforeSend = false;
+  const mayContinue = async (fresh = false) => {
+    if (!deviceAlert || (!fresh && !recheckBeforeSend)) return true;
+    const latest = await readDeviceDispatch(i, s, now);
+    if (!latest || latest.binding !== deviceDispatch?.binding) return false;
+    recheckBeforeSend = false;
+    return true;
+  };
   let changed = false;
   const step = (kind: Incident['steps'][number]['kind'], to: string, ok: boolean, message: string, uncertain?: boolean, dispatchId?: string) => {
     i.steps.push({ at: new Date(now).toISOString(), kind, to, ok, message, ...(uncertain ? { uncertain } : {}), ...(dispatchId ? { dispatchId } : {}) });
@@ -580,6 +654,33 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
     return user;
   };
 
+  const releaseUnstarted = async (level: number) => {
+    await reservations?.releaseUnstarted(level).catch(() => {
+      note('Réservation du palier d’appel à vérifier au prochain passage. / Call stage reservation will be checked on the next pass.');
+    });
+  };
+  let stage: { level: number; previousLevel: number; started: boolean; changed: boolean; stepCount: number } | undefined;
+  const resetUnstartedStage = async () => {
+    if (!stage || stage.started) return;
+    i.level = stage.previousLevel;
+    changed = stage.changed || i.steps.length !== stage.stepCount;
+    await releaseUnstarted(stage.level);
+  };
+  const maySend = async () => {
+    if (!(await mayNotify()) || !(await mayContinue(true))) {
+      // Once a provider request starts, its claim must not be replayed.
+      await resetUnstartedStage();
+      return false;
+    }
+    if (stage) stage.started = true;
+    recheckBeforeSend = deviceAlert;
+    return true;
+  };
+  const alertSms = async (to: string, body: string, purpose: string) => {
+    if (!(await maySend())) return null;
+    return sendSms({ to, body }, { purpose, incidentId: i.id });
+  };
+
   // A delayed tick can make several escalation stages due at once. One phone
   // can be listed in multiple roles; later ticks can still escalate normally.
   const called = new Set<string>();
@@ -588,9 +689,11 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
     const normalized = normalizePhone(to);
     const destination = normalized ?? to;
     if (called.has(destination) || (reservedFirstDestination && firstScreenCallFingerprint(destination) === reservedFirstDestination)) return 'not-sent';
-    if (!(await mayNotify())) return 'stopped';
+    const stageHadStarted = stage?.started;
+    if (!(await maySend())) return 'stopped';
     called.add(destination);
     const result = await placeCall({ to: destination, say: callText(i, lang), lang }, { purpose, incidentId: i.id });
+    if (result.skipped && stage) stage.started = stageHadStarted ?? false;
     const dispatchId = SHARED_PHONE_KINDS.includes(i.kind) ? crypto.randomUUID() : undefined;
     step('call', `${label} (${maskContact(destination)})`, result.ok, result.message, result.uncertain, dispatchId);
     return normalized && !result.skipped ? 'attempted' : 'not-sent';
@@ -606,6 +709,9 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
     }
   };
   const advance = (level: number, decision: ScreenStageDecision) => {
+    if (deviceAlert && decision === 'dispatch') {
+      stage = { level, previousLevel: i.level, started: false, changed, stepCount: i.steps.length };
+    }
     i.level = level;
     changed = true;
     if (decision === 'unconfirmed') {
@@ -614,16 +720,13 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
   };
 
   try {
-    const firstStageDue = elapsed >= s.smsAfterMin;
-    const smsDue = firstStageDue && i.level < 1;
-    const firstCallDue = firstStageDue && (smsDue || i.screenFirstCallPending);
     // Refresh the shared destination before reserving any stage so a failed read can retry next tick.
     const routing = screenAlert && firstCallDue ? await getWatchSettings({ strict: true }).catch(() => null) : s;
     if (!routing) return changed;
     const firstStage = smsDue ? await reserve(1) : 'dispatch';
     if (firstStage === 'defer') return changed;
     if (firstCallDue) {
-      const kitchen = i.locationCode ? kitchenPhones.get(i.locationCode) : undefined;
+      const kitchen = deviceAlert ? deviceDispatch?.phone : i.locationCode ? await ordinaryKitchenPhone(i.locationCode) : undefined;
       const target = firstAlertCallTarget(i.kind, routing.screenAlertPhone, kitchen);
       const waitingForVoice = screenAlert && Boolean(target) && !callConfigured();
       if (target && !waitingForVoice) {
@@ -632,7 +735,7 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
         const destinationFingerprint = firstScreenCallFingerprint(destination);
         const firstCallKey = `watch:first-screen-call:${i.id}`;
         const repo = getRepo();
-        const claimed = screenAlert
+        const claimed = deviceAlert
           ? await repo.claimKv(firstCallKey, { at: new Date(now).toISOString(), destinationFingerprint }).catch(() => null)
           : true;
         const receipt = claimed === false ? await repo.getKv<FirstScreenCallReservation>(firstCallKey).catch(() => null) : undefined;
@@ -643,14 +746,24 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
             return changed;
           }
         } else {
-          if (i.screenFirstCallPending) { delete i.screenFirstCallPending; changed = true; }
           if (claimed) {
-            if (await call(destination, target.purpose === 'alert_shared_screen' ? 'screen hotline' : i.locationCode ?? 'kitchen', 'fr', target.purpose) === 'stopped') return changed;
+            if (await call(destination, target.purpose === 'alert_shared_screen' ? 'screen hotline' : i.locationCode ?? 'kitchen', 'fr', target.purpose) === 'stopped') {
+              if (deviceAlert) {
+                await repo.releaseKv(firstCallKey).catch(() => {
+                  console.warn('[foodhub] Watchtower could not release an unstarted first phone reservation.');
+                });
+                await releaseUnstarted(1);
+              }
+              return changed;
+            }
           } else {
             // Earlier claims did not record a destination. They still block a first-call replay.
             reservedFirstDestination = receipt?.destinationFingerprint;
+            // Another tick may have released its unstarted SMS stage after the separately claimed voice attempt.
+            if (smsDue) recheckBeforeSend = deviceAlert;
             note(FIRST_SCREEN_CALL_RESERVED);
           }
+          if (i.screenFirstCallPending) { delete i.screenFirstCallPending; changed = true; }
         }
       } else if (screenAlert) {
         if (!i.screenFirstCallPending) { i.screenFirstCallPending = true; changed = true; }
@@ -661,31 +774,38 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
       }
     }
     if (smsDue) {
+      if (!(await mayContinue())) {
+        // Only the separately claimed voice request may have started. No SMS in this stage has started.
+        await releaseUnstarted(1);
+        return changed;
+      }
       advance(1, firstStage);
       if (firstStage !== 'dispatch') return changed;
       const to = recipients(users, i, ['manager'], 'sms');
       const list = to.length ? to : recipients(users, i, ['owner'], 'sms');
       for (const u of list) {
-        if (!(await mayNotify())) return changed;
-        const r = await sendSms({ to: u.phone!, body: smsText(i, u.prefs?.lang ?? 'fr') }, { purpose: 'alert', incidentId: i.id });
+        const r = await alertSms(u.phone!, smsText(i, u.prefs?.lang ?? 'fr'), 'alert');
+        if (!r) return changed;
         step('sms', `${u.name} (${maskContact(u.phone!)})`, r.ok, r.message);
       }
       if (i.severity === 'critical') {
         for (const p of s.supportPhones) {
-          if (!(await mayNotify())) return changed;
-          const r = await sendSms({ to: p, body: smsText(i, 'fr') }, { purpose: 'alert_support', incidentId: i.id });
+          const r = await alertSms(p, smsText(i, 'fr'), 'alert_support');
+          if (!r) return changed;
           step('sms', `support (${maskContact(p)})`, r.ok, r.message);
         }
       }
       if (!list.length) step('sms', '—', false, 'Aucun gérant de garde avec un cellulaire. / No manager on duty with a phone.');
     }
-    if (i.level < 2 && elapsed >= s.callAfterMin && i.severity === 'critical') {
+    if (managerCallDue) {
+      if (!(await mayContinue())) return changed;
       const permission = await reserve(2);
       if (permission === 'defer') return changed;
       if (permission !== 'dispatch') {
         advance(2, permission);
         return changed;
       }
+      if (deviceAlert) advance(2, permission);
       const to = recipients(users, i, ['manager'], 'call');
       let attempted = false;
       for (const candidate of (to.length ? to : recipients(users, i, ['owner'], 'call')).slice(0, 2)) {
@@ -695,22 +815,18 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
         } catch {
           if (attempted) break;
           // No request started. Give back only our own reservation so the stage can retry.
-          await reservations?.releaseUnsent(2).catch(() => {
-            note('Réservation du palier d’appel à vérifier au prochain passage. / Call stage reservation will be checked on the next pass.');
-          });
+          await resetUnstartedStage();
           return changed;
         }
         if (!user) continue;
         const outcome = await call(user.phone!, user.name, user.prefs?.lang ?? 'fr', 'alert');
-        if (outcome === 'stopped') {
-          advance(2, permission);
-          return changed;
-        }
+        if (outcome === 'stopped') return changed;
         if (outcome === 'attempted') attempted = true;
       }
-      advance(2, permission);
+      if (!deviceAlert) advance(2, permission);
     }
-    if (i.level < 3 && elapsed >= s.ownerAfterMin && i.severity === 'critical') {
+    if (ownerStageDue) {
+      if (!(await mayContinue())) return changed;
       const permission = await reserve(3);
       if (permission === 'defer') return changed;
       advance(3, permission);
@@ -719,8 +835,8 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
         const shouldCall = u.prefs?.alertCall !== false;
         const lang = u.prefs?.lang ?? 'fr';
         if (u.prefs?.alertSms !== false) {
-          if (!(await mayNotify())) return changed;
-          const r = await sendSms({ to: u.phone!, body: `${smsText(i, lang)}\n(${Math.round(elapsed)} min sans réponse / no answer)` }, { purpose: 'alert_owner', incidentId: i.id });
+          const r = await alertSms(u.phone!, `${smsText(i, lang)}\n(${Math.round(elapsed)} min sans réponse / no answer)`, 'alert_owner');
+          if (!r) return changed;
           step('owner', `${u.name} (${maskContact(u.phone!)})`, r.ok, r.message);
         }
         if (!shouldCall) continue;
@@ -740,7 +856,11 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
 
 // ---------- the run ----------
 
-export interface WatchReport { at: string; trigger: string; ran: boolean; detections: number; opened: number; updated: number; resolved: number; escalated: number; open: number }
+export interface WatchReport {
+  at: string; trigger: string; ran: boolean; detections: number; opened: number; updated: number; resolved: number; escalated: number; open: number;
+  /** The relay list failed to load while other incident checks ran. */
+  relayUnavailable?: true;
+}
 
 function canReopenIncident(i: Incident, now: number): boolean {
   return i.status === 'resolved' && !i.successorReserved && i.resolvedBy === 'auto' && Boolean(i.resolvedAt) && now - Date.parse(i.resolvedAt!) < 10 * 60_000;
@@ -766,7 +886,9 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
   try {
     await repo.setKv(LAST_KEY, { at: new Date(now).toISOString() });
     const report = empty(true);
-    const { detections, nativeTablets, nativeTabletsReadAt } = await detect(s, now, opts.now);
+    const { detections, nativeTablets, nativeTabletsReadAt, inactiveLocations, relayUnavailable } = await detect(s, now, opts.now);
+    if (relayUnavailable) report.relayUnavailable = true;
+    const missingRelayEvidence = (i: Incident) => relayUnavailable && (i.kind === 'screen_down' || i.kind === 'screen_waiting');
     report.detections = detections.length;
     const [recentDocs, activeScreenDocs] = await Promise.all([
       repo.listDocs<Incident>(INCIDENTS, { since: new Date(now - 3 * 86400_000).toISOString(), limit: 2000 }),
@@ -874,13 +996,16 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
     for (const i of live.values()) {
       if (seen.has(i.key)) continue;
       if (SHARED_PHONE_KINDS.includes(i.kind) && i.updatedAt > iso) continue;
+      const disabledKitchen = i.locationCode && isScreenDeviceIncident(i.kind) && inactiveLocations.has(i.locationCode);
+      if (!disabledKitchen && missingRelayEvidence(i)) continue;
       Object.assign(i, { status: 'resolved', resolvedAt: iso, resolvedBy: 'auto', updatedAt: iso });
-      const deviceOfflineResolution = i.kind === 'device_offline'
+      const deviceOfflineResolution = !disabledKitchen && i.kind === 'device_offline'
         ? nativeTabletResolution(i, i.deviceId ? nativeTablets.get(i.deviceId) : undefined, nativeTabletsReadAt)
         : undefined;
       i.steps.push({
         at: iso, kind: 'resolved', by: 'auto',
-        message: deviceOfflineResolution ? DEVICE_OFFLINE_RESOLUTIONS[deviceOfflineResolution].message.join(' / ') : 'Réglé / Fixed',
+        message: disabledKitchen ? INACTIVE_KITCHEN_CLOSURE : deviceOfflineResolution ? DEVICE_OFFLINE_RESOLUTIONS[deviceOfflineResolution].message.join(' / ') : 'Réglé / Fixed',
+        ...(disabledKitchen ? { resolutionReason: 'inactive-kitchen' } : {}),
         ...(deviceOfflineResolution ? { deviceOfflineResolution } : {}),
       });
       dirty.set(i.id, i);
@@ -915,21 +1040,25 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
 
     const quiet = inQuietHours(s, now, foodhubTimeZone());
     const users = await repo.listUsers();
-    const kitchenPhones = new Map((await getCatalog()).locations.filter((l) => l.phone).map((l) => [l.code, l.phone!] as const));
+    let ordinaryCatalog: ReturnType<typeof getCatalog> | undefined;
+    const ordinaryKitchenPhone = async (code: string) => {
+      ordinaryCatalog ??= getCatalog();
+      return (await ordinaryCatalog).locations.find((location) => location.code === code)?.phone ?? undefined;
+    };
     const callResults = new Map<string, Incident['steps']>();
     for (const i of dirty.values()) {
       const screenIncident = SHARED_PHONE_KINDS.includes(i.kind);
       // Persist the current status before escalation. A late writer must not overwrite a resolution or send from a stale snapshot.
       if (screenIncident && !(await saveIncident(i))) { dirty.delete(i.id); continue; }
       const stepCount = i.steps.length;
-      if (await escalate(i, s, users, now, quiet, kitchenPhones)) {
+      if (!missingRelayEvidence(i) && await escalate(i, s, users, now, quiet, ordinaryKitchenPhone)) {
         report.escalated++;
         const dispatched = i.steps.slice(stepCount).filter((entry) => entry.kind === 'call' && entry.dispatchId);
         if (dispatched.length) callResults.set(i.id, dispatched);
       } else if (screenIncident) dirty.delete(i.id);
     }
     // Open incidents not touched this run can still need the next escalation step.
-    for (const i of live.values()) if (!SHARED_PHONE_KINDS.includes(i.kind) && !dirty.has(i.id) && (await escalate(i, s, users, now, quiet, kitchenPhones))) dirty.set(i.id, i);
+    for (const i of live.values()) if (!SHARED_PHONE_KINDS.includes(i.kind) && !dirty.has(i.id) && !missingRelayEvidence(i) && (await escalate(i, s, users, now, quiet, ordinaryKitchenPhone))) dirty.set(i.id, i);
 
     for (const i of dirty.values()) {
       if (await saveIncident(i)) continue;
@@ -942,7 +1071,7 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
       await logActivity({ actor: 'Watchtower', source: 'automation', kind: 'incident', action: i.kind, status: 'info', locationCode: i.locationCode, brandName: i.brandName, orderId: i.orderId, summary: i.titleEn });
     }
     report.open = [...live.values(), ...fresh].filter((i) => i.status === 'open' || i.status === 'acknowledged').length;
-    if (report.trigger === 'timer' || report.trigger === 'cron') {
+    if (!relayUnavailable && (report.trigger === 'timer' || report.trigger === 'cron')) {
       const completion: WatchBackgroundCompletion = { at: new Date().toISOString(), trigger: report.trigger };
       // Diagnostic only. The existing watch:last marker still controls throttling and liveness.
       await repo.setKv(WATCH_BACKGROUND_COMPLETION_KEY, completion).catch(() => undefined);

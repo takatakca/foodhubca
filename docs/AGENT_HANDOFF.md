@@ -1,3 +1,11 @@
+## 2026-11-28 — Cuisines actives, relais partiel et relève Watchtower
+
+L’assemblage de [#217](https://github.com/takatakca/foodhubca/pull/217) réunit `809d84b` et l’essai `1e00c43` de [#193](https://github.com/takatakca/foodhubca/pull/193). Une lecture partielle du relais garde les alarmes d’écran ouvertes et laisse poursuivre la surveillance des tablettes, sans enregistrer un passage complet. Avant chaque demande téléphonique ou SMS d’une alarme d’appareil, le moteur revérifie la cuisine et le jumelage. Une réservation d’envoi qui n’a pas commencé peut être reprise. Un envoi déjà tenté garde sa réservation et son reçu dans l’incident de sa cuisine.
+
+La surveillance arrêtée pour une cuisine désactivée se distingue du retour attesté par un signal de la bonne tablette, de la fin d’horaire et de la réaffectation. Les 147 tests ciblés couvrent ces motifs, le relais illisible, la relance d’un palier, le numéro commun et les préférences personnelles relues avant chaque appel. Les appels et messages de ces scénarios sont simulés. La preuve sur PostgreSQL isolé, la revue propriétaire et la preuve marchande restent suivies dans [#46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé Codex @ cloud · 2026-11-28 06:07 Montréal
+
 ## 2026-11-28 — Composition de la preuve tablette et de la relève Watchtower
 
 La composition locale réunit les révisions `a182e65` de [#217](https://github.com/takatakca/foodhubca/pull/217) et `d875cc4` de [#221](https://github.com/takatakca/foodhubca/pull/221). La mise à jour conditionnelle enregistre ensemble l’heure du signal signé et sa cuisine. Après une réaffectation ou une révocation concurrente, le signal en attente conserve son rejet et la provenance du dernier signal accepté reste disponible à Watchtower. Le prochain signal autorisé porte la cuisine actuelle. L’interface distingue le retour confirmé de la fin des heures de surveillance, de la fermeture sans retour confirmé et de la réaffectation. Les anciennes fermetures Watchtower avec le motif existant de réaffectation affichent le même libellé.
@@ -165,6 +173,36 @@ Sur l’arbre attendu de #176, Watchtower enregistre la résolution dans la cuis
 Sur le commit fusionné `b59c904`, 209 essais ciblés réussissent. Les scénarios de prise en charge et de résolution pendant la demande d’appel conservent le résultat dans l’incident et la décision de l’opérateur. Si la mise à jour reste en conflit, Watchtower consigne un avertissement et enregistre les autres alertes. L’essai d’une tablette muette vérifie que son appel est enregistré et ne repart pas au passage suivant.
 
 Sur l’arbre attendu de #178 `85c8163`, les 353 essais ciblés couvrent la saisie par magasin et la reprise Clover, la vérification des liaisons Uber ainsi que le routage et la concurrence des alertes Watchtower. Le code de persistance des liaisons et des incidents est identique à celui préparé sur l’arbre attendu de #177, où 261 essais ciblés réussissent. TypeScript et ESLint réussissent sur le nouvel arbre. La preuve PostgreSQL ci-dessus se rapporte au lot antérieur.
+
+## 2026-11-26 — Résultat partiel d’une vérification Watchtower
+
+Dans Alertes, « Vérifier maintenant » signale une lecture indisponible du relais tout en affichant les compteurs des contrôles effectués. Une vérification qui n’a pas démarré reçoit son propre avis. Un passage complet conserve le message habituel.
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — État de l’appareil entre deux notifications
+
+La relève vérifie l’appareil et sa cuisine avant les envois, puis les vérifie de nouveau après une réponse du fournisseur. Un changement de jumelage, une révocation ou la fin de l’attente suspend les envois de l’alerte précédente. Le reçu du premier appel reste consultable. Si l’appareil déplacé remplit les conditions d’alerte au prochain passage, sa nouvelle cuisine reçoit son propre incident. Une lecture momentanément impossible reporte les paliers qui n’ont pas commencé.
+
+Les preuves de réception en cuisine et par téléphone restent dans [la checklist #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — Désactivation pendant un appel de relève
+
+Après une demande téléphonique ou un texto, Watchtower vérifie à nouveau le catalogue avant l’envoi suivant pour les incidents de tablette et de relais. Une cuisine désactivée ou un catalogue indisponible suspend les envois restants. L’appel déjà accepté reste consigné, y compris l’appel au numéro de la cuisine pour une tablette muette. Lorsque la lecture redevient possible, un palier qui n’avait pas commencé peut reprendre sans rejouer le premier appel. Un palier déjà commencé garde son comportement de non-répétition.
+
+La fiche de l’alerte indique « surveillance arrêtée » quand sa cuisine a été désactivée.
+
+Les essais signés reproduisent une désactivation pendant la réponse du fournisseur, la reprise après une lecture indisponible et la conservation de la preuve d’appel dans le périmètre d’accès prévu. Les preuves de réception réelle restent suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — Surveillance des cuisines désactivées
+
+Watchtower cesse de détecter les alertes de tablette et de relais pour une cuisine désactivée dans le catalogue. Les appareils restent jumelés et la surveillance reprend à la réactivation. L’historique d’un incident déjà ouvert précise le motif de fermeture. Avant chaque incident d’appareil admissible à la relève, une lecture récente du catalogue reporte l’ensemble de sa relève si la cuisine est devenue inactive ou si son état ne peut être lu. Un ancien jumelage vers une cuisine absente d’un catalogue accessible garde son comportement. Si la lecture des écrans du relais échoue, Watchtower conserve leur dernier état et reporte leur relève. La surveillance des tablettes natives continue, et le passage partiel ne remplace pas le dernier passage complet.
+
+Les essais signés couvrent les quatre types d’alerte de tablette et de relais, la réactivation, l’indisponibilité du catalogue et une désactivation pendant que le fournisseur répond à l’alerte précédente. Les preuves de réception sur appareil et téléphone sont suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
 
 — signé : Codex @ cloud · 2026-11-26
 

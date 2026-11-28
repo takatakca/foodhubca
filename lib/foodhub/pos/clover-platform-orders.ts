@@ -26,10 +26,44 @@ import { noteLastOrder } from '../order-retry';
 import { mevOnOrderChange } from '../mev/hooks';
 
 const SINCE_KEY = (mid: string) => `clover_platform_orders_since:${mid}`;
+const WINDOW_KEY = (mid: string) => `clover_platform_orders_window:${mid}`;
 const MIN_AGE_MS = 2 * 60_000;
 const FIRST_LOOKBACK_MS = 24 * 3600_000;
+const MAX_HISTORY_MS = 90 * FIRST_LOOKBACK_MS;
 const MAX_PAGES = 10;
 const PAGE = 100;
+
+interface ImportWindow {
+  since: number;
+  until: number;
+  offset: number;
+  lastId?: string;
+}
+
+function ordersQuery(window: ImportWindow, offset: number, expand: string): URLSearchParams {
+  const query = new URLSearchParams({ expand, limit: String(PAGE), offset: String(offset), orderBy: 'createdTime ASC,id ASC' });
+  query.append('filter', `createdTime>=${window.since}`);
+  query.append('filter', `createdTime<${window.until}`);
+  return query;
+}
+
+function checkedOrders(json: { elements?: unknown } | null, window: ImportWindow): any[] {
+  const rows = json?.elements;
+  if (!Array.isArray(rows) || rows.length > PAGE) throw new Error('Invalid Clover order page');
+  let previousTime = -Infinity;
+  let previousId = '';
+  for (const order of rows) {
+    const time = Number(order?.createdTime);
+    const id = order?.id;
+    if (typeof id !== 'string' || !id || !Number.isSafeInteger(time) || time < window.since || time >= window.until) {
+      throw new Error('Invalid order in Clover order page');
+    }
+    if (time < previousTime || (time === previousTime && id <= previousId)) throw new Error('Unordered Clover order page');
+    previousTime = time;
+    previousId = id;
+  }
+  return rows;
+}
 
 export function cloverPlatformOrdersEnabled() {
   return process.env.FOODHUB_CLOVER_PLATFORM_ORDERS !== 'off';
@@ -37,7 +71,7 @@ export function cloverPlatformOrdersEnabled() {
 
 export { isPlatformTender, platformFromLabel };
 
-async function cloverGet(mid: string, token: string, path: string, qs: Record<string, string> = {}): Promise<any> {
+async function cloverGet(mid: string, token: string, path: string, qs: Record<string, string> | URLSearchParams = {}): Promise<any> {
   const q = new URLSearchParams(qs);
   const res = await cloverFetch(`${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(mid)}/${path}${q.toString() ? `?${q}` : ''}`, {
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
@@ -105,9 +139,17 @@ export async function importCloverPlatformOrders(mid: string, opts: { now?: numb
   if (!token) return { ...out, error: `No Clover API token for merchant ${mid}` };
   const repo = getRepo();
   const now = opts.now ?? Date.now();
-  const until = now - MIN_AGE_MS;
-  const since = Math.max((await repo.getKv<number>(SINCE_KEY(mid))) ?? 0, now - FIRST_LOOKBACK_MS);
+  // The exclusive bound includes orders exactly MIN_AGE_MS old, like the original poll.
+  const until = now - MIN_AGE_MS + 1;
+  const cursor = await repo.getKv<number>(SINCE_KEY(mid));
+  const pending = await repo.getKv<ImportWindow>(WINDOW_KEY(mid));
+  const since = cursor ?? pending?.since ?? now - FIRST_LOOKBACK_MS;
   if (since >= until) return out;
+  if (since < now - MAX_HISTORY_MS) {
+    return { ...out, error: 'Clover order cursor is outside the last 90 days supported by the Orders API; retained for reconciliation' };
+  }
+  const window = pending?.since === since && pending.until <= until ? pending : { since, until, offset: 0 };
+  let progress = window;
 
   // Match our full scoped screen title when the Clover ID was lost. Older orders still use platform and visible code.
   const recent = await repo.listOrders({ since: new Date(since - 3 * 24 * 3600_000).toISOString(), limit: 5000 });
@@ -123,6 +165,8 @@ export async function importCloverPlatformOrders(mid: string, opts: { now?: numb
     }
   }
   try {
+    // Pin discovery even when the first provider page fails, so retries retain the same window.
+    if (window !== pending) await repo.setKv(WINDOW_KEY(mid), window);
     const [orderTypes, tenders] = await Promise.all([labelMap(mid, token, 'order_types'), labelMap(mid, token, 'tenders')]);
     const stores = await repo.listStores();
     const def = process.env.CLOVER_MERCHANT_ID;
@@ -131,13 +175,21 @@ export async function importCloverPlatformOrders(mid: string, opts: { now?: numb
     const onlyLocation = (list: typeof storesHere) => { const locs = [...new Set(list.map((s) => s.locationCode))]; return locs.length === 1 ? locs[0] : undefined; };
     const fallbackLocation = onlyLocation(storesHere);
 
+    let exhausted = false;
     for (let page = 0; page < MAX_PAGES; page++) {
-      const qs = (expand: string) => ({ filter: `createdTime>=${since}`, expand, limit: String(PAGE), offset: String(page * PAGE) });
+      // Re-read the last row before using an offset. A deleted row can move the whole page.
+      const overlap = progress.offset > 0;
+      const offset = overlap ? progress.offset - 1 : 0;
+      const qs = (expand: string) => ordersQuery(window, offset, expand);
       // If Clover refuses the nested expansion, read the orders with the essentials only.
       const json = await cloverGet(mid, token, 'orders', qs('lineItems,lineItems.modifications,payments,orderType,customers'))
         .catch((e) => (/HTTP 400/.test(String(e?.message)) ? cloverGet(mid, token, 'orders', qs('lineItems,payments,orderType')) : Promise.reject(e)));
-      const rows: any[] = Array.isArray(json?.elements) ? json.elements : [];
-      for (const co of rows) {
+      const rows = checkedOrders(json, window);
+      if (overlap && rows[0]?.id !== progress.lastId) {
+        progress = { ...window, offset: 0, lastId: undefined };
+        continue;
+      }
+      for (const co of overlap ? rows.slice(1) : rows) {
         const id = String(co?.id ?? '');
         const created = Number(co?.createdTime) || 0;
         if (!id || created > until || known.has(id)) continue;
@@ -182,16 +234,21 @@ export async function importCloverPlatformOrders(mid: string, opts: { now?: numb
           locationCode: location,
           createdAt: new Date(created || now).toISOString(),
         };
-        const { order, isNew } = await repo.insertOrderIfNew(n);
-        known.add(id);
-        if (!isNew) { out.skipped++; continue; }
-        const placed = new Date(n.placedAt).toISOString();
         const fresh = now - created < 90 * 60_000;
-        await repo.updateOrder(order.id, {
+        const seenAt = nowIso();
+        // Persist what Clover already did together with the order, so a retry never finds a half-imported row.
+        const { order, isNew } = await repo.insertOrderIfNew(n, {
           status: fresh ? 'accepted' : 'completed',
           posOrderId: id,
-          timeline: { ...(order.timeline ?? {}), acceptedAt: placed, acceptedBy: 'clover', seenAt: nowIso(), seenBy: 'Clover', ...(fresh ? {} : { completedAt: nowIso() }) },
+          timeline: { acceptedAt: n.placedAt, acceptedBy: 'clover', seenAt, seenBy: 'Clover', ...(fresh ? {} : { completedAt: seenAt }) },
         });
+        known.add(id);
+        if (!isNew) {
+          out.skipped++;
+          // The sales snapshot can predate an insert whose committed row was recovered.
+          if (order.viaPos === 'clover' && order.posOrderId === id) out.posOrderIds.push(id);
+          continue;
+        }
         await repo.addEvent(order.id, 'via_clover', { message: `Received in Clover through Clover's own ${CHANNEL_LABELS[channel]} integration — Food Hub only follows it (nothing is sent to ${CHANNEL_LABELS[channel]} or Clover).${store ? '' : ` Brand not known: ${candidates.length} ${CHANNEL_LABELS[channel]} stores use this Clover and the order does not name one.`}`, cloverOrderId: id });
         await noteLastOrder(channel, n.placedAt);
         // Only for a kitchen whose invoices go through Takatak MEV (sevOfRecord qcmev); the Clover MEV app otherwise.
@@ -199,9 +256,20 @@ export async function importCloverPlatformOrders(mid: string, opts: { now?: numb
         out.imported++;
         out.posOrderIds.push(id);
       }
-      if (rows.length < PAGE) break;
+      if (rows.length < PAGE) {
+        exhausted = true;
+        break;
+      }
+      progress = { ...window, offset: offset + rows.length, lastId: rows[rows.length - 1].id };
     }
-    await repo.setKv(SINCE_KEY(mid), until);
+    // Another poll may have completed this window. A stale progress write is ignored once its start
+    // no longer matches the numeric cursor. Overlapping completions have independently scanned the window.
+    const latest = await repo.getKv<number>(SINCE_KEY(mid));
+    if (exhausted) {
+      if (latest === null || latest < window.until) await repo.setKv(SINCE_KEY(mid), window.until);
+    } else if (latest === null || latest === window.since) {
+      await repo.setKv(WINDOW_KEY(mid), progress);
+    }
     if (out.imported) {
       await logActivity({ actor: 'Clover', source: 'platform', kind: 'order', action: 'clover_platform_orders', status: 'info',
         summary: `${out.imported} delivery order(s) received through Clover's own platform integration (merchant ${mid}) added to Food Hub — read-only.` });

@@ -9,6 +9,11 @@ const MID = 'TESTMERCH0002'; // made-up merchant ID (public repository)
 const realFetch = globalThis.fetch;
 let cloverOrders: any[] = [];
 let calls: string[] = [];
+let orderRequests: URLSearchParams[] = [];
+let orderResponse: ((query: URLSearchParams) => Response | Promise<Response> | undefined) | undefined;
+
+const sinceKey = `clover_platform_orders_since:${MID}`;
+const day = 24 * 60 * 60_000;
 
 function mockClover() {
   globalThis.fetch = vi.fn(async (input: any) => {
@@ -18,8 +23,19 @@ function mockClover() {
     if (url.pathname.endsWith('/order_types')) return json({ elements: [{ id: 'OT-DD', label: 'DoorDash' }, { id: 'OT-HERE', label: 'Sur place' }] });
     if (url.pathname.endsWith('/tenders')) return json({ elements: [{ id: 'T-CASH', label: 'Cash' }, { id: 'T-UBER', label: 'Uber Eats' }] });
     if (url.pathname.endsWith('/orders')) {
-      const since = Number((url.searchParams.get('filter') || '').split('>=')[1] || 0);
-      return json({ elements: Number(url.searchParams.get('offset') || 0) ? [] : cloverOrders.filter((o) => o.createdTime >= since) });
+      const { searchParams } = url;
+      orderRequests.push(searchParams);
+      const intercepted = orderResponse?.(searchParams);
+      if (intercepted) return intercepted;
+      const filters = searchParams.getAll('filter');
+      const since = Number(filters.find((filter) => filter.startsWith('createdTime>='))?.split('>=')[1] ?? 0);
+      const until = Number(filters.find((filter) => filter.startsWith('createdTime<'))?.split('<')[1] ?? Infinity);
+      const offset = Number(searchParams.get('offset') ?? 0);
+      const limit = Number(searchParams.get('limit') ?? 100);
+      const direction = searchParams.get('orderBy') === 'createdTime ASC,id ASC' ? 1 : -1;
+      const rows = cloverOrders.filter((order) => order.createdTime >= since && order.createdTime < until)
+        .sort((a, b) => direction * (a.createdTime - b.createdTime || a.id.localeCompare(b.id)));
+      return json({ elements: rows.slice(offset, offset + limit) });
     }
     return new Response('{}', { status: 404 });
   }) as any;
@@ -43,7 +59,7 @@ beforeEach(() => {
   process.env.CLOVER_MERCHANT_ID = MID;
   process.env.CLOVER_ACCESS_TOKEN = 'ENV-TOKEN';
   delete process.env.FOODHUB_CLOVER_PLATFORM_ORDERS;
-  cloverOrders = []; calls = [];
+  cloverOrders = []; calls = []; orderRequests = []; orderResponse = undefined;
   mockClover();
 });
 afterEach(() => { globalThis.fetch = realFetch; });
@@ -95,6 +111,188 @@ describe('platform orders received through Clover', () => {
     expect(r2.posOrderIds).toEqual(['TOONEW']);
     const r3 = await importCloverPlatformOrders(MID, { now: now + 6 * min });
     expect(r3.imported).toBe(0);
+  });
+
+  it.each([
+    { ageMinutes: 10, status: 'accepted' },
+    { ageMinutes: 100, status: 'completed' },
+  ])('records the Clover receipt and $status status even if the import stops after the insert', async ({ ageMinutes, status }) => {
+    const now = Date.now();
+    const createdAt = now - ageMinutes * min;
+    const repo = getRepo();
+    const insert = repo.insertOrderIfNew.bind(repo);
+    const externalOrderId = 'clover-DDNATIVE-INTERRUPTED';
+    cloverOrders = [cloverOrder('DDNATIVE-INTERRUPTED', createdAt, { orderType: { id: 'OT-DD' } })];
+
+    const interrupted = vi.spyOn(repo, 'insertOrderIfNew').mockImplementationOnce(async (...args) => {
+      await insert(...args);
+      throw new Error('Connection lost after the order insert committed');
+    });
+    try {
+      const first = await importCloverPlatformOrders(MID, { now });
+      expect(first.error).toBe('Connection lost after the order insert committed');
+    } finally {
+      interrupted.mockRestore();
+    }
+
+    const persistedOnInsert = await repo.findOrder('doordash', externalOrderId);
+    const replay = await importCloverPlatformOrders(MID, { now: now + min });
+    expect(replay).toMatchObject({ imported: 0, posOrderIds: [] });
+    expect(replay.error).toBeUndefined();
+    const rows = (await repo.listOrders()).filter((order) => order.externalOrderId === externalOrderId);
+    expect(rows).toEqual([persistedOnInsert]);
+    expect(rows[0]).toMatchObject({
+      viaPos: 'clover',
+      status,
+      posOrderId: 'DDNATIVE-INTERRUPTED',
+      timeline: {
+        acceptedAt: new Date(createdAt).toISOString(),
+        acceptedBy: 'clover',
+        seenAt: expect.any(String),
+        seenBy: 'Clover',
+      },
+    });
+    expect(rows[0].timeline?.completedAt).toEqual(status === 'completed' ? expect.any(String) : undefined);
+  });
+
+  it('excludes a Clover receipt recovered as a duplicate from the same sales report', async () => {
+    const now = Date.now();
+    const repo = getRepo();
+    const insert = repo.insertOrderIfNew.bind(repo);
+    const posOrderId = 'DDNATIVE-RECOVERED';
+    cloverOrders = [cloverOrder(posOrderId, now - 10 * min, { orderType: { id: 'OT-DD' } })];
+
+    // The Supabase repository reads back the committed row when the insert response is lost.
+    const recovered = vi.spyOn(repo, 'insertOrderIfNew').mockImplementationOnce(async (...args) => {
+      const { order } = await insert(...args);
+      return { order, isNew: false };
+    });
+    try {
+      const result = await importCloverPlatformOrders(MID, { now });
+      expect(result).toMatchObject({ imported: 0, skipped: 1, posOrderIds: [posOrderId] });
+    } finally {
+      recovered.mockRestore();
+    }
+
+    const order = await repo.findOrder('doordash', `clover-${posOrderId}`);
+    expect(order).toMatchObject({ status: 'accepted', viaPos: 'clover', posOrderId });
+    expect(await repo.listEvents(order!.id)).toEqual([]);
+  });
+
+  it('resumes a bounded window across the page budget without losing orders sharing the same creation time', async () => {
+    const now = Date.now();
+    const placed = now - 5 * min;
+    const repo = getRepo();
+    await repo.setKv(sinceKey, now - 10 * min);
+    cloverOrders = Array.from({ length: 1003 }, (_, i) => {
+      const id = `ORDER${String(i).padStart(4, '0')}`;
+      return cloverOrder(id, placed, i === 0 || i === 990 || i === 991 || i === 1002 ? {} : { title: 'Table 4' });
+    });
+    cloverOrders.push(cloverOrder('JUSTAGED', now - 2 * min), cloverOrder('FRESH', now - 2 * min + 1));
+
+    const first = await importCloverPlatformOrders(MID, { now });
+    expect(first.error).toBeUndefined();
+    expect(orderRequests).toHaveLength(10);
+    expect(first.posOrderIds).toEqual(['ORDER0000', 'ORDER0990']);
+    expect(await repo.getKv(sinceKey)).toBe(now - 10 * min);
+    expect(orderRequests[0].getAll('filter')).toEqual([`createdTime>=${now - 10 * min}`, `createdTime<${now - 2 * min + 1}`]);
+    expect(orderRequests[0].get('orderBy')).toBe('createdTime ASC,id ASC');
+
+    const next = await importCloverPlatformOrders(MID, { now: now + day + min });
+    expect(next).toMatchObject({ imported: 3, posOrderIds: ['ORDER0991', 'ORDER1002', 'JUSTAGED'] });
+    expect(orderRequests[10].getAll('filter')).toEqual(orderRequests[0].getAll('filter'));
+    expect(await repo.getKv(sinceKey)).toBe(now - 2 * min + 1);
+    expect(await repo.findOrder('doordash', 'clover-FRESH')).toBeNull();
+
+    const last = await importCloverPlatformOrders(MID, { now: now + day + 2 * min });
+    expect(last.posOrderIds).toEqual(['FRESH']);
+    const orders = await repo.listOrders();
+    expect(orders).toHaveLength(6);
+  });
+
+  it('restarts the same window if Clover removes an order before the current page', async () => {
+    const now = Date.now();
+    const repo = getRepo();
+    cloverOrders = Array.from({ length: 105 }, (_, i) => {
+      const id = `ORDER${String(i).padStart(4, '0')}`;
+      return cloverOrder(id, now - 5 * min, i === 100 ? {} : { title: 'Table 4' });
+    });
+    orderResponse = (query) => {
+      if (query.get('offset') === '99') {
+        cloverOrders.shift();
+        orderResponse = undefined;
+      }
+      return undefined;
+    };
+
+    const result = await importCloverPlatformOrders(MID, { now });
+    expect(result.posOrderIds).toEqual(['ORDER0100']);
+    expect(orderRequests.map((query) => query.get('offset'))).toEqual(['0', '99', '0', '99']);
+    expect(await repo.getKv(sinceKey)).toBe(now - 2 * min + 1);
+  });
+
+  it('does not duplicate orders or move the cursor back when an older poll finishes late', async () => {
+    const now = Date.now();
+    const repo = getRepo();
+    const early = cloverOrder('EARLY', now - 5 * min);
+    cloverOrders = [early, cloverOrder('LATER', now - min)];
+    let release = () => {};
+    let signal = () => {};
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const entered = new Promise<void>((resolve) => { signal = resolve; });
+    orderResponse = async () => {
+      orderResponse = undefined;
+      signal();
+      await held;
+      return Response.json({ elements: [early] });
+    };
+
+    const late = importCloverPlatformOrders(MID, { now });
+    let second, third;
+    try {
+      await entered;
+      second = await importCloverPlatformOrders(MID, { now: now + 3 * min });
+      third = await importCloverPlatformOrders(MID, { now: now + 6 * min });
+    } finally {
+      release();
+    }
+    expect(second?.posOrderIds).toEqual(['EARLY']);
+    expect(third?.posOrderIds).toEqual(['LATER']);
+    expect((await late).imported).toBe(0);
+    expect(await repo.getKv(sinceKey)).toBe(now + 4 * min + 1);
+    expect(await repo.listOrders()).toHaveLength(2);
+  });
+
+  it('preserves the current window on provider errors and malformed results', async () => {
+    const now = Date.now();
+    const since = now - 2 * day;
+    const repo = getRepo();
+    await repo.setKv(sinceKey, since);
+    cloverOrders = [cloverOrder('OLDER', since + min)];
+    orderResponse = () => new Response('{"error":"unavailable"}', { status: 503 });
+    expect((await importCloverPlatformOrders(MID, { now })).error).toBeTruthy();
+    expect(await repo.getKv(sinceKey)).toBe(since);
+    orderResponse = () => new Response('{"unexpected":[]}');
+    expect((await importCloverPlatformOrders(MID, { now })).error).toBeTruthy();
+    expect(await repo.getKv(sinceKey)).toBe(since);
+    orderResponse = () => new Response('{"elements":[{"id":"BROKEN"}]}');
+    expect((await importCloverPlatformOrders(MID, { now })).error).toBeTruthy();
+    expect(await repo.getKv(sinceKey)).toBe(since);
+
+    orderResponse = undefined;
+    expect((await importCloverPlatformOrders(MID, { now })).posOrderIds).toEqual(['OLDER']);
+    expect(await repo.getKv(sinceKey)).toBe(now - 2 * min + 1);
+  });
+
+  it('reports a saved cursor outside Clover’s documented history without acknowledging it', async () => {
+    const now = Date.now();
+    const since = now - 91 * day;
+    const repo = getRepo();
+    await repo.setKv(sinceKey, since);
+    const result = await importCloverPlatformOrders(MID, { now });
+    expect(result.error).toMatch(/90 days/);
+    expect(orderRequests).toHaveLength(0);
+    expect(await repo.getKv(sinceKey)).toBe(since);
   });
 
   it('never reads back an order Food Hub created itself, even when its Clover id was not saved', async () => {

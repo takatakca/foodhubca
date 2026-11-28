@@ -233,8 +233,17 @@ export const mock = http.createServer(async (req, res) => {
       return send(200, { id });
     }
     if (/\/v3\/merchants\/[^/]+\/orders$/.test(p) && req.method === 'GET') {
-      const since = Number((url.searchParams.get('filter') || '').split('>=')[1] || 0);
-      return send(200, { elements: Number(url.searchParams.get('offset') || 0) ? [] : cloverNativeOrders.filter((o) => o.mid === mid && o.createdTime >= since) });
+      const params = url.searchParams;
+      const filters = params.getAll('filter');
+      const since = Number(filters.find((filter) => filter.startsWith('createdTime>='))?.slice('createdTime>='.length) ?? 0);
+      const until = Number(filters.find((filter) => filter.startsWith('createdTime<'))?.slice('createdTime<'.length) ?? Infinity);
+      const rows = cloverNativeOrders.filter((order) => order.mid === mid && order.createdTime >= since && order.createdTime < until);
+      const sort = params.get('orderBy');
+      if (sort === 'createdTime ASC,id ASC') rows.sort((a, b) => a.createdTime - b.createdTime || (a.id > b.id) - (a.id < b.id));
+      if (sort === 'createdTime DESC') rows.sort((a, b) => b.createdTime - a.createdTime);
+      const offset = Number(params.get('offset') ?? 0);
+      const limit = Number(params.get('limit') ?? 100);
+      return send(200, { elements: rows.slice(offset, offset + limit) });
     }
     const ord = p.match(/\/v3\/merchants\/[^/]+\/orders\/([^/]+)$/);
     if (ord) {

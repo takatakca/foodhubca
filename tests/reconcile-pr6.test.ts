@@ -57,7 +57,18 @@ function mockPlatforms() {
         if (reply) return reply;
         return json({ id, total: 1999 });
       }
-      if (/\/orders$/.test(p) && method === 'GET') return json({ elements: cloverOrders.map((o) => ({ ...o })) });
+      if (/\/orders$/.test(p) && method === 'GET') {
+        const params = url.searchParams;
+        if (params.get('orderBy') !== 'createdTime ASC,id ASC') return json({ elements: cloverOrders.map((o) => ({ ...o })) });
+        const [lower, upper] = params.getAll('filter');
+        const since = Number(lower.split('>=')[1]);
+        const until = Number(upper.split('<')[1]);
+        const offset = Number(params.get('offset'));
+        const limit = Number(params.get('limit'));
+        const rows = cloverOrders.filter((order) => order.createdTime >= since && order.createdTime < until)
+          .sort((a, b) => a.createdTime - b.createdTime || a.id.localeCompare(b.id));
+        return json({ elements: rows.slice(offset, offset + limit) });
+      }
       if (p.endsWith('/print_event')) return json({ id: `PE-${body?.orderRef?.id}`, state: 'CREATED' });
       if (/\/orders\/[^/]+$/.test(p)) return json({ id: p.split('/').pop() });
     }

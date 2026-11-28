@@ -1,3 +1,19 @@
+## 2026-11-28 — Insertion complète d’une commande native Clover
+
+L’import enregistre le statut, l’identifiant de commande Clover et la chronologie dans la même insertion. Une réponse perdue après l’écriture laisse donc une commande complète. Le rejeu retrouve cette commande sans doublon. La régression interrompt une insertion simulée et vérifie les états accepté et terminé après rejeu.
+
+Une ancienne ligne marquée nouvelle sans référence Clover exige une vérification de provenance et un contrôle atomique de son état avant toute correction. Le rejeu PostgreSQL du candidat et la validation du tri dans un bac à sable Clover autorisé restent rattachés à la PR et à la preuve marchande. [PR #223](https://github.com/takatakca/foodhubca/pull/223) · [Checklist #46](https://github.com/takatakca/foodhubca/issues/46)
+
+— signé : Codex @ cloud · 2026-11-28 07:34 Montréal
+
+## 2026-11-28 — Reprise des pages de commandes natives Clover
+
+L’import conserve sa fenêtre de création et reprend après sa limite de dix pages. La borne d’import n’avance qu’après une réponse complète. La reprise teste un horodatage partagé sur plus de 1 000 commandes, une suppression avant le prochain lot, deux lectures qui se chevauchent et les réponses Clover malformées ou en erreur. La fenêtre de 24 heures s’applique à la première lecture. Un curseur existant hors des 90 jours documentés est conservé pour rapprochement.
+
+Les 68 tests locaux utilisent des réponses simulées. Clover documente les bornes de création et le tri à plusieurs champs. Confirmer le tri secondaire et la pagination dans un bac à sable autorisé, puis vérifier la CI du SHA exact et les critères de #46 avant revue et publication par le propriétaire. Conserver la revue distincte de #189 et #208. [Référence Orders v3](https://docs.clover.com/dev/reference/ordergetorders) [Pagination](https://docs.clover.com/dev/docs/orders-faqs) [Tri](https://docs.clover.com/dev/docs/sorting-collections)
+
+— signé : Codex @ cloud · 2026-11-28
+
 ## 2026-11-26 — Paiement Clover après déplacement d’une liaison
 
 La réconciliation locale de #183 sur `86d190c` conserve les références par magasin de #178 pour la saisie, la reprise, l’import et le paiement Clover. Les 161 essais ciblés couvrent aussi le règlement et l’impression sur la caisse confirmée et le contrôle manuel d’une liaison Uber Eats. Les réponses des fournisseurs sont simulées. La CI du SHA réconcilié et la réception marchande restent à vérifier avant publication.

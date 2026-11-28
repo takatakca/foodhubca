@@ -11,10 +11,11 @@ export interface Doc<T = Record<string, unknown>> { id: string; key?: string | n
 export interface DocFilter { since?: string; until?: string; keys?: string[]; limit?: number }
 
 type StoreSnapshot = Pick<ChannelStore, 'channel' | 'channelStoreId' | 'locationCode' | 'updatedAt' | 'meta'>;
+type InitialOrderState = Pick<StoredOrder, 'status' | 'posOrderId' | 'timeline'>;
 
 export interface FoodHubRepo {
   mode: 'supabase' | 'memory';
-  insertOrderIfNew(order: NormalizedOrder & { locationCode?: string; createdAt?: string }): Promise<{ order: StoredOrder; isNew: boolean }>;
+  insertOrderIfNew(order: NormalizedOrder & { locationCode?: string; createdAt?: string }, initialState?: InitialOrderState): Promise<{ order: StoredOrder; isNew: boolean }>;
   getOrder(id: string): Promise<StoredOrder | null>;
   findOrder(channel: ChannelKey, externalOrderId: string): Promise<StoredOrder | null>;
   updateOrder(id: string, patch: Partial<StoredOrder>): Promise<StoredOrder | null>;
@@ -90,12 +91,12 @@ function memState(): MemState {
 
 const memoryRepo: FoodHubRepo = {
   mode: 'memory',
-  async insertOrderIfNew(order) {
+  async insertOrderIfNew(order, initialState = { status: 'new' }) {
     const s = memState();
     for (const o of s.orders.values()) {
       if (o.channel === order.channel && o.externalOrderId === order.externalOrderId) return { order: o, isNew: false };
     }
-    const stored: StoredOrder = { ...order, id: crypto.randomUUID(), status: 'new', createdAt: order.createdAt ?? nowIso(), updatedAt: nowIso() };
+    const stored: StoredOrder = { ...order, ...initialState, id: crypto.randomUUID(), createdAt: order.createdAt ?? nowIso(), updatedAt: nowIso() };
     s.orders.set(stored.id, stored);
     return { order: stored, isNew: true };
   },
@@ -333,11 +334,11 @@ function supabaseRepo(): FoodHubRepo {
   const db = createServiceClient();
   const repo: FoodHubRepo = {
     mode: 'supabase',
-    async insertOrderIfNew(order) {
+    async insertOrderIfNew(order, initialState = { status: 'new' }) {
       const existing = await repo.findOrder(order.channel, order.externalOrderId);
       if (existing) return { order: existing, isNew: false };
       const { createdAt, ...rest } = order;
-      const row: Row = { ...orderToRow({ ...rest, status: 'new' }), data: rest };
+      const row: Row = { ...orderToRow({ ...rest, ...initialState }), data: rest };
       if (createdAt) row.created_at = createdAt;
       const res = await db.from('fh_orders').insert(row).select('*').single();
       if (res.error) {

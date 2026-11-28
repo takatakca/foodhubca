@@ -1374,7 +1374,10 @@ try {
   check('kitchen screen: "Website / Clover Online", accepted in Clover, printed by Clover, in the pinned kitchen', w44?.source === 'clover_online' && w44.status === 'in_kitchen' && !!w44.posPrintedAt && w44.locationCode === 'NDG_6284' && w44.brandName === 'PPP Pizzeria' && w44.customer?.name === 'Léa T.' && w44.total === 22.99 && /^WEB-\d+$/.test(w44.number), JSON.stringify(w44));
   check('no second ticket: Food Hub created nothing in Clover and printed nothing', sent('POST', /\/atomic_order\/orders$/).length === injects44 && sent('POST', /\/print_event$/).length === prints44);
   check('an in-store order of the same Clover is not a website order', !(await webList()).some((o) => o.posOrderId === 'OLO-DINE-1'));
-  check('not a platform order (order board and payout checks untouched)', !(await call('GET', '/api/foodhub/orders?limit=500')).json.orders.some((o) => o.posOrderId === 'OLO-WEB-1'));
+  check('native platform import succeeds and leaves the website order off the board and out of payout checks',
+    main44?.platformOrders === 0 && !main44.platformOrdersError
+      && !(await call('GET', '/api/foodhub/orders?limit=500')).json.orders.some((o) => o.posOrderId === 'OLO-WEB-1'),
+    JSON.stringify(main44));
   const blocked44 = await call('POST', `/api/foodhub/website-orders/${w44?.id}`, { body: { action: 'cancel' } });
   check('cancel from Food Hub refused: "do it in Clover"', blocked44.status === 409 && /Clover/.test(blocked44.json?.error || ''), JSON.stringify(blocked44.json));
   check('the own-orders API refuses it too (no resend, no courier, no refund)', (await call('POST', `/api/foodhub/delivery/${w44?.id}`, { body: { action: 'retry_clover' } })).status === 409 && (await call('POST', `/api/foodhub/delivery/${w44?.id}`, { body: { action: 'dispatch' } })).status === 409);

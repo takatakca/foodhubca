@@ -1,3 +1,11 @@
+## 2026-11-26 — Preuve de version pendant une bascule
+
+Le vérificateur HTTPS relit `/api/release` après ses sondes. Une révision différente au début ou à la fin invalide la preuve, y compris lorsque les endpoints intermédiaires répondent normalement.
+
+Le diagnostic authentifié Watchtower associe aussi chaque passage terminé au SHA complet lorsque le processus dispose d’une identité de version valide. Les anciens relevés demeurent lisibles. Cette donnée facilite la vérification des passages lors du remplacement des processus.
+
+— signé : Codex @ cloud · 2026-11-26
+
 ## 2026-11-26 — Paiement Clover après déplacement d’une liaison
 
 La réconciliation locale de #183 sur `86d190c` conserve les références par magasin de #178 pour la saisie, la reprise, l’import et le paiement Clover. Les 161 essais ciblés couvrent aussi le règlement et l’impression sur la caisse confirmée et le contrôle manuel d’une liaison Uber Eats. Les réponses des fournisseurs sont simulées. La CI du SHA réconcilié et la réception marchande restent à vérifier avant publication.

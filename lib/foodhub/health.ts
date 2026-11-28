@@ -21,6 +21,7 @@ import { inboxSummary } from './inbox';
 import { lastOrderTimes } from './order-retry';
 import { cloverReadiness } from './pos/clover';
 import { lastRecoveryRun } from './recovery';
+import { validatedReleaseSha } from './release';
 import { getRepo } from './repo';
 import { listScreens } from './screens';
 import { sessionSecretSource } from './session';
@@ -153,8 +154,9 @@ export async function buildHealth(opts: { now?: number; uptimeSec?: number; incl
   if (opts.includeWatchBackgroundCompletion) {
     const timestamp = typeof watchBackground?.at === 'string' ? Date.parse(watchBackground.at) : NaN;
     const trigger = watchBackground?.trigger;
+    const sha = validatedReleaseSha(watchBackground?.sha);
     checks.watchtower.lastBackgroundCompletion = Number.isFinite(timestamp) && (trigger === 'timer' || trigger === 'cron')
-      ? { at: new Date(timestamp).toISOString(), trigger } : null;
+      ? { at: new Date(timestamp).toISOString(), trigger, ...(sha ? { sha } : {}) } : null;
   }
 
   const recAge = age(recovery?.at, now);

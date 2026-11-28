@@ -60,6 +60,20 @@ describe('Food Hub live release verification (no network)', () => {
     })).rejects.toThrow(/different SHA/);
   });
 
+  it('rejects a release that changes during endpoint verification', async () => {
+    const calls = [];
+    const earlier = mockFetch();
+    const later = mockFetch({ sha: 'b'.repeat(40) });
+    const fetchImpl = (url, options) => {
+      const path = new URL(url).pathname;
+      calls.push(path);
+      return path === '/api/release' && calls.length > 1 ? later(url, options) : earlier(url, options);
+    };
+    await expect(verifyLiveDeployment({ url: 'https://foodhub.on2go.ca/', sha: SHA, fetchImpl }))
+      .rejects.toThrow(/different SHA: bbbbbbb/);
+    expect(calls).toEqual(['/api/release', '/api/public/directory', '/api/health', '/login', '/api/foodhub/orders', '/api/release']);
+  });
+
   it('fails closed if anonymous orders become accessible', async () => {
     await expect(verifyLiveDeployment({
       url: 'https://foodhub.on2go.ca/',

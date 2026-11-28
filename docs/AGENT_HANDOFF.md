@@ -13,6 +13,11 @@ L’impression à l’arrivée, le déclenchement planifié et la réimpression 
 L’annulation et la relève vers la tablette Skip ferment la commande sur la caisse qui l’a confirmée. Si cette caisse diffère de la caisse configurée, Food Hub y vérifie l’identifiant et le titre avant de demander une modification. Lors d’un envoi concurrent, la copie excédentaire est retirée de la caisse qui l’a créée. Une même référence sur deux caisses distingue toujours deux copies lorsque les deux caisses sont confirmées. Les 117 tests ciblés utilisent des réponses Clover simulées.
 
 Si l’annulation arrive pendant le premier envoi, Food Hub ferme la commande sur la caisse confirmée avant impression. L’arrêt s’applique aussi lorsque l’acceptation automatique est désactivée. Quand Clover renvoie un échec après l’annulation, la relève vers la tablette Skip est abandonnée. Les trois scénarios reproduisaient l’erreur avant correction. Sur `df03fc9`, les 136 tests ciblés, TypeScript et ESLint réussissent avec des fournisseurs simulés.
+## 2026-11-26 — Cuisine des commandes importées depuis Clover OAuth
+
+Une commande native de plateforme importée depuis l’unique compte Clover OAuth peut rejoindre sa cuisine sans identifiant Clover global si la liaison est sans ambiguïté. Les liaisons Clover explicites et le compte global configuré gardent leur priorité. Une liaison protégée sans attribution explicite ne reçoit pas de nouvelle attribution par défaut et reste prise en compte dans la recherche des correspondances. Les essais simulés couvrent la visibilité dans le tableau authentifié de la bonne cuisine, la présence de deux comptes OAuth et les protections. La réception réelle reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
 
 ## Diagnostic des étiquettes d’impression Clover
 

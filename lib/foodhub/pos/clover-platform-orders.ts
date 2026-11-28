@@ -15,11 +15,12 @@
 // time to be saved first. Turn it off with FOODHUB_CLOVER_PLATFORM_ORDERS=off.
 import { logActivity } from '../activity';
 import { CHANNEL_LABELS, CHANNEL_MARKETPLACE, fromCents, nowIso } from '../config';
+import { menuLockOf } from '../menu/lock';
 import { cloverFetch } from './clover-http';
 import { getRepo } from '../repo';
 import { screenEntryStoreRef } from '../screen-entry-id';
 import type { ChannelKey, NormalizedOrder, OrderLine } from '../types';
-import { cloverBaseUrl, cloverToken } from './clover';
+import { cloverBaseUrl, cloverToken, defaultCloverMerchant } from './clover';
 import { isPlatformTender, platformFromLabel } from './platform-labels';
 import { cloverOrderTitle, normName, normalizeCloverOrderTitle } from './clover-order';
 import { noteLastOrder } from '../order-retry';
@@ -125,10 +126,18 @@ export async function importCloverPlatformOrders(mid: string, opts: { now?: numb
   try {
     const [orderTypes, tenders] = await Promise.all([labelMap(mid, token, 'order_types'), labelMap(mid, token, 'tenders')]);
     const stores = await repo.listStores();
-    const def = process.env.CLOVER_MERCHANT_ID;
+    const def = await defaultCloverMerchant();
     const storesHere = stores.filter((s) => (s.cloverMerchantId || def) === mid);
+    // Keep protected stores in the candidate set so they still count as possible matches. Do not assign a kitchen
+    // through the new OAuth fallback when a protected mapping could be the source.
+    const protectedUnpinned = new Set(!process.env.CLOVER_MERCHANT_ID && def === mid
+      ? storesHere.filter((s) => !s.cloverMerchantId && menuLockOf(s).locked).map((s) => s.id) : []);
     // One Clover merchant can serve several kitchens and many brands: a location is only assumed when it is the only one.
-    const onlyLocation = (list: typeof storesHere) => { const locs = [...new Set(list.map((s) => s.locationCode))]; return locs.length === 1 ? locs[0] : undefined; };
+    const onlyLocation = (list: typeof storesHere) => {
+      if (list.some((s) => protectedUnpinned.has(s.id))) return undefined;
+      const locs = [...new Set(list.map((s) => s.locationCode))];
+      return locs.length === 1 ? locs[0] : undefined;
+    };
     const fallbackLocation = onlyLocation(storesHere);
 
     for (let page = 0; page < MAX_PAGES; page++) {
@@ -150,7 +159,8 @@ export async function importCloverPlatformOrders(mid: string, opts: { now?: numb
         const candidates = storesHere.filter((s) => s.channel === channel);
         const text = normName(`${co?.title ?? ''} ${co?.note ?? ''}`);
         const named = candidates.filter((s) => normName(s.brandName) && text.includes(normName(s.brandName)));
-        const store = candidates.length === 1 ? candidates[0] : named.length === 1 ? named[0] : undefined;
+        const matched = candidates.length === 1 ? candidates[0] : named.length === 1 ? named[0] : undefined;
+        const store = matched && !protectedUnpinned.has(matched.id) ? matched : undefined;
         const location = store?.locationCode ?? onlyLocation(named.length ? named : candidates) ?? fallbackLocation;
         const payments: any[] = co?.payments?.elements ?? [];
         const sum = (f: string) => fromCents(payments.reduce((s, p) => s + (Number(p?.[f]) || 0), 0));

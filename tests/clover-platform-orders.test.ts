@@ -1,18 +1,24 @@
 // Delivery orders created in Clover by Clover's own platform integrations (Clover ↔ DoorDash…) — read-only in Food Hub.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { GET as listKitchenOrders } from '../app/api/foodhub/orders/route';
+import { hashPassword } from '../lib/foodhub/auth';
 import { detectPlatform, importCloverPlatformOrders, platformFromLabel } from '../lib/foodhub/pos/clover-platform-orders';
 import { allowedActions } from '../lib/foodhub/pipeline';
 import { settleInClover } from '../lib/foodhub/clover-settle';
 import { getRepo } from '../lib/foodhub/repo';
 
 const MID = 'TESTMERCH0002'; // made-up merchant ID (public repository)
+const OTHER_MID = 'TESTMERCH0003';
+const BASE = 'https://clover.example.test';
 const realFetch = globalThis.fetch;
 let cloverOrders: any[] = [];
 let calls: string[] = [];
 
 function mockClover() {
-  globalThis.fetch = vi.fn(async (input: any) => {
+  globalThis.fetch = vi.fn(async (input: any, init?: RequestInit) => {
     const url = new URL(String(input));
+    expect(url.origin).toBe(BASE);
+    expect(init?.method ?? 'GET').toBe('GET');
     calls.push(url.pathname);
     const json = (j: unknown) => new Response(JSON.stringify(j), { status: 200, headers: { 'Content-Type': 'application/json' } });
     if (url.pathname.endsWith('/order_types')) return json({ elements: [{ id: 'OT-DD', label: 'DoorDash' }, { id: 'OT-HERE', label: 'Sur place' }] });
@@ -23,6 +29,32 @@ function mockClover() {
     }
     return new Response('{}', { status: 404 });
   }) as any;
+}
+
+async function useOAuth(otherStatus: 'active' | 'pending' = 'pending') {
+  vi.stubEnv('CLOVER_MERCHANT_ID', undefined);
+  vi.stubEnv('CLOVER_ACCESS_TOKEN', undefined);
+  vi.stubEnv('CLOVER_MERCHANT_TOKENS', undefined);
+  vi.stubEnv('FOODHUB_MEV', 'off');
+  const connection = (merchantId: string, status: 'active' | 'pending') => ({
+    merchantId, status, accessToken: 'test-oauth-token', connectedAt: new Date().toISOString(),
+    accessTokenExpiration: Math.floor(Date.now() / 1000) + 3600,
+  });
+  await getRepo().setKv('clover_oauth_merchants', { [MID]: connection(MID, 'active'), [OTHER_MID]: connection(OTHER_MID, otherStatus) });
+}
+
+async function mapKitchen(channelStoreId: string, locationCode: string, cloverMerchantId: string | null, meta: Record<string, unknown> = {}) {
+  return getRepo().upsertStore({ channel: 'doordash', channelStoreId, brandName: `Test brand ${locationCode}`, locationCode, cloverMerchantId, autoAccept: false, online: true, meta });
+}
+
+async function visibleKitchenOrders(username: string, locationCode: string, requestedLocation?: string) {
+  const password = 'synthetic-native-clover-manager';
+  await getRepo().saveUser({ username, name: 'Test manager', role: 'manager', active: true, locations: [locationCode], passwordHash: hashPassword(password) });
+  const url = new URL('https://hub.example.test/api/foodhub/orders');
+  if (requestedLocation) url.searchParams.set('locations', requestedLocation);
+  const response = await listKitchenOrders(new Request(url, { headers: { authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}` } }), {});
+  expect(response.status).toBe(200);
+  return (await response.json()).orders;
 }
 
 const min = 60_000;
@@ -39,14 +71,14 @@ function cloverOrder(id: string, createdTime: number, extra: Record<string, unkn
 beforeEach(() => {
   process.env.FOODHUB_FORCE_MEMORY = 'true';
   (globalThis as any).__foodhubMem = undefined;
-  process.env.CLOVER_BASE_URL = 'https://api.clover.com';
+  process.env.CLOVER_BASE_URL = BASE;
   process.env.CLOVER_MERCHANT_ID = MID;
   process.env.CLOVER_ACCESS_TOKEN = 'ENV-TOKEN';
   delete process.env.FOODHUB_CLOVER_PLATFORM_ORDERS;
   cloverOrders = []; calls = [];
   mockClover();
 });
-afterEach(() => { globalThis.fetch = realFetch; });
+afterEach(() => { globalThis.fetch = realFetch; vi.unstubAllEnvs(); });
 
 describe('platform orders received through Clover', () => {
   it('recognises the platform from an order type, a tender, a title or a note', () => {
@@ -141,6 +173,51 @@ describe('platform orders received through Clover', () => {
     const anon = await repo.findOrder('doordash', 'clover-ANON1');
     expect(anon?.brandName).toBeUndefined();
     expect(anon?.locationCode).toBeUndefined();
+  });
+
+  it('imports from the sole approved OAuth default into the mapped kitchen without exposing the order to another kitchen', async () => {
+    await useOAuth();
+    const store = await mapKitchen('synthetic-default-store', 'KITCHEN_A', null);
+    await mapKitchen('synthetic-pinned-store', 'KITCHEN_B', OTHER_MID);
+    const now = Date.now();
+    cloverOrders = [cloverOrder('OAUTHNATIVE', now - 5 * min, { orderType: { id: 'OT-DD' } })];
+
+    expect(await importCloverPlatformOrders(MID, { now })).toMatchObject({ imported: 1, posOrderIds: ['OAUTHNATIVE'] });
+    const visible = await visibleKitchenOrders('test-kitchen-a', 'KITCHEN_A');
+    expect(visible).toEqual([expect.objectContaining({ channelStoreId: store.channelStoreId, brandName: store.brandName, locationCode: 'KITCHEN_A', viaPos: 'clover', posOrderId: 'OAUTHNATIVE' })]);
+    expect(visible[0]).not.toHaveProperty('raw');
+    expect(await visibleKitchenOrders('test-kitchen-b', 'KITCHEN_B', 'KITCHEN_A')).toEqual([]);
+  });
+
+  it.each([
+    { case: 'two same-provider unpinned kitchens', otherStatus: 'pending' as const, addOtherStore: true, locked: false },
+    { case: 'two approved OAuth merchants', otherStatus: 'active' as const, addOtherStore: false, locked: false },
+    { case: 'a protected unpinned store', otherStatus: 'pending' as const, addOtherStore: false, locked: true },
+    { case: 'both a protected and an eligible unpinned store', otherStatus: 'pending' as const, addOtherStore: true, locked: true },
+  ])('keeps a native order unassigned with $case', async ({ otherStatus, addOtherStore, locked }) => {
+    await useOAuth(otherStatus);
+    await mapKitchen('synthetic-default-store', 'KITCHEN_A', null, locked ? { menuLocked: true } : {});
+    if (addOtherStore) await mapKitchen('synthetic-other-store', 'KITCHEN_B', null);
+    const now = Date.now();
+    cloverOrders = [cloverOrder('OAUTHUNKNOWN', now - 5 * min, { orderType: { id: 'OT-DD' } })];
+
+    expect(await importCloverPlatformOrders(MID, { now })).toMatchObject({ imported: 1 });
+    const order = await getRepo().findOrder('doordash', 'clover-OAUTHUNKNOWN');
+    expect(order?.channelStoreId).toBe(`clover:${MID}`);
+    expect(order?.brandName).toBeUndefined();
+    expect(order?.locationCode).toBeUndefined();
+    expect(await visibleKitchenOrders('test-kitchen-a', 'KITCHEN_A')).toEqual([]);
+  });
+
+  it('keeps the configured default ahead of the sole OAuth default and preserves an explicit mapping', async () => {
+    await useOAuth();
+    vi.stubEnv('CLOVER_MERCHANT_ID', OTHER_MID);
+    await mapKitchen('synthetic-env-store', 'KITCHEN_B', null);
+    const store = await mapKitchen('synthetic-explicit-store', 'KITCHEN_A', MID);
+    const now = Date.now();
+    cloverOrders = [cloverOrder('EXPLICITNATIVE', now - 5 * min, { orderType: { id: 'OT-DD' } })];
+    expect(await importCloverPlatformOrders(MID, { now })).toMatchObject({ imported: 1 });
+    expect(await getRepo().findOrder('doordash', 'clover-EXPLICITNATIVE')).toMatchObject({ channelStoreId: store.channelStoreId, locationCode: 'KITCHEN_A' });
   });
 });
 

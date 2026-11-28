@@ -98,12 +98,12 @@ it('requests a no-overwrite insert for the store identity from PostgREST', async
   expect(fetch).toHaveBeenCalledTimes(1);
 });
 
-it('retains newer readback and webhook evidence on the same binding', async () => {
+it.each(['foodhub', 'other'] as const)('reports newer saved readback while retaining webhook evidence (%s)', async (manager) => {
   expect((await saveMapping(request('stores', BASE), undefined)).status).toBe(200);
   const repo = getRepo();
   const before = (await repo.findStore('uber_eats', STORE))!;
-  const pos = { storeId: STORE, orderManager: 'pending', integrationEnabled: false, orderManagerClientId: null, checkedAt: '2026-11-27T14:00:00Z' } as const;
-  const latest = { ...pos, orderManager: 'foodhub', integrationEnabled: true, checkedAt: '2026-11-27T14:01:00Z' } as const;
+  const pos = { storeId: STORE, orderManager: 'foodhub', integrationEnabled: true, orderManagerClientId: null, checkedAt: '2026-11-27T14:00:00Z' } as const;
+  const latest = { ...pos, orderManager: manager, integrationEnabled: false, checkedAt: '2026-11-27T14:01:00Z' } as const;
   const pending = heldProvider(pos);
   await pending.started;
   try {
@@ -111,7 +111,14 @@ it('retains newer readback and webhook evidence on the same binding', async () =
   } finally {
     pending.complete();
   }
-  expect(await (await pending.response).json()).toMatchObject({ results: [{ storeId: STORE, ok: true }] });
+  const reported = {
+    storeId: STORE, ok: true, orderManager: manager, integrationEnabled: false,
+    message: expect.stringContaining(manager === 'foodhub' ? 'Order webhooks are off.' : 'another integration'),
+  };
+  expect.soft(await (await pending.response).json()).toMatchObject({ results: [reported] });
+  expect.soft((await repo.listActivity({})).find((entry) => entry.action === 'uber_activate')).toMatchObject({
+    status: manager === 'other' ? 'info' : 'success', detail: { results: [reported] },
+  });
   expect(await repo.findStore('uber_eats', STORE)).toMatchObject({ meta: { provisioned: true, uberPos: latest } });
   expect(pending.provider).toHaveBeenCalledTimes(1);
 });

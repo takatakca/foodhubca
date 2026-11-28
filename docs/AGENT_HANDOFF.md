@@ -1,3 +1,11 @@
+## 2026-11-28 — Preuve Uber rattachée au magasin vérifié
+
+L’écran Liaisons rattache le résultat à l’identifiant Uber et à la ligne vérifiée. Si la ligne change de magasin, le résultat précédent disparaît avec son bouton d’activation. Un débranchement accepté garde le statut à confirmer pour le magasin Uber, même quand la liaison locale apparaît après la demande. Une vérification réussie de cette liaison peut rétablir le statut affiché.
+
+L’activation renvoie et consigne le dernier état enregistré par l’écriture conditionnelle. Les essais fictifs couvrent les changements de liaison, l’apparition d’une liaison pendant un débranchement et la conservation d’un état des webhooks désactivé ou d’un autre gestionnaire enregistré pendant l’activation. La réception en cuisine reste suivie dans [#46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé Codex @ cloud · 2026-11-28 07:40 Montréal
+
 ## 2026-11-28 — Reprise et débranchement Uber sur le même candidat
 
 La répétition réunit les avis paginés de #218 et le débranchement protégé de #220. La console garde le choix explicite de caisse et présente le statut du routage séparément de la réception. Elle exécute une opération Uber à la fois par vue, conserve le résultat par magasin et indique la vérification requise après un débranchement si la liaison a changé pendant la demande. Les 174 tests ciblés, TypeScript et ESLint ciblé passent. Rejouer la compilation, les parcours signés sur PostgreSQL et la console dans Chromium. La preuve marchande est suivie dans [#46](https://github.com/takatakca/foodhubca/issues/46).

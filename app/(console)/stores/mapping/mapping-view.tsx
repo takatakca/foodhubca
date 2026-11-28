@@ -36,6 +36,7 @@ type Pick = { storeId: string; name: string; address?: string; brandName: string
 type CloverMerchant = { id: string; name: string | null; isDefault: boolean };
 type UberResult = { ok: boolean; message: string; orderManager?: OrderManager | null; integrationEnabled?: boolean | null };
 type UberActivation = UberResult & { mappingConflict?: boolean; disconnected?: boolean };
+type UberCheck = UberResult & { storeId: string; channelStoreId: string };
 type Known = import('@/lib/foodhub/known-stores').KnownStore;
 
 export function MappingView() {
@@ -58,7 +59,8 @@ export function MappingView() {
   const [picks, setPicks] = useState<Pick[]>([]);
   const [results, setResults] = useState<Record<string, UberActivation>>({});
   const [cloverMerchants, setCloverMerchants] = useState<CloverMerchant[]>([]);
-  const [checks, setChecks] = useState<Record<string, UberResult>>({});
+  const [checks, setChecks] = useState(() => new Map<string, UberCheck>());
+  const [disconnects, setDisconnects] = useState(() => new Map<string, UberResult>());
   const [checkError, setCheckError] = useState<string | null>(null);
   const [known, setKnown] = useState<Array<Known & { brandName: string; locationCode: string }>>([]);
 
@@ -166,10 +168,12 @@ export function MappingView() {
         : d.message;
       setResults((all) => ({ ...all, [p.storeId]: { ok: true, message, disconnected: true, mappingConflict: d.mappingConflict } }));
       setPicks((all) => all.map((x) => (x.storeId === p.storeId ? { ...x, orderManager: 'unknown', include: false } : x)));
-      const before = stores?.find((s) => s.channel === 'uber_eats' && s.channelStoreId === p.storeId);
-      if (before) setChecks((all) => ({
-        ...all, [before.id]: { ok: true, orderManager: 'unknown', integrationEnabled: null, message },
-      }));
+      setChecks((old) => {
+        const next = new Map(old);
+        next.delete(p.storeId);
+        return next;
+      });
+      setDisconnects((old) => new Map(old).set(p.storeId, { ok: true, orderManager: 'unknown', integrationEnabled: null, message }));
       if (d.mappingConflict) toast.warn(message, p.name);
       else toast.success(t('Débranché d’Uber', 'Disconnected from Uber'), p.name);
       load();
@@ -185,8 +189,8 @@ export function MappingView() {
     uberConnectionBusy.current = true;
     setUberConnectionAction(enable ? 'enable' : 'check');
     try {
-      const d = await api<{ rows: Array<{ storeId: string } & UberResult> }>('/api/foodhub/uber-connect/check', { method: 'POST', json: { enable } });
-      setChecks(Object.fromEntries(d.rows.map((r) => [r.storeId, r])));
+      const d = await api<{ rows: UberCheck[] }>('/api/foodhub/uber-connect/check', { method: 'POST', json: { enable } });
+      setChecks(new Map(d.rows.map((row) => [row.channelStoreId, row])));
       setCheckError(null);
       const configured = d.rows.filter((r) => r.ok && uberRoutingConfirmed(r)).length;
       const summary = t(`${configured}/${d.rows.length} · Routage Uber configuré`, `${configured}/${d.rows.length} · Uber routing configured`);
@@ -262,6 +266,19 @@ export function MappingView() {
   const misplaced = known.filter((k) => k.locationMismatch);
   const unresolved = known.filter((k) => k.mapped && k.address && !k.confirmedByPlatform);
   const shown = (stores ?? []).filter((s) => !leaving.includes(s.id));
+  const isDirectUberStore = (s: StoreRow) => s.channel === 'uber_eats' && !s.channelStoreId.startsWith('relay:');
+  const checkFor = (s: StoreRow) => {
+    if (!isDirectUberStore(s)) return;
+    const result = checks.get(s.channelStoreId);
+    const disconnected = disconnects.get(s.channelStoreId);
+    // A disconnect applies even before a local row exists; replacing it requires a successful read of this row.
+    if (result?.storeId === s.id && (result.ok || !disconnected)) return result;
+    return disconnected;
+  };
+  const canEnableUber = !checkError && shown.some((s) => {
+    const check = checkFor(s);
+    return check?.ok && check.integrationEnabled === false;
+  });
 
   return (
     <div>
@@ -353,7 +370,7 @@ export function MappingView() {
       <Card>
         <CardHeader title={t(`Magasins branchés (${shown.length})`, `Connected stores (${shown.length})`)} right={<>
           <Button variant="outline" size="sm" loading={uberConnectionAction === 'check'} disabled={uberConnectionWorking} onClick={() => checkUber(false)} icon={<ShieldCheck className="size-4" />}>{t('Vérifier chez Uber', 'Check with Uber')}</Button>
-          {Object.values(checks).some((c) => c.ok && c.integrationEnabled === false) && <Button variant="brand" size="sm" loading={uberConnectionAction === 'enable'} disabled={uberConnectionWorking} onClick={() => checkUber(true)}>{t('Activer les commandes Uber', 'Switch Uber orders on')}</Button>}
+          {canEnableUber && <Button variant="brand" size="sm" loading={uberConnectionAction === 'enable'} disabled={uberConnectionWorking} onClick={() => checkUber(true)}>{t('Activer les commandes Uber', 'Switch Uber orders on')}</Button>}
           <Button variant="outline" size="sm" loading={busy === 'discover'} onClick={discover} icon={<Radar className="size-4" />}>{t('Découvrir les magasins Uber', 'Discover Uber stores')}</Button>
         </>} />
         {discovered.length > 0 && (
@@ -372,9 +389,9 @@ export function MappingView() {
             <tbody>
               {shown.map((s) => {
                 const st = stateOf(s);
-                const check = checks[s.id];
-                const directUber = s.channel === 'uber_eats' && !s.channelStoreId.startsWith('relay:');
-                const routing = check ?? (directUber ? uberPosForStore(s) : undefined);
+                const check = checkFor(s);
+                const isDirectUber = isDirectUberStore(s);
+                const routing = check ?? (isDirectUber ? uberPosForStore(s) : undefined);
                 const failedCheck = checkError ?? (check && !check.ok ? check.message : null);
                 return (
                   <Tr key={s.id}>
@@ -391,7 +408,7 @@ export function MappingView() {
                     <Td label={t('Statut', 'Status')}>
                       <div className="flex flex-wrap gap-1">
                         <Badge tone={st.tone}>{stateText(t, st.state)}</Badge>
-                        {directUber && (
+                        {isDirectUber && (
                           failedCheck ? <Badge tone="wait" title={failedCheck}>{t('Vérification Uber échouée', 'Uber check failed')}</Badge>
                             : <>
                               <ManagerBadge value={routing?.orderManager} title={check?.message} />

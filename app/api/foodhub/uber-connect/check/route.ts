@@ -43,7 +43,7 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
   const repo = getRepo();
   const ids: string[] | null = Array.isArray(b.storeIds) && b.storeIds.length ? b.storeIds.map(String) : null;
   const stores = (await repo.listStores('uber_eats')).filter((s) => !isRelayStore(s) && inScope(actor, s.locationCode) && (!ids || ids.includes(s.id)));
-  const rows: Array<{ storeId: string; ok: boolean; orderManager: UberPosState['orderManager'] | null; integrationEnabled: boolean | null; message: string }> = [];
+  const rows: Array<{ storeId: string; channelStoreId: string; ok: boolean; orderManager: UberPosState['orderManager'] | null; integrationEnabled: boolean | null; message: string }> = [];
   for (const s of stores) {
     let read = await fetchUberPosData(s.channelStoreId, { inspection: !enableWebhooks });
     let enabled: ChannelResult | null = null;
@@ -58,7 +58,7 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
       read = saved ? { ...read, state: saved } : mappingChanged;
     }
     rows.push({
-      storeId: s.id, ok: read.ok, orderManager: read.state?.orderManager ?? null, integrationEnabled: read.state?.integrationEnabled ?? null,
+      storeId: s.id, channelStoreId: s.channelStoreId, ok: read.ok, orderManager: read.state?.orderManager ?? null, integrationEnabled: read.state?.integrationEnabled ?? null,
       message: read.ok ? activationMessage({ result: { channel: 'uber_eats', ok: true, status: 'done', message: 'OK' }, enabled, pos: read.state ?? null })
         : read.httpStatus === 404 || read.httpStatus === 403 ? `Uber does not show this store to Food Hub (HTTP ${read.httpStatus}) — it is not activated for this app yet: “Connect Uber Eats”.` : read.error ?? 'Could not read the store from Uber.',
     });

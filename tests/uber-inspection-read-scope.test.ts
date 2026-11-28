@@ -155,7 +155,7 @@ describe('manual Uber store inspection', () => {
 
     const row = (await (await check()).json()).rows[0];
 
-    expect(row).toMatchObject({ storeId: mapped.id, ok: false, orderManager: null, integrationEnabled: null });
+    expect(row).toMatchObject({ storeId: mapped.id, channelStoreId: STORE, ok: false, orderManager: null, integrationEnabled: null });
     expect(await repo.getStore(mapped.id)).toMatchObject({ channelStoreId: replacement, meta: { menuLocked: true } });
     expect((await repo.getStore(mapped.id))?.meta.uberPos).toBeUndefined();
     expect(posRequests.map(({ method }) => method)).toEqual(['GET']);
@@ -226,7 +226,7 @@ describe('manual Uber store inspection', () => {
     expect(response.status).toBe(200);
     expect((await response.json()).rows).toEqual([
       expect.objectContaining({
-        storeId: mapped!.id, ok: true, orderManager: 'foodhub', integrationEnabled: false,
+        storeId: mapped!.id, channelStoreId: STORE, ok: true, orderManager: 'foodhub', integrationEnabled: false,
         message: expect.stringContaining('Order webhooks are off.'),
       }),
     ]);

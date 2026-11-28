@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
-import { uberEatsAdapter } from '@/lib/foodhub/adapters/uber-eats';
-import { activateUberStores } from '@/lib/foodhub/adapters/uber-provision';
+import { uberEatsAdapter, type UberPosState } from '@/lib/foodhub/adapters/uber-eats';
+import { uberPosForStore } from '@/lib/foodhub/adapters/uber-link';
+import { activateUberStores, activationMessage } from '@/lib/foodhub/adapters/uber-provision';
 import { logActivity } from '@/lib/foodhub/activity';
 import { inScope, withPerm } from '@/lib/foodhub/auth';
 import { getCatalog } from '@/lib/foodhub/catalog';
@@ -59,6 +60,7 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
   if (!r.canSend) return fail(`Activation changes your Uber stores, so it needs the live switch: ${r.note}`, 409);
   const results = await activateUberStores(String(b.id), picks);
   const mappingConflicts = new Set<string>();
+  const savedPositions = new Map<string, UberPosState | null>();
   for (const a of results) {
     if (!a.result.ok) continue;
     const p = picks.find((x) => x.storeId === a.storeId)!;
@@ -80,19 +82,22 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
       },
     };
     const saved = existing ? await repo.updateStore(existing.id, mapping, existing) : await repo.insertStoreIfAbsent(mapping);
-    if (!saved) mappingConflicts.add(a.storeId);
+    if (saved) savedPositions.set(a.storeId, uberPosForStore(saved) ?? null);
+    else mappingConflicts.add(a.storeId);
   }
   const okCount = results.filter((x) => x.result.ok).length;
-  const elsewhere = results.filter((x) => x.pos?.orderManager === 'other').length;
   const reported = results.map((x) => {
-    const orderManager = x.pos?.orderManager ?? null;
-    const integrationEnabled = x.pos?.integrationEnabled ?? null;
+    const saved = savedPositions.get(x.storeId);
+    const pos = saved === undefined ? x.pos : saved;
+    const orderManager = pos?.orderManager ?? null;
+    const integrationEnabled = pos?.integrationEnabled ?? null;
     if (mappingConflicts.has(x.storeId)) return {
       storeId: x.storeId, ok: false, orderManager, integrationEnabled, providerAccepted: true, mappingConflict: true,
       message: 'Uber accepted activation. The Food Hub mapping changed during the request. Review the saved kitchen and Clover register in Stores → Mapping.',
     };
-    return { storeId: x.storeId, ok: x.result.ok, orderManager, integrationEnabled, message: x.message };
+    return { storeId: x.storeId, ok: x.result.ok, orderManager, integrationEnabled, message: saved === undefined ? x.message : activationMessage({ ...x, pos }) };
   });
+  const elsewhere = reported.filter((x) => x.orderManager === 'other').length;
   const status = mappingConflicts.size || okCount !== results.length ? 'failed' : elsewhere ? 'info' : 'success';
   await logActivity({ actor: actor.name, source: actor.source, kind: 'settings', action: 'uber_activate', status, channel: 'uber_eats',
     summary: `Uber Eats store activation: ${okCount}/${results.length} requests accepted${elsewhere ? `, Uber reports another order manager for ${elsewhere}` : ''}${mappingConflicts.size ? `, ${mappingConflicts.size} local mapping conflict(s)` : ''} (${picks.map((p) => `${p.brandName} · ${p.locationCode}`).join(', ')})`,

@@ -20,7 +20,8 @@ import { useScopeLabel } from '@/components/shell/scope-switcher';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { api, ApiError, ago, timeOf } from '@/lib/ui/api';
 import { useI18n, useProduct } from '@/lib/i18n/client';
-import type { Incident } from '@/lib/foodhub/watch/types';
+import type { WatchReport } from '@/lib/foodhub/watch/engine';
+import { INACTIVE_KITCHEN_CLOSURE, type Incident } from '@/lib/foodhub/watch/types';
 import type { OutboxEntry } from '@/lib/foodhub/notify';
 import { watchtowerCallSid, type CallStatus } from '@/lib/foodhub/notify/call-status';
 import { cn } from '@/lib/ui/cn';
@@ -52,8 +53,22 @@ export function AlertsView() {
 
   async function checkNow() {
     setBusy(true);
-    try { const r = await api<{ report: { opened: number; resolved: number; open: number } }>('/api/foodhub/watch/run', { method: 'POST' }); toast.success(t('Vérification faite', 'Checked'), checkSummary(t, r.report)); await load(); refreshEverything(); }
-    catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+    try {
+      const { report } = await api<{ report: Pick<WatchReport, 'ran' | 'relayUnavailable' | 'opened' | 'resolved' | 'open'> }>('/api/foodhub/watch/run', { method: 'POST' });
+      if (report.relayUnavailable) {
+        const detail = t(
+          'État des écrans relais indisponible. Les contrôles des tablettes de cuisine et les autres contrôles ont été effectués. Relancez la vérification.',
+          'Relay screen status was unavailable. Kitchen tablets and the other checks ran. Run the check again.',
+        );
+        toast.warn(t('Vérification partielle', 'Partial check'), `${detail}\n${checkSummary(t, report)}`);
+      } else if (report.ran) {
+        toast.success(t('Vérification faite', 'Checked'), checkSummary(t, report));
+      } else {
+        toast.info(t('Vérification non lancée', 'Check did not run'));
+      }
+      await load();
+      refreshEverything();
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
 
   const open = (list ?? []).filter((i) => i.status !== 'resolved');
@@ -143,6 +158,19 @@ function CallStatusCheck({ id }: { id: string }) {
   );
 }
 
+export function IncidentResolutionBadge({ incident }: { incident: Incident }) {
+  const { t } = useI18n();
+  if (incident.status !== 'resolved') return null;
+  const automatic = incident.resolvedBy === 'auto';
+  const closure = automatic ? incident.steps.filter((step) => step.kind === 'resolved').at(-1) : undefined;
+  // A call receipt can be appended after closure. Match the current automatic closing step, including older records.
+  if (closure?.by === 'auto' && closure.at === incident.resolvedAt
+    && (closure.resolutionReason === 'inactive-kitchen' || closure.message === INACTIVE_KITCHEN_CLOSURE)) {
+    return <Badge tone="neutral">{t('surveillance arrêtée', 'monitoring stopped')}</Badge>;
+  }
+  return <Badge tone="go" icon={<CheckCheck className="size-3" />}>{automatic ? t('réglé tout seul', 'fixed itself') : `${t('réglé par', 'fixed by')} ${incident.resolvedBy}`}</Badge>;
+}
+
 function IncidentCard({ i, focus, defaultOpen, onChanged }: { i: Incident; focus: boolean; defaultOpen: boolean; onChanged: () => void }) {
   const { t, lang, loc } = useI18n();
   const { can, locName } = useViewer();
@@ -179,7 +207,7 @@ function IncidentCard({ i, focus, defaultOpen, onChanged }: { i: Incident; focus
                 <span className="text-body font-bold text-ink">{lang === 'fr' ? i.title : i.titleEn}</span>
                 {i.status === 'acknowledged' && <Badge tone="info" icon={<Hand className="size-3" />}>{t('pris en charge par', 'on it:')} {i.ackBy}</Badge>}
                 {i.status === 'snoozed' && <Badge tone="neutral" icon={<BellOff className="size-3" />}>{t('sourdine jusqu’à', 'snoozed until')} {timeOf(i.snoozedUntil, loc)}</Badge>}
-                {i.status === 'resolved' && <Badge tone="go" icon={<CheckCheck className="size-3" />}>{i.resolvedBy === 'auto' ? t('réglé tout seul', 'fixed itself') : `${t('réglé par', 'fixed by')} ${i.resolvedBy}`}</Badge>}
+                <IncidentResolutionBadge incident={i} />
               </div>
               <div className="text-small mt-0.5 text-ink-3">{[lang === 'fr' ? i.detail : i.detailEn ?? i.detail, i.locationCode ? shortLoc(locName(i.locationCode)) : null, ago(i.openedAt, lang)].filter(Boolean).join(' · ')}</div>
             </div>

@@ -27,6 +27,8 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
   const picks: Array<{ storeId: string; brandName: string; locationCode: string; cloverMerchantId?: string; cloverSuggested?: boolean }> = Array.isArray(b.stores) ? b.stores : [];
   if (!b.id || !picks.length) return fail('id and at least one store are required');
   if (picks.some((p) => !p.storeId || !p.brandName || !p.locationCode)) return fail('Every store needs a brand and a location');
+  const storeIds = new Set(picks.map((pick) => pick.storeId));
+  if (storeIds.size !== picks.length) return fail('Select each Uber Eats store only once.');
   // Same rules as POST /api/foodhub/stores: only your locations, only known brands/locations.
   const outside = picks.filter((p) => !inScope(actor, p.locationCode));
   if (outside.length) return fail(`You can only map stores at your locations (${actor.locations.join(', ')}).`, 403);

@@ -324,6 +324,38 @@ describe('missed-order check (created-orders)', () => {
   });
 });
 
+describe('duplicate stores in an activation batch', () => {
+  it.each(['identical', 'conflicting'])('rejects %s picks before activating any store', async (kind) => {
+    const id = 'c'.repeat(36);
+    const password = 'fixture-uber-batch-password';
+    vi.stubEnv('DASHBOARD_PASSWORD', password);
+    const repo = getRepo();
+    const pick = { storeId: 'fixture-uber-duplicate', brandName: 'Pi Pita', locationCode: 'SAINT_LEONARD', cloverMerchantId: 'TESTMERCH0002' };
+    const other = { ...pick, storeId: 'fixture-uber-other' };
+    const repeat = kind === 'identical' ? pick : { ...pick, locationCode: 'NDG_6284', cloverMerchantId: 'TESTMERCH0003' };
+    const saved = await repo.upsertStore(store({
+      channelStoreId: pick.storeId, brandName: pick.brandName, locationCode: pick.locationCode,
+      cloverMerchantId: pick.cloverMerchantId, autoAccept: false,
+    }));
+    const session = { createdAt: Date.now(), token: 'merchant-token', stores: [{ id: pick.storeId }, { id: other.storeId }] };
+    const sessionKey = `uber-connect:${id}`;
+    await repo.setKv(sessionKey, session);
+    mockFetch((c) => appToken(c) ?? { status: 204 });
+
+    const response = await activateUberRoute(new Request('https://hub.example.test/api/foodhub/uber-connect/activate', {
+      method: 'POST',
+      headers: { authorization: `Basic ${Buffer.from(`owner:${password}`).toString('base64')}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ id, stores: [other, pick, repeat] }),
+    }), undefined);
+
+    expect([response.status, calls.filter((c) => c.method === 'POST' && c.url.endsWith('/pos_data')).length]).toEqual([400, 0]);
+    expect(await response.json()).toEqual({ ok: false, error: 'Select each Uber Eats store only once.' });
+    expect(calls).toEqual([]);
+    expect(await repo.listStores('uber_eats')).toEqual([saved]);
+    expect(await repo.getKv(sessionKey)).toEqual(session);
+  });
+});
+
 describe('"Do not touch" and publish to all Uber stores', () => {
   it('publishMenu and 86 never reach a "do not touch" store; the dry run calls nothing; publish-all sends only ready stores', async () => {
     const repo = getRepo();

@@ -1,3 +1,9 @@
+## 2026-11-27 — Choix en double à l’activation Uber
+
+Un lot qui sélectionne deux fois le même magasin Uber reçoit HTTP 400 avant les appels fournisseur et les écritures de liaison. Les deux essais authentifiés couvrent un choix répété à l’identique et une autre destination Clover pour le même magasin. Ils conservent la session marchande et la liaison déjà enregistrée. La preuve de réception marchande reste suivie dans [la checklist #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé Codex @ cloud · 2026-11-27
+
 ## 2026-11-27 — Périmètre des magasins dans l’activation Uber
 
 Food Hub vérifie toute la sélection contre la liste que le marchand a reçue dans sa session Uber. Un magasin absent ou une liste indisponible invalide le lot avant l’appel fournisseur ou l’enregistrement de la liaison. La session reste disponible pour corriger la sélection. Les autorisations marchandes et la réception en cuisine restent suivies dans #46.

@@ -138,10 +138,12 @@ export function parseRelayOrder(body: any): { order: NormalizedOrder; hubOrderId
 
 /** Relayed status change → channel, Food Hub order id and the new state. */
 export function parseRelayStatus(body: any): { channel: ChannelKey; externalOrderId: string; state: string; message?: string } | null {
-  if (!body || body.order_id === undefined || !body.new_state) return null;
+  const orderId = body?.order_id;
+  if ((typeof orderId !== 'string' || !orderId.trim()) && !Number.isFinite(orderId)) return null;
+  if (typeof body.new_state !== 'string' || !body.new_state.trim()) return null;
   const channel = relayChannel(body.additional_info?.external_channel?.name) ?? null;
   if (!channel) return null;
-  return { channel, externalOrderId: `${RELAY_ID_PREFIX}${body.order_id}`, state: String(body.new_state), message: body.message ? String(body.message) : undefined };
+  return { channel, externalOrderId: `${RELAY_ID_PREFIX}${orderId}`, state: body.new_state, message: body.message ? String(body.message) : undefined };
 }
 
 const RANK: Partial<Record<OrderStatus, number>> = { new: 0, accepted: 1, ready: 2, dispatched: 3, completed: 4 };

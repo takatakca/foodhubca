@@ -19,6 +19,7 @@
 // Stored in fh_docs, collection "webhook_inbox"; the doc key is the status, so the runner only reads open entries.
 import crypto from 'node:crypto';
 import { logActivity, type Actor } from './activity';
+import { parseRelayStatus, relayTargetStatus } from './adapters/relay';
 import { parseSkipCancelNotice } from './adapters/skip';
 import { isViaClover } from './adapters/via-clover';
 import { CHANNEL_LABELS, nowIso } from './config';
@@ -28,7 +29,7 @@ import { getRepo } from './repo';
 import type { ChannelKey, NormalizedOrder } from './types';
 
 export const INBOX = 'webhook_inbox';
-export type InboxKind = 'uber' | 'doordash' | 'order' | 'skip_backup' | 'skip_cancel';
+export type InboxKind = 'uber' | 'doordash' | 'order' | 'skip_backup' | 'skip_cancel' | 'relay_cancel';
 export type InboxStatus = 'received' | 'processing' | 'done' | 'failed' | 'refused';
 
 export interface InboxEntry {
@@ -125,6 +126,11 @@ async function storeLocations(): Promise<Map<string, string>> {
 
 /** A scoped manager sees a Skip status notice in the recorded kitchen, or an unprocessed backup via its mapped store. */
 async function visibleTo(e: Pick<InboxEntry, 'channel' | 'kind' | 'body'>, locations: string[], where: Map<string, string>): Promise<boolean> {
+  if (e.kind === 'relay_cancel') {
+    const notice = parseRelayStatus(e.body);
+    const order = notice?.channel === e.channel && await getRepo().findOrder(e.channel, notice.externalOrderId);
+    return Boolean(order && order.viaHub === 'relay' && order.locationCode && locations.includes(order.locationCode));
+  }
   if (e.kind === 'skip_cancel') {
     const cancellation = parseSkipCancelNotice(e.body);
     const order = cancellation && await getRepo().findOrder('skip', cancellation.externalOrderId);
@@ -153,6 +159,15 @@ async function handlerFor(kind: InboxKind, sandbox?: string | null): Promise<Han
   if (kind === 'doordash') return (await import('./webhooks/doordash')).handleDoorDashWebhook;
   if (kind === 'skip_backup') return (await import('./webhooks/skip')).handleSkipBackupWebhook;
   if (kind === 'skip_cancel') return (await import('./webhooks/skip')).handleSkipCancelWebhook;
+  if (kind === 'relay_cancel') {
+    const { applyRelayCancellation } = await import('./pipeline');
+    return async (body) => {
+      const notice = parseRelayStatus(body);
+      if (!notice || relayTargetStatus(notice.state) !== 'cancelled') throw new Error('Invalid relay cancellation.');
+      const order = await applyRelayCancellation(notice);
+      return { result: order ? `Relay cancellation checked: ${order.status}` : 'Relay cancellation kept for order intake.', orderId: order?.id };
+    };
+  }
   const { pipelineOutcomeText, processIncomingOrder } = await import('./pipeline');
   return async (body: NormalizedOrder, retrying) => {
     const out = await processIncomingOrder(body, { retrying });
@@ -166,6 +181,34 @@ async function save(e: InboxEntry) {
 
 export async function getInboxEntry(id: string): Promise<InboxEntry | null> {
   return (await getRepo().getDoc<InboxEntry>(INBOX, id))?.data ?? null;
+}
+
+function relayCancellationInboxId(channel: ChannelKey, externalOrderId: string): string {
+  return `relay-cancel:${crypto.createHash('sha256').update(JSON.stringify([channel, externalOrderId])).digest('hex')}`;
+}
+
+/** A signed relay cancellation is an upstream decision. Preserve its first receipt and its place in recovery. */
+export async function receiveRelayCancellation(body: unknown, notice: NonNullable<ReturnType<typeof parseRelayStatus>>): Promise<string | null> {
+  const { channel, externalOrderId } = notice;
+  const id = relayCancellationInboxId(channel, externalOrderId);
+  const at = nowIso();
+  const entry: InboxEntry = {
+    id, channel, kind: 'relay_cancel', reference: externalOrderId.slice(0, 200),
+    status: 'received', receivedAt: at, updatedAt: at, attempts: 0, body,
+  };
+  return await getRepo().insertDocIfAbsent(INBOX, { id, key: entry.status, at, data: entry }) ? id : null;
+}
+
+/** Look up this order's precise receipt even when its cancellation worker has never run. */
+export async function readRelayCancellation(channel: ChannelKey, externalOrderId: string) {
+  const entry = await getInboxEntry(relayCancellationInboxId(channel, externalOrderId));
+  if (!entry) return null;
+  const notice = parseRelayStatus(entry.body);
+  if (entry.kind !== 'relay_cancel' || entry.status === 'refused' || entry.channel !== channel
+    || notice?.channel !== channel || notice.externalOrderId !== externalOrderId || relayTargetStatus(notice.state) !== 'cancelled') {
+    throw new Error('Stored relay cancellation does not match this order.');
+  }
+  return notice;
 }
 
 /**

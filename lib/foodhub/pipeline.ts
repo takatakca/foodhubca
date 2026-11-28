@@ -12,12 +12,13 @@ import { holdUnresolvedLegacySkipCloverReceipt, settleInClover } from './clover-
 import { mevOnOrderChange } from './mev/hooks';
 import { closeCancelledCloverOrder } from './pos/clover-books';
 import { doorDashMerchantCancelEnabled } from './adapters/doordash';
-import { relayActions, relayStatusApplies } from './adapters/relay';
+import { type parseRelayStatus, relayActions, relayStatusApplies, relayTargetStatus } from './adapters/relay';
 import { reportSkipMissingItems } from './adapters/skip';
 import { isViaClover } from './adapters/via-clover';
 import { adjustDoorDashOrder, adjustmentFromMissing, doorDashAdjustEnabled } from './doordash/orders';
 import { adjustUberOrderPrice, isUberMerchantDelivery, reportUberOutOfItems, setUberRestaurantDeliveryStatus, type UberAdjustReason } from './adapters/uber-api';
 import { applyCourierUpdate, pendingKey, readPending } from './courier';
+import { readRelayCancellation } from './inbox';
 import { getBrandMenu } from './menu/shared';
 import { prepFor } from './prep';
 import { isWaitingScheduled, scheduledInfo } from './scheduling';
@@ -134,6 +135,25 @@ export function screenActions(channel: ChannelKey): Pick<ChannelAdapter, 'accept
   };
 }
 
+export function applyRelayCancellation(notice: NonNullable<ReturnType<typeof parseRelayStatus>>) {
+  const state = /cancel|fail/i.test(notice.state) ? notice.state : 'cancelled';
+  return applyExternalStatus(notice.channel, notice.externalOrderId, state, {
+    reason: notice.message, source: 'relay', partnerState: notice.state,
+  }, { relayState: notice.state });
+}
+
+async function cancelFromRelayReceipt(order: StoredOrder, known?: Awaited<ReturnType<typeof readRelayCancellation>>): Promise<StoredOrder | null> {
+  if (order.viaHub !== 'relay') return null;
+  const notice = known === undefined ? await readRelayCancellation(order.channel, order.externalOrderId) : known;
+  if (!notice) return null;
+  if (order.status === 'cancelled' || order.status === 'failed' || order.status === 'completed') return order;
+  const current = await applyRelayCancellation(notice);
+  if (!current || current.id !== order.id) throw new Error('Relay order changed while checking its cancellation.');
+  return current;
+}
+
+const RELAY_CANCELLATION_HOLD = 'Cancelled by the relay partner before Clover processing.';
+
 /**
  * opts.holdClover: the source knows the order must not reach any register yet (a Too Good To Go e-mail whose store
  * name is not mapped): it is stored and shown on the Command Center, never sent to Clover, never printed, never
@@ -141,6 +161,7 @@ export function screenActions(channel: ChannelKey): Pick<ChannelAdapter, 'accept
  */
 export async function processIncomingOrder(n: NormalizedOrder, opts: { holdClover?: string; retrying?: boolean } = {}): Promise<PipelineOutcome> {
   const repo = getRepo();
+  const relayNotice = n.viaHub === 'relay' ? await readRelayCancellation(n.channel, n.externalOrderId) : null;
   const store = n.channelStoreId ? await repo.findStore(n.channel, n.channelStoreId) : null;
   const brandName = store?.brandName || n.brandName;
 
@@ -167,6 +188,21 @@ export async function processIncomingOrder(n: NormalizedOrder, opts: { holdClove
   const cancelledAtIntake = skipIntake?.outcome === 'cancelled';
   const sameStore = !order.channelStoreId?.trim() || !n.channelStoreId?.trim() || order.channelStoreId === n.channelStoreId;
   const sameSource = !directSkip || (isDirectSkipSource(order) && sameStore);
+  if (isNew) {
+    await noteLastOrder(n.channel, order.createdAt);
+    await repo.addEvent(order.id, 'received', { channel: n.channel, marketplace: n.marketplace, total: n.total, lines: n.lines.length });
+    if (!store) {
+      await repo.addEvent(order.id, 'unmapped_store', { channelStoreId: n.channelStoreId, hint: 'Map this store in Food Hub → Stores so orders route to the right brand, location and Clover merchant.' });
+    }
+    if (n.mappingWarnings?.length) {
+      const said = describeMappingWarnings(n.mappingWarnings);
+      await repo.addEvent(order.id, 'mapping_warning', { message: said.map((w) => w.en).join(' '), messageFr: said.map((w) => w.fr).join(' '), warnings: n.mappingWarnings });
+    }
+  }
+  if (relayNotice) {
+    const cancelled = await cancelFromRelayReceipt(order, relayNotice);
+    if (cancelled) return { order: cancelled, duplicate: false, pos: { ok: false, skipped: true, error: RELAY_CANCELLATION_HOLD } };
+  }
   if (!isNew && directSkip && sameSource && hasUnresolvedLegacySkipCloverReceipt(order)) {
     if (cancelledAtIntake) return stopCancelledSkipIntake(order, skipIntake?.transitioned);
     const held = await holdUnresolvedLegacySkipCloverReceipt(order);
@@ -200,19 +236,11 @@ export async function processIncomingOrder(n: NormalizedOrder, opts: { holdClove
     if (directSkip && sameSource && opts.retrying && waitingForFirstCloverSend(order)) {
       throw new Error('Skip order is waiting for its previous Clover processing window.');
     }
+    if (n.viaHub === 'relay' && order.viaHub === 'relay' && opts.retrying && waitingForFirstCloverSend(order)) {
+      throw new Error('Relay order is waiting for its previous Clover processing window.');
+    }
     await repo.addEvent(order.id, 'duplicate_delivery', { note: 'Webhook delivered again; ignored.' });
     return { order, duplicate: true };
-  }
-  if (isNew) {
-    await noteLastOrder(n.channel, order.createdAt);
-    await repo.addEvent(order.id, 'received', { channel: n.channel, marketplace: n.marketplace, total: n.total, lines: n.lines.length });
-    if (!store) {
-      await repo.addEvent(order.id, 'unmapped_store', { channelStoreId: n.channelStoreId, hint: 'Map this store in Food Hub → Stores so orders route to the right brand, location and Clover merchant.' });
-    }
-    if (n.mappingWarnings?.length) {
-      const said = describeMappingWarnings(n.mappingWarnings);
-      await repo.addEvent(order.id, 'mapping_warning', { message: said.map((w) => w.en).join(' '), messageFr: said.map((w) => w.fr).join(' '), warnings: n.mappingWarnings });
-    }
   }
   if (cancelledAtIntake) return stopCancelledSkipIntake(order, skipIntake?.transitioned);
 
@@ -357,8 +385,8 @@ function waitingForFirstCloverSend(order: StoredOrder): boolean {
   if (order.status !== 'new' || order.posOrderId || order.posError || order.viaPos || !cloverExpected()) return false;
   const retry = order.timeline?.posRetry;
   if (!retry) return true;
-  // A direct Skip resume can stop between claiming it and starting Clover. Other retry schedules have their own runner.
-  return isDirectSkipSource(order) && retry.resumeOnly === true && retry.attempts === 0 && retry.nextAt === null && retry.uncertain === true
+  // A guarded first send can stop after claiming its resume. Other retry schedules have their own runner.
+  return (isDirectSkipSource(order) || order.viaHub === 'relay') && retry.resumeOnly === true && retry.attempts === 0 && retry.nextAt === null && retry.uncertain === true
     && Boolean(retry.claim && retry.claimedAt) && !retry.lastError && !retry.gaveUpAt && !retry.doneAt;
 }
 
@@ -378,7 +406,7 @@ export function neverSentToClover(order: StoredOrder, now = Date.now()): boolean
 async function resumeUnsentOrder(order: StoredOrder): Promise<PipelineOutcome> {
   const repo = getRepo();
   const claim = crypto.randomUUID();
-  await repo.patchOrder(order.id, { posRetry: { attempts: 0, nextAt: null, uncertain: true, claim, claimedAt: nowIso(), ...(isDirectSkipSource(order) ? { resumeOnly: true } : {}) } }, {}, (fresh) => neverSentToClover(fresh));
+  await repo.patchOrder(order.id, { posRetry: { attempts: 0, nextAt: null, uncertain: true, claim, claimedAt: nowIso(), ...(isDirectSkipSource(order) || order.viaHub === 'relay' ? { resumeOnly: true } : {}) } }, {}, (fresh) => neverSentToClover(fresh));
   let current = await repo.getOrder(order.id);
   if (!current || current.timeline?.posRetry?.claim !== claim || current.status !== 'new' || current.posOrderId) {
     await repo.addEvent(order.id, 'duplicate_delivery', { note: 'Webhook delivered again while the order was being finished; ignored.' });
@@ -536,6 +564,14 @@ export async function sendToClover(order: StoredOrder, store: ChannelStore | nul
   const mid = store?.cloverMerchantId || (await defaultCloverMerchant());
   const token = mid ? await cloverToken(mid).catch(() => null) : null;
   const orderTypeId = await cloverOrderTypeForOrder(mid, order, { token, base: cloverBaseUrl() }).catch(() => null);
+  if (order.viaHub === 'relay') {
+    return injectOrder(order, mid, {
+      orderTypeId,
+      beforeCreate: async () => {
+        if (await cancelFromRelayReceipt(order)) return { ok: false, skipped: true, error: RELAY_CANCELLATION_HOLD };
+      },
+    });
+  }
   if (!isDirectSkipSource(order)) return injectOrder(order, mid, { orderTypeId });
   const repo = getRepo();
   const prepare: { result?: SkipLifecycleResult } = {};
@@ -768,6 +804,8 @@ export async function isSendingToClover(orderId: string): Promise<boolean> {
 async function resendNow(order: StoredOrder, opts: { manual?: boolean; by?: string; attempt?: number }, allowAfterManualAcceptance?: true): Promise<CloverResendOutcome> {
   const repo = getRepo();
   const store = await repo.findStore(order.channel, order.channelStoreId);
+  const relayCancellation = await cancelFromRelayReceipt(order);
+  if (relayCancellation) return { order: relayCancellation, pos: { ok: false, skipped: true, error: RELAY_CANCELLATION_HOLD }, store };
   const tag = { ...(opts.manual ? { manual: true } : {}), ...(opts.by ? { by: opts.by } : {}), ...(opts.attempt ? { attempt: opts.attempt } : {}) };
   if (hasUnresolvedLegacySkipCloverReceipt(order)) {
     const held = await holdUnresolvedLegacySkipCloverReceipt(order);
@@ -1154,8 +1192,11 @@ export async function runOrderAction(orderId: string, action: OrderAction, opts:
 /** Status changes pushed by a platform (customer cancellation, courier picked up, completed…). */
 export async function applyExternalStatus(channel: ChannelKey, externalOrderId: string, platformState: string, detail: Record<string, unknown> = {}, { relayState }: { relayState?: string } = {}) {
   const repo = getRepo();
+  const relayCancellation = relayState !== undefined && relayTargetStatus(relayState) === 'cancelled';
   let order = await repo.findOrder(channel, externalOrderId);
   if (!order) {
+    // Signed relay cancellations already have their own receipt, isolated from non-relay orders.
+    if (relayCancellation) return null;
     // Not stored yet (webhooks race the order fetch): keep it for processIncomingOrder instead of dropping it.
     const prev = (await readPending(channel, externalOrderId)) ?? {};
     await repo.setKv(pendingKey(channel, externalOrderId), { ...prev, status: { platformState, detail, at: nowIso() } }).catch(() => undefined);
@@ -1164,8 +1205,8 @@ export async function applyExternalStatus(channel: ChannelKey, externalOrderId: 
     if (!order) return null;
     await repo.setKv(pendingKey(channel, externalOrderId), { ...prev, status: { platformState, detail, at: nowIso() }, consumedAt: nowIso() }).catch(() => undefined);
   }
-  const guard = relayState === undefined ? undefined
-    : (current: StoredOrder) => relayStatusApplies(current, relayState, { needsClover: acceptNeedsClover(current) });
+  const guard = relayState === undefined ? undefined : (current: StoredOrder) =>
+    (!relayCancellation || current.viaHub === 'relay') && relayStatusApplies(current, relayState, { needsClover: acceptNeedsClover(current) });
   async function ignoreIneligibleRelayStatus(current: StoredOrder): Promise<boolean> {
     if (!guard || guard(current)) return false;
     await repo.addEvent(current.id, 'platform_status_ignored', { state: relayState, reason: detail.reason, source: 'relay', note: `Not applied: the order is already ${current.status}.` });

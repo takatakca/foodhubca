@@ -1,3 +1,11 @@
+## 2026-11-28 — Refus signé du relais conservé avant l’accusé HTTP
+
+Le relais enregistre un avis d’annulation ou de refus sous une identité calculée à partir du fournisseur et de la référence complète. La réception signée répond 503 si la base refuse l’écriture. Une nouvelle livraison retrouve le premier avis et laisse son traitement reprendre dans la boîte de réception existante. Le premier envoi Clover ou une reprise vérifie l’avis pour la commande relayée de ce fournisseur et s’arrête si sa lecture échoue. La clôture garde les protections existantes, y compris lorsque l’opérateur a déjà terminé la commande.
+
+L’essai local suspend le traitement après HTTP 200, puis livre une commande signée et vérifie qu’elle demeure annulée sans commande Clover. Des essais synthétiques couvrent le refus pendant la préparation, une panne de lecture et la clôture d’une copie existante. La preuve en cuisine et les conditions de restauration restent suivies dans [#46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé Codex @ cloud · 2026-11-28
+
 ## 2026-11-27 — Assemblage local de #192 sur #194
 
 L’assemblage conserve les têtes `7764c7e` et `455f740`. Les 402 essais ciblés valident les refus signés, la retenue des nouvelles commandes Uber directes après bascule vers Clover, le rapprochement sans renvoi des règlements Skip et la vérification du reçu sur la caisse d’origine avant une fermeture après déplacement. Les fournisseurs sont simulés.

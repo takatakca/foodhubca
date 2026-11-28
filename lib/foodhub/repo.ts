@@ -143,6 +143,7 @@ export interface FoodHubRepo {
   getUser(username: string): Promise<FoodHubUser | null>;
   saveUser(user: Omit<FoodHubUser, 'id' | 'createdAt'> & { id?: string; createdAt?: string }): Promise<FoodHubUser>;
   putDocs<T>(collection: string, docs: Doc<T>[]): Promise<void>;
+  insertDocIfAbsent<T>(collection: string, doc: Doc<T>): Promise<boolean>;
   listDocs<T>(collection: string, filter?: DocFilter): Promise<Doc<T>[]>;
   getDoc<T>(collection: string, id: string): Promise<Doc<T> | null>;
   deleteDocs(collection: string, ids: string[]): Promise<void>;
@@ -815,6 +816,15 @@ const memoryRepo: FoodHubRepo = {
     for (const d of docs) col.set(d.id, JSON.parse(JSON.stringify(d)));
     st.docs.set(collection, col);
   },
+  async insertDocIfAbsent(collection, doc) {
+    const state = memState();
+    if (!state.docs) state.docs = new Map();
+    const rows = state.docs.get(collection) ?? new Map();
+    if (rows.has(doc.id)) return false;
+    rows.set(doc.id, JSON.parse(JSON.stringify(doc)));
+    state.docs.set(collection, rows);
+    return true;
+  },
   async listDocs<T>(collection: string, filter: DocFilter = {}) {
     const col = memState().docs?.get(collection);
     let list = col ? [...col.values()] as Doc<T>[] : [];
@@ -1178,6 +1188,12 @@ function supabaseRepo(): FoodHubRepo {
         const rows = docs.slice(i, i + 500).map((d) => ({ collection, id: d.id, key: d.key ?? null, at: d.at ?? null, data: d.data, updated_at: nowIso() }));
         must(await db.from('fh_docs').upsert(rows, { onConflict: 'collection,id' }));
       }
+    },
+    async insertDocIfAbsent(collection, doc) {
+      const res = await db.from('fh_docs').insert({ collection, id: doc.id, key: doc.key ?? null, at: doc.at ?? null, data: doc.data, updated_at: nowIso() });
+      if (!res.error) return true;
+      if (res.error.code === '23505') return false;
+      throw new Error(`Supabase: ${res.error.message}`);
     },
     async listDocs<T>(collection: string, filter: DocFilter = {}) {
       const limit = filter.limit ?? 100_000;

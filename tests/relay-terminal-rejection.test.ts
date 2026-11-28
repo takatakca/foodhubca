@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { POST as relayWebhook } from '../app/api/foodhub/webhooks/relay/route';
 import { parseRelayOrder } from '../lib/foodhub/adapters/relay';
+import { getInboxEntry, runInboxEntry, sweepInbox } from '../lib/foodhub/inbox';
 import { runOrderAction } from '../lib/foodhub/pipeline';
 import { getRepo } from '../lib/foodhub/repo';
 import type { ChannelKey, OrderStatus } from '../lib/foodhub/types';
@@ -29,9 +30,13 @@ function orderPayload(channel: ChannelKey, id = HUB_ID) {
   } };
 }
 
-async function post(body: unknown, token: string | null = SECRET) {
+async function receive(body: unknown, token: string | null = SECRET) {
   const authorization = token ? { authorization: `Bearer ${token}` } : undefined;
-  const res = await relayWebhook(new NextRequest(RELAY_URL, { method: 'POST', headers: authorization, body: JSON.stringify(body) }));
+  return relayWebhook(new NextRequest(RELAY_URL, { method: 'POST', headers: authorization, body: JSON.stringify(body) }));
+}
+
+async function post(body: unknown, token: string | null = SECRET) {
+  const res = await receive(body, token);
   for (const work of afterTasks.splice(0)) await work();
   return res;
 }
@@ -55,6 +60,7 @@ async function stored(channel: ChannelKey, status: OrderStatus = 'ready') {
 beforeEach(() => {
   vi.stubEnv('FOODHUB_FORCE_MEMORY', 'true');
   vi.stubEnv('FOODHUB_POS_INJECTION', 'on');
+  vi.stubEnv('FOODHUB_CLOVER_ORDER_TYPES', 'off');
   vi.stubEnv('FOODHUB_VIA_CLOVER', undefined);
   vi.stubEnv('FOODHUB_RELAY_CHANNELS', 'skip,doordash,uber_eats');
   vi.stubEnv('FOODHUB_RELAY_SECRET', SECRET);
@@ -88,6 +94,140 @@ describe('relay partner rejection', () => {
       type: 'platform_status', detail: expect.objectContaining({ source: 'relay', partnerState: 'Rejected' }),
     }));
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('honors an acknowledged signed rejection even when its after-response worker never ran', async () => {
+    const repo = getRepo();
+    await repo.upsertStore({
+      channel: 'skip', channelStoreId: 'relay:fixture-store-ref', brandName: 'Fixture brand', locationCode: 'FIXTURE_KITCHEN',
+      cloverMerchantId: CLOVER_MERCHANT, autoAccept: true, online: true, meta: {},
+    });
+    expect((await receive(rejection('skip'))).status).toBe(200);
+    // Simulate a worker stop between the response and the first pipeline instruction.
+    afterTasks.splice(0);
+    const [entry] = await repo.listDocs('webhook_inbox');
+    expect(entry?.data).toMatchObject({ kind: 'relay_cancel', status: 'received', reference: `relay-${HUB_ID}` });
+    expect((await post(orderPayload('skip'))).status).toBe(200);
+    expect(await repo.findOrder('skip', `relay-${HUB_ID}`)).toMatchObject({
+      status: 'cancelled', locationCode: 'FIXTURE_KITCHEN', timeline: { cancelReason: 'Partner rejected the order' },
+    });
+    await sweepInbox({ now: Date.now() + 3 * 60_000 });
+    expect(await getInboxEntry(entry.id)).toMatchObject({ status: 'done', attempts: 1 });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('asks the sender to retry if the signed terminal notice cannot be persisted, without queuing work', async () => {
+    const repo = getRepo();
+    const set = vi.spyOn(repo, 'insertDocIfAbsent').mockRejectedValueOnce(new Error('Fixture storage outage'));
+    try {
+      const ack = await receive(rejection('skip'));
+      expect(ack.status).toBe(503);
+      expect(ack.headers.get('Retry-After')).toBe('30');
+      expect(afterTasks).toHaveLength(0);
+      expect(await repo.listDocs('webhook_inbox')).toHaveLength(0);
+    } finally {
+      set.mockRestore();
+      afterTasks.splice(0);
+    }
+  });
+
+  it('does not enqueue a duplicate acknowledgement or replace the first partner reason', async () => {
+    const repo = getRepo();
+    expect((await receive(rejection('skip'))).status).toBe(200);
+    expect((await receive({ ...rejection('skip'), message: 'Duplicate changed reason' })).status).toBe(200);
+    try {
+      expect((await repo.listDocs('webhook_inbox')).map(({ data }) => data)).toEqual([
+        expect.objectContaining({ kind: 'relay_cancel', body: rejection('skip'), attempts: 0 }),
+      ]);
+      expect(afterTasks).toHaveLength(1);
+    } finally { afterTasks.splice(0); }
+  });
+
+  it('settles an existing unpaid Clover copy once when the signed notice is replayed', async () => {
+    vi.stubEnv('FOODHUB_CLOVER_DELETE_CANCELLED', 'on');
+    const repo = getRepo();
+    const order = await stored('skip');
+    await repo.updateOrder(order.id, { posOrderId: 'SYNTHETICPOS1', timeline: { posMerchantId: CLOVER_MERCHANT } });
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = new URL(String(input));
+      expect(url.origin).toBe('https://clover.example.test');
+      expect(url.pathname).toBe(`/v3/merchants/${CLOVER_MERCHANT}/orders/SYNTHETICPOS1`);
+      expect(init?.method).toBe('DELETE');
+      return Response.json({});
+    });
+    expect((await receive(rejection('skip'))).status).toBe(200);
+    afterTasks.splice(0);
+    await sweepInbox({ now: Date.now() + 3 * 60_000 });
+    expect(await repo.getOrder(order.id)).toMatchObject({ status: 'cancelled', timeline: { posClosedAt: expect.any(String) } });
+    expect((await post(rejection('skip'))).status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not use a relay receipt against a direct order with the same reference', async () => {
+    const parsed = parseRelayOrder(orderPayload('skip'));
+    if ('ignored' in parsed) throw new Error(parsed.ignored);
+    const repo = getRepo();
+    const { order } = await repo.insertOrderIfNew({ ...parsed.order, viaHub: undefined });
+    await repo.updateOrder(order.id, { status: 'ready' });
+    expect((await post(rejection('skip'))).status).toBe(200);
+    expect(await repo.getOrder(order.id)).toMatchObject({ status: 'ready' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('honors a receipt written between intake and the Clover creation boundary', async () => {
+    const repo = getRepo();
+    await repo.upsertStore({
+      channel: 'skip', channelStoreId: 'relay:fixture-store-ref', brandName: 'Fixture brand', locationCode: 'FIXTURE_KITCHEN',
+      cloverMerchantId: CLOVER_MERCHANT, autoAccept: true, online: true, meta: {},
+    });
+    let receiptsRead = 0;
+    const original = repo.getDoc;
+    const getDoc = vi.spyOn(repo, 'getDoc').mockImplementation(async (collection, id) => {
+      if (collection === 'webhook_inbox' && id.startsWith('relay-cancel:') && ++receiptsRead === 2) {
+        expect((await receive(rejection('skip'))).status).toBe(200);
+      }
+      return original(collection, id);
+    });
+    try {
+      expect((await post(orderPayload('skip'))).status).toBe(200);
+      expect(await repo.findOrder('skip', `relay-${HUB_ID}`)).toMatchObject({ status: 'cancelled' });
+      expect(receiptsRead).toBe(2);
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      getDoc.mockRestore();
+      afterTasks.splice(0);
+    }
+  });
+
+  it('retains a relay order for retry when its cancellation receipt cannot be checked at Clover', async () => {
+    const repo = getRepo();
+    let receiptsRead = 0;
+    const original = repo.getDoc;
+    const getDoc = vi.spyOn(repo, 'getDoc').mockImplementation(async (collection, id) => {
+      if (collection === 'webhook_inbox' && id.startsWith('relay-cancel:') && ++receiptsRead === 2) {
+        throw new Error('Fixture checkout read outage');
+      }
+      return original(collection, id);
+    });
+    await repo.upsertStore({
+      channel: 'skip', channelStoreId: 'relay:fixture-store-ref', brandName: 'Fixture brand', locationCode: 'FIXTURE_KITCHEN',
+      cloverMerchantId: CLOVER_MERCHANT, autoAccept: true, online: true, meta: {},
+    });
+    try {
+      expect((await post(orderPayload('skip'))).status).toBe(200);
+      const [storedEntry] = await repo.listDocs('webhook_inbox');
+      const first = await getInboxEntry(storedEntry.id);
+      expect(first).toMatchObject({ status: 'failed', lastError: 'Fixture checkout read outage', attempts: 1 });
+      const second = await runInboxEntry(storedEntry.id);
+      expect(second).toMatchObject({ status: 'failed', attempts: 2 });
+      expect(second?.lastError).toMatch(/previous Clover processing window/);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect((await receive(rejection('skip'))).status).toBe(200);
+      afterTasks.splice(0);
+      const resumed = await runInboxEntry(storedEntry.id);
+      expect(resumed).toMatchObject({ status: 'done', attempts: 3, result: 'order cancelled' });
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally { getDoc.mockRestore(); }
   });
 
   it('holds an early rejection until the mapped order arrives and never sends the order to Clover', async () => {
@@ -184,9 +324,18 @@ describe('relay partner rejection', () => {
     const cancelledWrites: URLSearchParams[] = [];
     const events: Array<{ type: string; detail: unknown }> = [];
     const actions: string[] = [];
+    let inbox: Record<string, unknown> | null = null;
     fetchMock.mockImplementation(async (input, init) => {
       const url = new URL(String(input));
       if (url.origin !== 'https://db.example.test') throw new Error('Unexpected provider request');
+      if (url.pathname === '/rest/v1/fh_docs') {
+        if (init?.method === 'POST') {
+          const body = JSON.parse(String(init.body));
+          inbox = Array.isArray(body) ? body[0] : body;
+          return new Response(null, { status: 201 });
+        }
+        if (init?.method === 'GET') return Response.json(inbox);
+      }
       if (url.pathname === '/rest/v1/fh_orders') {
         if (init?.method === 'GET') return Response.json([row]);
         if (init?.method === 'PATCH') {

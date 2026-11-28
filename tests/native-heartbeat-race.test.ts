@@ -35,6 +35,12 @@ afterEach(() => {
 
 it.each(['move', 'revoke'] as const)('preserves an authenticated owner %s even when an older signed native heartbeat is in flight', async (action) => {
   const { device, cookie } = await enrollDevice({ name: 'Fixture native tablet', locationCode: original.code }, owner);
+  const report = (body: { visible?: boolean; soundOn: boolean }) => reportHeartbeat(new Request(`${base}/heartbeat`, {
+    method: 'POST', headers: { cookie: cookie.split(';')[0], 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  }));
+  expect((await report({ soundOn: true })).status).toBe(200);
+  const originalPulse = { at: new Date(start).toISOString(), locationCode: original.code };
   vi.setSystemTime(start + 30_000);
   const heartbeatAt = new Date().toISOString();
   let enter!: () => void;
@@ -61,10 +67,7 @@ it.each(['move', 'revoke'] as const)('preserves an authenticated owner %s even w
     return replace(collection, doc, expected);
   });
 
-  const heartbeat = reportHeartbeat(new Request(`${base}/heartbeat`, {
-    method: 'POST', headers: { cookie: cookie.split(';')[0], 'content-type': 'application/json' },
-    body: JSON.stringify({ visible: true, soundOn: true }),
-  }));
+  const heartbeat = report({ visible: true, soundOn: true });
   await entered;
   const target = action === 'move' ? { locationCode: destination.code } : { revoked: true };
   try {
@@ -73,7 +76,8 @@ it.each(['move', 'revoke'] as const)('preserves an authenticated owner %s even w
       ? await moveTablet(new Request(`${base}/${device.id}`, { method: 'PATCH', headers: { authorization, 'content-type': 'application/json' }, body: JSON.stringify({ locationCode: destination.code }) }), ctx)
       : await revokeTablet(new Request(`${base}/${device.id}`, { method: 'DELETE', headers: { authorization } }), ctx);
     expect(response.status).toBe(200);
-    expect(await getDevice(device.id)).toMatchObject(target);
+    if (action === 'move') expect((await response.json()).device).not.toHaveProperty('lastHeartbeat');
+    expect(await getDevice(device.id)).toMatchObject({ ...target, lastHeartbeat: originalPulse });
   } finally {
     resume();
   }
@@ -81,14 +85,19 @@ it.each(['move', 'revoke'] as const)('preserves an authenticated owner %s even w
   const stored = await getDevice(device.id);
   expect(stored).toMatchObject(target);
   expect(stored?.lastSeenAt).toBe(device.lastSeenAt);
+  expect(stored?.lastHeartbeat).toEqual(originalPulse);
   expect(heartbeatResponse.status).toBe(action === 'move' ? 409 : 403);
   expect(observeOrders).not.toHaveBeenCalled();
   if (action === 'move') {
-    const next = await reportHeartbeat(new Request(`${base}/heartbeat`, {
-      method: 'POST', headers: { cookie: cookie.split(';')[0], 'content-type': 'application/json' }, body: JSON.stringify({ soundOn: true }),
-    }));
+    const next = await report({ soundOn: true });
     expect(next.status).toBe(200);
-    expect(await next.json()).toMatchObject({ device: { locationCode: destination.code } });
+    const response = await next.json();
+    expect(response).toMatchObject({ device: { locationCode: destination.code } });
+    expect(response.device).not.toHaveProperty('lastHeartbeat');
+    expect(await getDevice(device.id)).toMatchObject({
+      lastSeenAt: heartbeatAt,
+      lastHeartbeat: { at: heartbeatAt, locationCode: destination.code },
+    });
     expect(observeOrders).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ locationCodes: [destination.code] }));
   }
 });

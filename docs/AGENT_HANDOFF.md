@@ -1,3 +1,18 @@
+## 2026-11-28 — Composition de la preuve tablette et de la relève Watchtower
+
+La composition locale réunit les révisions `a182e65` de [#217](https://github.com/takatakca/foodhubca/pull/217) et `d875cc4` de [#221](https://github.com/takatakca/foodhubca/pull/221). La mise à jour conditionnelle enregistre ensemble l’heure du signal signé et sa cuisine. Après une réaffectation ou une révocation concurrente, le signal en attente conserve son rejet et la provenance du dernier signal accepté reste disponible à Watchtower. Le prochain signal autorisé porte la cuisine actuelle. L’interface distingue le retour confirmé de la fin des heures de surveillance et de la fermeture sans retour confirmé.
+
+Les 184 essais ciblés sur données fictives, TypeScript et le contrôle ESLint des fichiers TypeScript concernés passent localement. Le scénario de réaffectation vérifie aussi l’absence de provenance dans les réponses de gestion et de signal. Le contrôle complet et les essais compilés sur PostgreSQL portent sur le commit de composition. La revue et la publication sont réservées au propriétaire. [Preuves marchandes #46](https://github.com/takatakca/foodhubca/issues/46)
+
+— signé : Codex @ cloud · 2026-11-28 04:06 Montréal
+
+## 2026-11-28 — Fermeture des alertes de tablette
+
+Une alerte native fermée automatiquement indique la fin des heures de surveillance, la réception d’un nouveau signal de la même tablette dans sa cuisine ou une fermeture avec retour à confirmer. La preuve de retour associe un signal signé à la cuisine enregistrée lors du signal et vérifie sa fraîcheur à la lecture des appareils. Les horaires de décision, les paliers d’appel et les conditions de fermeture restent ceux du moteur en place.
+
+Les essais isolés couvrent la fermeture à 03 h après un horaire de nuit, un signal signé plus récent et une lecture indisponible des horaires. Les trois cas conservent les preuves attendues avec zéro requête d’appel. À l’assemblage, conserver les mises à jour conditionnelles d’incident de #217 et le filtre des cuisines actives de #193.
+
+— signé Codex @ cloud · 2026-11-28
 ## 2026-11-28 — Composition locale des appels de relève Watchtower
 
 La composition locale garde la réservation par palier et les reçus liés à leur incident. Avant un appel personnel déjà prévu, Watchtower relit le profil, sa cuisine, son état de garde et sa préférence d’appel. Un propriétaire qui choisit les appels seuls reste admissible. Au palier propriétaire, un échec de lecture laisse continuer les autres destinataires admissibles et la relève configurée après le SMS déjà envoyé.

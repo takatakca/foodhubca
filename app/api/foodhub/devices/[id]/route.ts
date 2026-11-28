@@ -20,7 +20,7 @@ export const PATCH = withPerm<Ctx>('stores:map', async (req, ctx, actor) => {
     if (!catalog.locations.some((l) => l.code === code && l.active)) return fail('Choisissez une succursale. / Choose a location.');
   }
   const updated = await updateDevice(id, { name: b.name, locationCode: code }, actor, d);
-  return updated ? ok({ device: updated }) : fail('Device changed. Refresh and try again.', 409);
+  return updated ? ok({ device: { ...updated, lastHeartbeat: undefined } }) : fail('Device changed. Refresh and try again.', 409);
 });
 
 // Remove a tablet: it is signed out at once and must be enrolled again.

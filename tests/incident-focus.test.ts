@@ -91,14 +91,14 @@ it('preserves exact lookup authorization, location, status, age and private rese
   }
 });
 
-it('opens the fixed tab and expands its timeline when arriving from the incident link', () => {
+it('opens the closed tab and expands its timeline when arriving from the incident link', () => {
   const target = doc(TARGET, { status: 'resolved', title: 'Linked tablet returned online' }).data;
   target.steps = [{ at: target.openedAt, kind: 'resolved', message: 'Original kitchen timeline evidence' }];
   page.query = `i=${TARGET}`;
   page.incidents = [target, doc('open').data];
 
   const html = renderToStaticMarkup(createElement(AlertsView));
-  expect(html).toMatch(/aria-selected="true"[^>]*>Fixed \(3 days\)/);
+  expect(html).toMatch(/aria-selected="true"[^>]*>Closed \(3 days\)/);
   expect(html).toContain('Linked tablet returned online');
   expect(html).toContain('Original kitchen timeline evidence');
   expect(html).not.toContain('Unrelated open alert');

@@ -17,6 +17,8 @@ export interface Device {
   enrolledBy: string;
   enrolledAt: string;
   lastSeenAt?: string | null;
+  /** Provenance of the most recent signed heartbeat, separate from enrollment. */
+  lastHeartbeat?: { at: string; locationCode: string };
   /** Last heartbeat details */
   soundOn?: boolean | null;
   visible?: boolean | null;
@@ -125,8 +127,10 @@ export async function heartbeat(d: Device, info: { soundOn?: unknown; visible?: 
   const next = await changeDevice(d.id, (current) => {
     if (!current || current.revoked) throw new DeviceHeartbeatConflict('revoked');
     if (!sameBinding(current, d)) throw new DeviceHeartbeatConflict('moved');
+    const at = new Date().toISOString();
     return {
-      ...current, lastSeenAt: new Date().toISOString(), soundOn: bool(info.soundOn), visible: bool(info.visible), battery: num(info.battery), charging: bool(info.charging),
+      ...current, lastSeenAt: at, lastHeartbeat: { at, locationCode: current.locationCode },
+      soundOn: bool(info.soundOn), visible: bool(info.visible), battery: num(info.battery), charging: bool(info.charging),
       screen: typeof info.screen === 'string' ? info.screen.slice(0, 40) : current.screen ?? null, signedIn: info.signedIn ?? null, userAgent: userAgent?.slice(0, 160) ?? current.userAgent ?? null,
     };
   });

@@ -1177,10 +1177,14 @@ try {
   console.log('\n42. Uber Eats: orders whose webhook never arrived (missed-order check)');
   const ago = (min) => new Date(Date.now() - min * 60_000).toISOString();
   // uber-new-1: Uber confirmed Food Hub as order manager. uber-store-uuid-1: never confirmed — must not be polled.
-  uberCreated.set('uber-new-1', [{ id: 'uber-missed-1', current_state: 'CREATED', placed_at: ago(2) }, { id: 'uber-too-old-1', current_state: 'CREATED', placed_at: ago(20) }, { id: 'uber-too-new-1', current_state: 'CREATED', placed_at: ago(0.2) }]);
+  const missedOrderFixtures = [{ id: 'uber-missed-1', current_state: 'CREATED', placed_at: ago(2) }, { id: 'uber-too-old-1', current_state: 'CREATED', placed_at: ago(20) }, { id: 'uber-too-new-1', current_state: 'CREATED', placed_at: ago(0.2) }];
+  mockState.uberFetchFails = 2;
+  uberCreated.set('uber-new-1', [{ id: 'uber-flaky-missed-1', current_state: 'CREATED', placed_at: ago(2) }, ...missedOrderFixtures]);
   uberCreated.set('uber-store-uuid-1', [{ id: 'uber-not-mine-1', current_state: 'CREATED', placed_at: ago(2) }]);
   const sy41 = await call('POST', '/api/foodhub/sync', { body: { force: true } });
+  check('sync reports both failed reads of one candidate without saving it', sy41.json?.report?.uberMissed?.error === 'Uber order fetch failed: HTTP 503' && sent('GET', /\/v2\/eats\/order\/uber-flaky-missed-1$/).length === 2 && !(await findOrder('uber-flaky-missed-1')), JSON.stringify(sy41.json?.report?.uberMissed));
   check('sync finds the order no webhook announced and processes it (Clover first, then accept)', sy41.json?.report?.uberMissed?.recovered === 1 && !!(await waitFor(async () => { const o = await findOrder('uber-missed-1'); return o?.posOrderId && o.status === 'accepted' ? o : null; })), JSON.stringify(sy41.json?.report?.uberMissed));
+  uberCreated.set('uber-new-1', missedOrderFixtures);
   check('missed-order check skips stores not confirmed as Food Hub’s, orders past the 11.5-min window and orders the webhook may still bring', !(await findOrder('uber-not-mine-1')) && !(await findOrder('uber-too-old-1')) && !(await findOrder('uber-too-new-1')) && !sent('GET', /\/v1\/eats\/stores\/uber-store-uuid-1\/created-orders$/).length);
 
   console.log('\n42b. Order Relay (partner feed → Clover → kitchen), one menu for two brands, late orders never cooked by themselves');

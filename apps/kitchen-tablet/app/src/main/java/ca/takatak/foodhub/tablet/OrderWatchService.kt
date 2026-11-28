@@ -74,6 +74,9 @@ class OrderWatchService : Service() {
     private var wifiLock: WifiManager.WifiLock? = null
     private val main = Handler(Looper.getMainLooper())
     private val draining = AtomicBoolean(false)
+    private var queueScope: QueueScope? = null
+    private var queueLocation: String? = null
+    private var continuation: String? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -83,9 +86,14 @@ class OrderWatchService : Service() {
         createChannels()
         goForeground(getString(R.string.watch_starting))
         acquireLocks()
-        // After a (re)start the first poll uses the server's default window (15 minutes): no pile of old tickets in the
-        // morning, and the claims already made stop any reprint (after a reinstall: printedElsewhere, Prefs.firstRun).
-        prefs.since = null
+        // Normal starts use the recent window. An interrupted drain replays its original window with the saved claims.
+        queueScope = configuredQueueScope()
+        val interrupted = queueScope?.let { QueueLogic.drainForScope(prefs.queueDrain, it) }
+        queueLocation = interrupted?.location
+        if (interrupted == null) {
+            prefs.queueDrain = null
+            prefs.since = null
+        }
         poller = Executors.newSingleThreadScheduledExecutor().also { it.scheduleWithFixedDelay({ safePoll() }, 1, POLL_SECONDS, TimeUnit.SECONDS) }
     }
 
@@ -117,23 +125,53 @@ class OrderWatchService : Service() {
     // ------------------------------------------------------------------ polling
 
     private fun safePoll() {
-        try { poll() } catch (e: Throwable) { setStatus(getString(R.string.status_offline, e.message ?: e.javaClass.simpleName)) }
+        try { poll() } catch (e: Throwable) {
+            continuation = null
+            setStatus(getString(R.string.status_offline, e.message ?: e.javaClass.simpleName))
+        }
         // Waiting tickets go to the printer even when Food Hub cannot be reached.
         drainPending()
     }
 
+    private fun configuredQueueScope(): QueueScope? = prefs.origin()?.let { QueueScope(it, prefs.location, prefs.deviceId) }
+
+    private fun resetQueueScope(scope: QueueScope?, location: String? = null) {
+        queueScope = scope
+        queueLocation = location
+        continuation = null
+        prefs.queueDrain = null
+        prefs.since = null
+    }
+
     private fun poll() {
-        val origin = prefs.origin() ?: return setStatus(getString(R.string.status_bad_url))
-        val api = FoodHubApi(origin, { cookieFor(origin) }, "FoodHubTablet/${BuildConfig.VERSION_NAME} (Android ${Build.VERSION.RELEASE})")
+        val scope = configuredQueueScope()
+        if (queueScope != scope) resetQueueScope(scope)
+        if (scope == null) return setStatus(getString(R.string.status_bad_url))
+        val drain = QueueLogic.drainForScope(prefs.queueDrain, scope)
+        val api = FoodHubApi(scope.origin, { cookieFor(scope.origin) }, "FoodHubTablet/${BuildConfig.VERSION_NAME} (Android ${Build.VERSION.RELEASE})")
         val queue = try {
-            api.queue(prefs.since, prefs.location, prefs.deviceId, prefs.paper, prefs.ticketLang)
+            api.queue(drain?.since ?: prefs.since, scope.location, scope.deviceId, prefs.paper, prefs.ticketLang, continuation)
         } catch (e: FoodHubApi.ApiError) {
+            continuation = null
             return setStatus(when {
                 e.status == 401 -> getString(R.string.status_signed_out)
                 e.needLocation -> getString(R.string.status_need_location)
                 e.status == 0 -> getString(R.string.status_offline, e.message ?: "")
                 else -> "HTTP ${e.status} : ${e.message}"
             })
+        }
+        val currentScope = configuredQueueScope()
+        if (currentScope != scope) return resetQueueScope(currentScope)
+        val location = queue.location ?: throw FoodHubApi.ApiError(0, "Missing print queue location")
+        if (queueLocation != null && location != queueLocation) return resetQueueScope(scope, location)
+        if (continuation != null && (queue.continuation == continuation || queue.since != drain?.since)) {
+            throw FoodHubApi.ApiError(0, "Invalid print queue continuation")
+        }
+        queueLocation = location
+        val mayHaveMore = QueueLogic.queueMayHaveMore(queue.paged, queue.items.size, queue.continuation)
+        if (mayHaveMore && drain == null) {
+            val since = queue.since ?: throw FoodHubApi.ApiError(0, "Missing print queue window")
+            prefs.queueDrain = QueueDrain(scope, location, since)
         }
         val pendingIds = prefs.pending.map { it.id }.toSet()
         val firstRun = prefs.firstRun
@@ -150,7 +188,7 @@ class OrderWatchService : Service() {
                 Step.RECOVER -> { toPrinter(item); ring += item }
                 Step.CLAIM -> {
                     val claim = try {
-                        api.claim(item, prefs.deviceId, prefs.location)
+                        api.claim(item, scope.deviceId, location)
                     } catch (e: FoodHubApi.ApiError) {
                         // 404 / 400: not for this tablet. Otherwise (no answer, 5xx): asked again next poll — and if the
                         // claim did go through, the queue then says printed and the ticket is printed (RECOVER).
@@ -161,8 +199,10 @@ class OrderWatchService : Service() {
                 }
             }
         }
-        prefs.since = QueueLogic.nextSince(prefs.since, queue.serverTime, allHandled)
-        if (firstRun && allHandled) prefs.firstRun = false
+        continuation = queue.continuation.takeIf { allHandled }
+        if (allHandled && !mayHaveMore) {
+            prefs.finishQueueDrain(QueueLogic.nextSince(prefs.since, queue.serverTime, allHandled, queue.continuation))
+        }
         if (ring.isNotEmpty()) announce(ring)
         setStatus(getString(R.string.status_ok, LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss")), queue.location ?: "?", ring.size))
     }

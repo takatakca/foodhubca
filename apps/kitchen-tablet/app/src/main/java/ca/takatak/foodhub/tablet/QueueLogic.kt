@@ -36,6 +36,9 @@ enum class Step {
 
 data class Planned(val item: QueueItem, val step: Step)
 
+data class QueueScope(val origin: String, val location: String, val deviceId: String)
+data class QueueDrain(val scope: QueueScope, val location: String, val since: String)
+
 /** Decisions of the watch loop, kept pure so they are tested on the JVM (QueueLogicTest). */
 object QueueLogic {
     /** Seconds the next poll looks back before the last server time: claims make the overlap harmless. */
@@ -75,13 +78,19 @@ object QueueLogic {
     fun shouldPrint(autoPrint: Boolean, printer: PrinterType): Boolean = autoPrint && printer != PrinterType.NONE
 
     /**
-     * The next since cursor: the last server time minus the overlap, only once every ticket of that answer was handled
-     * (claimed, printed or skipped). Otherwise the same cursor again, so nothing is lost after a network error.
+     * Advance the since cursor only after handling the last page of the snapshot.
+     * Keep the original cursor when a page remains or a claim needs retrying.
      */
-    fun nextSince(current: String?, serverTime: String?, allHandled: Boolean): String? {
-        if (!allHandled || serverTime.isNullOrBlank()) return current
+    fun nextSince(current: String?, serverTime: String?, allHandled: Boolean, continuation: String? = null): String? {
+        if (!allHandled || continuation != null || serverTime.isNullOrBlank()) return current
         return try { Instant.parse(serverTime).minusSeconds(OVERLAP_SECONDS).toString() } catch (e: Exception) { current }
     }
+
+    fun drainForScope(drain: QueueDrain?, scope: QueueScope): QueueDrain? = drain?.takeIf { it.scope == scope }
+
+    /** Older servers cap the queue at 50 without telling the tablet whether more tickets are waiting. */
+    fun queueMayHaveMore(paged: Boolean, itemCount: Int, continuation: String?): Boolean =
+        continuation != null || (!paged && itemCount >= 50)
 
     /** "https://foodhub.on2go.ca/kitchen" → "https://foodhub.on2go.ca" (https only; null for anything else). */
     fun originOf(url: String): String? = try {

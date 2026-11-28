@@ -87,7 +87,7 @@ class Prefs(context: Context) {
         }
 
     /**
-     * True from a new install (or a data wipe) until the first poll whose tickets were all handled. Meanwhile, what
+     * True from a new install (or a data wipe) until the first queue snapshot is handled. Meanwhile, what
      * another tablet of this kitchen already printed (the previous install) is neither printed nor rung again.
      */
     var firstRun: Boolean
@@ -99,6 +99,28 @@ class Prefs(context: Context) {
     var since: String?
         get() = sp.getString("since", null)
         set(v) { sp.edit().putString("since", v).commit() }
+
+    /** Window to replay from page one if the app stops before a paged snapshot has been handled. */
+    var queueDrain: QueueDrain?
+        get() {
+            val stored = sp.getString("queue_drain", null) ?: return null
+            return runCatching {
+                val data = JSONObject(stored)
+                QueueDrain(
+                    QueueScope(data.getString("origin"), data.getString("requestedLocation"), data.getString("deviceId")),
+                    data.getString("location"), data.getString("since"),
+                )
+            }.getOrNull()
+        }
+        set(value) {
+            val data = value?.let { JSONObject().put("origin", it.scope.origin).put("requestedLocation", it.scope.location)
+                .put("deviceId", it.scope.deviceId).put("location", it.location).put("since", it.since).toString() }
+            sp.edit().putString("queue_drain", data).commit()
+        }
+
+    fun finishQueueDrain(since: String?) {
+        sp.edit().putString("since", since).remove("queue_drain").putBoolean("first_run", false).commit()
+    }
 
     var seen: List<String>
         get() = (sp.getString("seen", "") ?: "").split('\n').filter { it.isNotBlank() }

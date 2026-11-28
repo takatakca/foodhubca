@@ -74,6 +74,35 @@ class QueueLogicTest {
     }
 
     @Test
+    fun replayKeepsOriginalWindowUntilTheLastTicketIsHandled() {
+        val since = "2026-10-30T15:50:00Z"
+        val snapshot = "2026-10-30T16:00:00.000Z"
+        val scope = QueueScope("https://foodhub.on2go.ca", "", "tablet-test")
+        val drain = QueueDrain(scope, "KITCHEN1", since)
+        assertEquals(since, QueueLogic.nextSince(since, snapshot, true, "next-page"))
+        assertEquals(since, QueueLogic.drainForScope(drain, scope)?.since)
+        assertNull(QueueLogic.drainForScope(drain, scope.copy(location = "KITCHEN2")))
+        assertNull(QueueLogic.drainForScope(drain, scope.copy(origin = "https://another.example")))
+        assertNull(QueueLogic.drainForScope(drain, scope.copy(deviceId = "new-tablet")))
+
+        val tickets = (1..51).map { item("ticket-$it") }
+        val firstPageIds = tickets.take(50).map { it.id }.toSet()
+        assertEquals(listOf("ticket-51/order=RECOVER"), steps(QueueLogic.plan(
+            tickets.dropLast(1) + item("ticket-51", printed = true), firstPageIds, emptySet(), print = true, firstRun = true,
+        )))
+        assertEquals(since, QueueLogic.nextSince(since, snapshot, false))
+        assertEquals("2026-10-30T15:58:00Z", QueueLogic.nextSince(since, snapshot, true))
+    }
+
+    @Test
+    fun onlyLegacyFullPagesWithoutAContinuationStayOpen() {
+        assertTrue(QueueLogic.queueMayHaveMore(false, 50, null))
+        assertFalse(QueueLogic.queueMayHaveMore(false, 49, null))
+        assertFalse(QueueLogic.queueMayHaveMore(true, 50, null))
+        assertTrue(QueueLogic.queueMayHaveMore(true, 50, "next-page"))
+    }
+
+    @Test
     fun originIsHttpsOnly() {
         assertEquals("https://foodhub.on2go.ca", QueueLogic.originOf("https://foodhub.on2go.ca/kitchen"))
         assertEquals("https://foodhub.on2go.ca", QueueLogic.originOf(" HTTPS://FoodHub.on2go.ca/kitchen/lock?next=/kitchen "))

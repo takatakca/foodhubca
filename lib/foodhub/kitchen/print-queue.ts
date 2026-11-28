@@ -22,7 +22,7 @@ import { fail } from '../http';
 import { deviceFromRequest, getDevice } from '../identity/devices';
 import { getRepo } from '../repo';
 import { isWaitingScheduled } from '../scheduling';
-import { can } from '../session';
+import { can, signPrintQueueContinuation, verifyPrintQueueContinuation } from '../session';
 import type { StoredOrder } from '../types';
 import {
   directLabel, platformLabel, platformNumber, renderCancelTicket, renderKitchenTicket, ticketFromDirectOrder, ticketFromStoredOrder,
@@ -64,6 +64,7 @@ export const MAX_SINCE_MS = 24 * 3600_000;
 const PLATFORM_WINDOW_MS = 24 * 3600_000;
 const DIRECT_WINDOW_MS = 12 * 3600_000; // same as the kitchen screen (delivery/kitchen.ts)
 const MAX_ITEMS = 50;
+const CONTINUATION_LIFETIME_MS = 15 * 60_000;
 
 // ------------------------------------------------------------------ small pure helpers
 
@@ -137,7 +138,7 @@ function directCancelledAt(o: DirectOrder): string {
 
 // ------------------------------------------------------------------ who is calling
 
-export type PrintCaller = { location: string; label: string; actor: AuthUser | null };
+export type PrintCaller = { location: string; label: string; actor: AuthUser | null; cursorScope: string };
 
 /** A staff session (with 'view', location in scope) or an enrolled tablet's device cookie (its own location). 401 otherwise. */
 export async function resolvePrintCaller(req: Request, requested?: string | null): Promise<PrintCaller | Response> {
@@ -150,12 +151,12 @@ export async function resolvePrintCaller(req: Request, requested?: string | null
     if (!location && actor.locations.length === 1) location = actor.locations[0];
     if (!location) return fail('Choose the kitchen: add ?location=<code> (Settings in the tablet app).', 400, { needLocation: true });
     if (!inScope(actor, location)) return fail('This kitchen is not in your locations.', 403);
-    return { location, label: actor.name, actor };
+    return { location, label: actor.name, actor, cursorScope: `staff:${actor.username}:${actor.deviceId ?? ''}` };
   }
   const device = await deviceFromRequest(req);
   if (device) {
     if (want && want !== device.locationCode) return fail('This tablet is enrolled for another kitchen.', 403);
-    return { location: device.locationCode, label: `Tablet ${device.name}`, actor: null };
+    return { location: device.locationCode, label: `Tablet ${device.name}`, actor: null, cursorScope: `tablet:${device.id}:${device.enrolledAt}` };
   }
   return fail('Please sign in.', 401);
 }
@@ -169,20 +170,46 @@ export interface QueueOptions {
   paper?: unknown;
   lang?: unknown;
   now?: number;
+  page?: { scope: string; continuation: string | null };
 }
 
-export async function buildPrintQueue(opts: QueueOptions): Promise<{ items: PrintQueueItem[]; since: string; serverTime: string; width: TicketWidth; lang: TicketLang }> {
+export class InvalidPrintQueueContinuation extends Error {}
+
+function ticketOrder(a: { at: string; id: string }, b: { at: string; id: string }): number {
+  const time = Date.parse(a.at) - Date.parse(b.at);
+  if (time) return time;
+  if (a.id === b.id) return 0;
+  return a.id < b.id ? -1 : 1;
+}
+
+export async function buildPrintQueue(opts: QueueOptions): Promise<{ items: PrintQueueItem[]; since: string; serverTime: string; width: TicketWidth; lang: TicketLang; paged?: true; continuation?: string }> {
   const now = opts.now ?? Date.now();
-  const since = parseSince(opts.since, now);
+  const device = validDeviceId(opts.deviceId) ? opts.deviceId : null;
+  const token = opts.page?.continuation;
+  const cursor = typeof token === 'string' && token.length <= 2048 && /^[\w-]+\.[\w-]{43}$/.test(token)
+    ? await verifyPrintQueueContinuation(token) : null;
+  if (token != null && (!cursor || cursor.scope !== opts.page?.scope || cursor.location !== opts.location || cursor.device !== device
+    || Date.parse(cursor.horizon) > now || (opts.since && parseSince(opts.since, Date.parse(cursor.horizon)) !== cursor.from))) {
+    throw new InvalidPrintQueueContinuation();
+  }
+  const horizon = cursor?.horizon ?? new Date(now).toISOString();
+  const snapshot = Date.parse(horizon);
+  const since = cursor?.from ?? parseSince(opts.since, snapshot);
+  const lowerBound = Date.parse(since);
+  const reachedWithin = (at: string) => {
+    if (!opts.page) return at >= since;
+    const time = Date.parse(at);
+    return time >= lowerBound && time <= snapshot;
+  };
+  const until = opts.page ? new Date(snapshot + 1).toISOString() : undefined; // repository bounds are exclusive
   const width = ticketWidth(opts.paper);
   const lang = ticketLang(opts.lang);
   const timeZone = process.env.FOODHUB_TIMEZONE || 'America/Toronto';
-  const device = validDeviceId(opts.deviceId) ? opts.deviceId : null;
   const repo = getRepo();
 
   const [platform, direct] = await Promise.all([
-    repo.listOrders({ since: new Date(now - PLATFORM_WINDOW_MS).toISOString(), statuses: ['new', 'accepted', 'cancelled'], locationCodes: [opts.location], limit: 500 }),
-    listDirectOrders({ since: new Date(now - DIRECT_WINDOW_MS).toISOString(), limit: 1000, locationCodes: [opts.location] }),
+    repo.listOrders({ since: new Date(snapshot - PLATFORM_WINDOW_MS).toISOString(), until, statuses: ['new', 'accepted', 'cancelled'], locationCodes: [opts.location], limit: 500 }),
+    listDirectOrders({ since: new Date(snapshot - DIRECT_WINDOW_MS).toISOString(), until, limit: 1000, locationCodes: [opts.location] }),
   ]);
 
   type Draft = Omit<PrintQueueItem, 'printed' | 'printedElsewhere' | 'ticket'> & { render: () => string };
@@ -190,28 +217,30 @@ export async function buildPrintQueue(opts: QueueOptions): Promise<{ items: Prin
   for (const o of platform) {
     if (o.locationCode !== opts.location) continue;
     const base = { orderId: o.id, source: 'platform' as const, channel: o.channel, number: platformNumber(o), brandName: o.brandName ?? null, locationCode: opts.location, createdAt: o.createdAt };
-    if (platformToCook(o, now) && platformKitchenAt(o) >= since) {
+    if (platformToCook(o, snapshot) && reachedWithin(platformKitchenAt(o))) {
       drafts.push({ ...base, id: `platform:${o.id}:order`, kind: 'order', at: platformKitchenAt(o), render: () => renderKitchenTicket(ticketFromStoredOrder(o), { width, lang, timeZone }) });
     } else if (o.status === 'cancelled' && device) {
       const at = o.timeline?.cancelledAt ?? o.updatedAt;
-      if (at >= since) drafts.push({ ...base, id: `platform:${o.id}:cancel`, kind: 'cancel', at, render: () => renderCancelTicket({ platform: platformLabel(o.channel), number: platformNumber(o), brandName: o.brandName, cancelledAt: at, reason: o.timeline?.cancelReason }, { width, lang, timeZone }) });
+      if (reachedWithin(at)) drafts.push({ ...base, id: `platform:${o.id}:cancel`, kind: 'cancel', at, render: () => renderCancelTicket({ platform: platformLabel(o.channel), number: platformNumber(o), brandName: o.brandName, cancelledAt: at, reason: o.timeline?.cancelReason }, { width, lang, timeZone }) });
     }
   }
   for (const o of direct) {
     if (o.locationCode !== opts.location || !KITCHEN_SOURCES.includes(o.source)) continue;
     const base = { orderId: o.id, source: 'direct' as const, channel: o.source, number: o.number, brandName: o.brandName ?? null, locationCode: opts.location, createdAt: o.createdAt };
-    if (directToCook(o) && directKitchenAt(o) >= since) {
+    if (directToCook(o) && reachedWithin(directKitchenAt(o))) {
       drafts.push({ ...base, id: `direct:${o.id}:order`, kind: 'order', at: directKitchenAt(o), render: () => renderKitchenTicket(ticketFromDirectOrder(o, lang), { width, lang, timeZone }) });
     } else if (o.status === 'cancelled' && device) {
       const at = directCancelledAt(o);
-      if (at >= since) drafts.push({ ...base, id: `direct:${o.id}:cancel`, kind: 'cancel', at, render: () => renderCancelTicket({ platform: directLabel(o.source, lang), number: o.number, brandName: o.brandName, cancelledAt: at }, { width, lang, timeZone }) });
+      if (reachedWithin(at)) drafts.push({ ...base, id: `direct:${o.id}:cancel`, kind: 'cancel', at, render: () => renderCancelTicket({ platform: directLabel(o.source, lang), number: o.number, brandName: o.brandName, cancelledAt: at }, { width, lang, timeZone }) });
     }
   }
-  drafts.sort((a, b) => a.at.localeCompare(b.at));
+  drafts.sort(opts.page ? ticketOrder : (a, b) => a.at.localeCompare(b.at));
 
   const items: PrintQueueItem[] = [];
+  let more = false;
   for (const d of drafts) {
-    if (items.length >= MAX_ITEMS) break;
+    if (!opts.page && items.length >= MAX_ITEMS) break;
+    if (cursor && ticketOrder(d, cursor) <= 0) continue;
     let printed: boolean | null = null;
     let printedElsewhere: boolean | null = null;
     if (device) {
@@ -220,10 +249,16 @@ export async function buildPrintQueue(opts: QueueOptions): Promise<{ items: Prin
       if (d.kind === 'cancel' && (printed || !(await repo.getKv(claimKey(device, 'order', d.source, d.orderId))))) continue;
       printedElsewhere = !printed && d.kind === 'order' && Boolean(await repo.getKv(kitchenPrintKey(d.kind, d.source, d.orderId)));
     }
+    if (items.length === MAX_ITEMS) { more = true; break; }
     const { render, ...rest } = d;
     items.push({ ...rest, printed, printedElsewhere, ticket: render() });
   }
-  return { items, since, serverTime: new Date(now).toISOString(), width, lang };
+  const last = items.at(-1);
+  const continuation = opts.page && more && last ? await signPrintQueueContinuation({
+    scope: opts.page.scope, location: opts.location, device, from: since, horizon, at: last.at, id: last.id,
+    exp: Math.ceil((snapshot + CONTINUATION_LIFETIME_MS) / 1000),
+  }) : undefined;
+  return { items, since, serverTime: horizon, width, lang, ...(opts.page ? { paged: true } as const : {}), ...(continuation ? { continuation } : {}) };
 }
 
 // ------------------------------------------------------------------ the claim

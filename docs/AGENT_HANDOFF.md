@@ -1,3 +1,11 @@
+## 2026-11-28 — Reprise des lots de tickets sur la tablette Android
+
+Après une coupure, le flux peut contenir plus de 50 tickets. L’application parcourt chaque lot à partir d’une borne fixe et avance sa date de reprise après le dernier lot traité. Après un redémarrage en cours de traitement, elle reprend la fenêtre enregistrée et conserve les protections existantes contre les doublons. Chaque lot vérifie le périmètre de cuisine et de tablette.
+
+Les essais locaux couvrent 51 commandes à la même heure, la séparation des cuisines, un jeton invalide et la reprise du curseur. Les règles de la tablette passent les tests Kotlin sur la JVM. Publier le serveur d’abord et confirmer son SHA exact avec `/api/release` avant de distribuer le nouveau paquet Android. Si l’ancien serveur renvoie un lot de 50 sans signaler la pagination, la tablette conserve sa date de reprise. La confirmation sur l’appareil exige le paquet Android mis à jour et un essai autorisé avec l’imprimante. [Checklist marchande #46](https://github.com/takatakca/foodhubca/issues/46)
+
+— signé : Codex @ cloud · 2026-11-28
+
 ## 2026-11-26 — Paiement Clover après déplacement d’une liaison
 
 La réconciliation locale de #183 sur `86d190c` conserve les références par magasin de #178 pour la saisie, la reprise, l’import et le paiement Clover. Les 161 essais ciblés couvrent aussi le règlement et l’impression sur la caisse confirmée et le contrôle manuel d’une liaison Uber Eats. Les réponses des fournisseurs sont simulées. La CI du SHA réconcilié et la réception marchande restent à vérifier avant publication.

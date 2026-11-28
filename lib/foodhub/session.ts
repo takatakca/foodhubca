@@ -146,6 +146,13 @@ export const verifySession = (t: string | null | undefined) => verify<SessionPay
 export const signDevice = (p: DevicePayload) => sign('d', p);
 export const verifyDevice = (t: string | null | undefined) => verify<DevicePayload>('d', t);
 
+export type PrintQueueContinuation = {
+  scope: string; location: string; device: string | null;
+  from: string; horizon: string; at: string; id: string; exp: number;
+};
+export const signPrintQueueContinuation = (p: PrintQueueContinuation) => sign('print-queue-v1', p);
+export const verifyPrintQueueContinuation = (t: string) => verify<PrintQueueContinuation>('print-queue-v1', t);
+
 /**
  * Welcome ticket: put in the /welcome/clover link after a merchant opens the app from Clover, so that public page
  * may show that merchant's own connection (name, approval, register check). Without a valid ticket the page shows

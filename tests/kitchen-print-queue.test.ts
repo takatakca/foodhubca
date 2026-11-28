@@ -4,7 +4,7 @@ import { POST } from '../app/api/foodhub/kitchen/print-queue/[orderId]/printed/r
 import { sessionCookieFor } from '../lib/foodhub/auth';
 import { addDirectEvent, getDirectOrder, saveDirectOrder } from '../lib/foodhub/delivery/store';
 import type { DirectOrder } from '../lib/foodhub/delivery/types';
-import { enrollDevice } from '../lib/foodhub/identity/devices';
+import { enrollDevice, updateDevice } from '../lib/foodhub/identity/devices';
 import { buildPrintQueue, claimTabletPrint, directKitchenAt, kitchenPrintKey, parseSince } from '../lib/foodhub/kitchen/print-queue';
 import { getRepo } from '../lib/foodhub/repo';
 import type { NormalizedOrder, StoredOrder } from '../lib/foodhub/types';
@@ -88,6 +88,52 @@ describe('kitchen print queue: who may call', () => {
 
 describe('kitchen print queue: since cursor', () => {
   beforeEach(fresh);
+
+  it('drains 51 same-time orders after a reconnect under a fixed, kitchen-scoped continuation', async () => {
+    const owner = { username: 'owner', name: 'Owner', source: 'dashboard' } as const;
+    const { cookie, device } = await enrollDevice({ name: 'Recovery tablet', locationCode: 'NDG' }, owner);
+    const tablet = cookie.split(';')[0];
+    const createdAt = ago(4);
+    const since = ago(10);
+    const ids = await Promise.all(Array.from({ length: 51 }, () => addOrder({ createdAt }).then((order) => order.id)));
+    const other = await addOrder({ createdAt, locationCode: 'VERDUN' });
+    const qs = `?paged=1&device=${DEVICE}&since=${encodeURIComponent(since)}`;
+    const first = await get(qs, tablet);
+    expect(first.status).toBe(200);
+    const batch = await first.json();
+    expect(batch.items).toHaveLength(50);
+    expect(batch.paged).toBe(true);
+    expect(batch.continuation).toEqual(expect.any(String));
+    const legacyAfterCursor = await (await get(`?device=${DEVICE}&since=${encodeURIComponent(new Date(Date.parse(batch.serverTime) - 120_000).toISOString())}`, tablet)).json();
+    expect(legacyAfterCursor).toMatchObject({ items: [] });
+    expect(legacyAfterCursor).not.toHaveProperty('paged');
+    const afterHorizon = await addOrder({ createdAt: new Date(Date.parse(batch.serverTime) + 60_000).toISOString() });
+    const cursorQuery = `${qs}&continuation=${encodeURIComponent(batch.continuation)}`;
+    const second = await get(cursorQuery, tablet);
+    expect(second.status).toBe(200);
+    const tail = await second.json();
+    expect(tail).toMatchObject({ serverTime: batch.serverTime, since: batch.since, items: [expect.objectContaining({ locationCode: 'NDG' })] });
+    expect(tail).not.toHaveProperty('continuation');
+    expect([...batch.items, ...tail.items].map((item) => item.orderId)).toEqual(ids.sort());
+    expect([...batch.items, ...tail.items].some((item) => item.orderId === other.id || item.orderId === afterHorizon.id)).toBe(false);
+    expect((await get(`${cursorQuery}&location=VERDUN`, tablet)).status).toBe(403);
+    expect((await get(cursorQuery.replace(DEVICE, 'different-tablet'), tablet)).status).toBe(400);
+    expect((await get(`${qs}&continuation=garbage`, tablet)).status).toBe(400);
+    await updateDevice(device.id, { locationCode: 'VERDUN' }, owner);
+    expect((await get(cursorQuery, tablet)).status).toBe(400);
+  });
+
+  it('returns no continuation when the only remaining draft is an unprinted cancellation', async () => {
+    const createdAt = ago(4);
+    await Promise.all(Array.from({ length: 50 }, () => addOrder({ createdAt })));
+    const cancelled = await addOrder({ createdAt });
+    await getRepo().patchOrder(cancelled.id, { cancelledAt: ago(3) }, { status: 'cancelled' });
+    const response = await get(`?location=NDG&device=${DEVICE}&paged=1`, await ownerCookie());
+    expect(response.status).toBe(200);
+    const batch = await response.json();
+    expect(batch.items).toHaveLength(50);
+    expect(batch).not.toHaveProperty('continuation');
+  });
 
   it('parses, defaults to 15 minutes back and clamps to 24 hours and now', () => {
     const now = Date.parse('2026-10-30T16:00:00Z');

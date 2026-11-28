@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Link2, Lock, Pencil, Plus, Radar, ShieldCheck, Trash2 } from 'lucide-react';
 import { Badge, PlatformMark, PlatformTag, platformOf } from '@/components/ui/badge';
@@ -32,7 +32,7 @@ type OpenForm = { draftId: string; initial: Form; sourceLocation?: string; lock?
 type OrderManager = 'foodhub' | 'pending' | 'other' | 'unknown';
 type Pick = { storeId: string; name: string; address?: string; brandName: string; locationCode: string; cloverMerchantId: string; orderManager?: OrderManager; include: boolean };
 type CloverMerchant = { id: string; name: string | null; isDefault: boolean };
-type UberResult = { ok: boolean; message: string; orderManager?: OrderManager | null };
+type UberResult = { ok: boolean; message: string; orderManager?: OrderManager | null; disconnected?: boolean; mappingConflict?: boolean };
 type Known = { channel: string; storeId: string; name: string; address: string | null; suggestedBrand: string | null; suggestedLocation: string | null; confirmedByPlatform: boolean; mapped: { id: string; brandName: string; locationCode: string } | null; expectedLocation: string | null; locationMismatch: boolean };
 
 export function MappingView() {
@@ -47,6 +47,9 @@ export function MappingView() {
   /** Stores disconnected less than 6 s ago: hidden, and only removed on the server once "Undo" is no longer offered. */
   const [leaving, setLeaving] = useState<string[]>([]);
   const [busy, setBusy] = useState('');
+  const uberConnectionBusy = useRef(false);
+  const [uberConnectionAction, setUberConnectionAction] = useState<'activate' | 'check' | 'enable' | `disconnect:${string}` | null>(null);
+  const uberConnectionWorking = uberConnectionAction !== null;
   const [discovered, setDiscovered] = useState<Array<{ id: string; name: string; address?: string }>>([]);
   const [connectId, setConnectId] = useState('');
   const [picks, setPicks] = useState<Pick[]>([]);
@@ -107,53 +110,77 @@ export function MappingView() {
   }
 
   async function activate() {
+    if (uberConnectionBusy.current) return;
     const chosen = picks.filter((p) => p.include);
     if (chosen.some((p) => !p.brandName || !p.locationCode)) { toast.warn(t('Choisissez une marque et une cuisine pour chaque magasin coché.', 'Pick a brand and a kitchen for every selected store.')); return; }
     if (chosen.some((p) => activationMovesKitchen(p) && !p.cloverMerchantId)) {
       toast.warn(t('Choisissez le marchand Clover de destination pour chaque magasin qui change de cuisine.', 'Choose the destination Clover merchant for each store moving to another kitchen.'));
       return;
     }
-    if (!(await checkPrice(chosen.map((p) => ({ brandName: p.brandName, channel: 'uber_eats', merchantId: p.cloverMerchantId }))))) return;
-    setBusy('activate');
+    const confirmed = await checkPrice(chosen.map((p) => ({ brandName: p.brandName, channel: 'uber_eats', merchantId: p.cloverMerchantId })));
+    if (!confirmed || uberConnectionBusy.current) return;
+    uberConnectionBusy.current = true;
+    setUberConnectionAction('activate');
     try {
       const d = await api<{ results: Array<{ storeId: string } & UberResult> }>('/api/foodhub/uber-connect/activate', { method: 'POST', json: { id: connectId, stores: chosen.map((p) => ({ storeId: p.storeId, brandName: p.brandName, locationCode: p.locationCode, cloverMerchantId: p.cloverMerchantId || undefined })) } });
-      setResults(Object.fromEntries(d.results.map((r) => [r.storeId, r])));
+      setResults((all) => ({ ...all, ...Object.fromEntries(d.results.map((r) => [r.storeId, r])) }));
       const okN = d.results.filter((r) => r.ok).length;
       const elsewhere = d.results.filter((r) => r.orderManager === 'other').length;
       if (okN === d.results.length && !elsewhere) toast.success(t(`${okN}/${d.results.length} ${frWord(d.results.length, 'magasin Uber activé', 'magasins Uber activés')}`, `${okN}/${d.results.length} Uber ${enWord(d.results.length, 'store')} activated`));
       else toast.warn(t(`${okN}/${d.results.length} ${frWord(okN, 'activé', 'activés')}${elsewhere ? ` — ${elsewhere} encore chez UrbanPiper` : ''}`, `${okN}/${d.results.length} activated${elsewhere ? ` — ${elsewhere} still on UrbanPiper` : ''}`), t('Le détail est sous chaque magasin.', 'Details are under each store.'));
       window.history.replaceState(null, '', '/stores/mapping');
       load();
-    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(''); }
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } finally {
+      uberConnectionBusy.current = false;
+      setUberConnectionAction(null);
+    }
   }
 
   /** "Disconnect from Uber": DELETE pos_data for one store (offboarding), with the merchant login of this session. */
   async function disconnect(p: Pick) {
+    if (uberConnectionBusy.current) return;
     const yes = await confirm({
       title: t(`Débrancher ${p.name} d’Uber ?`, `Disconnect ${p.name} from Uber?`), tone: 'danger', confirmLabel: t('Débrancher', 'Disconnect'),
       body: t('Uber cessera d’envoyer les commandes et les appels de menu de ce magasin à Food Hub. Pour le rebrancher, il faudra une nouvelle activation.', 'Uber stops sending this store’s orders and menu calls to Food Hub. Linking it again needs a new activation.'),
     });
-    if (!yes) return;
-    setBusy(`disconnect:${p.storeId}`);
+    if (!yes || uberConnectionBusy.current) return;
+    uberConnectionBusy.current = true;
+    setUberConnectionAction(`disconnect:${p.storeId}`);
     try {
-      const d = await api<{ message: string }>('/api/foodhub/uber-connect/disconnect', { method: 'POST', json: { id: connectId, storeId: p.storeId } });
-      setResults((all) => ({ ...all, [p.storeId]: { ok: true, message: d.message, orderManager: null } }));
+      const d = await api<{ message: string; mappingConflict?: boolean }>('/api/foodhub/uber-connect/disconnect', { method: 'POST', json: { id: connectId, storeId: p.storeId } });
+      const message = d.mappingConflict
+        ? t('Uber a accepté le débranchement. Vérifiez la liaison enregistrée dans Food Hub.', 'Uber accepted the disconnect. Review the saved Food Hub link.')
+        : d.message;
+      setResults((all) => ({ ...all, [p.storeId]: { ok: true, message, disconnected: true, mappingConflict: d.mappingConflict } }));
       setPicks((all) => all.map((x) => (x.storeId === p.storeId ? { ...x, orderManager: 'unknown', include: false } : x)));
-      toast.success(t('Débranché d’Uber', 'Disconnected from Uber'), p.name);
+      const before = stores?.find((s) => s.channel === 'uber_eats' && s.channelStoreId === p.storeId);
+      if (before) setChecks((all) => ({
+        ...all, [before.id]: { ok: true, orderManager: 'unknown', integrationEnabled: null, message },
+      }));
+      if (d.mappingConflict) toast.warn(message, p.name);
+      else toast.success(t('Débranché d’Uber', 'Disconnected from Uber'), p.name);
       load();
-    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(''); }
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } finally {
+      uberConnectionBusy.current = false;
+      setUberConnectionAction(null);
+    }
   }
 
   /** "Check with Uber": who receives each store's orders now; enable = also switch the order webhooks on where off. */
   async function checkUber(enable = false) {
-    setBusy(enable ? 'enable' : 'check');
+    if (uberConnectionBusy.current) return;
+    uberConnectionBusy.current = true;
+    setUberConnectionAction(enable ? 'enable' : 'check');
     try {
       const d = await api<{ rows: Array<{ storeId: string; integrationEnabled: boolean | null } & UberResult> }>('/api/foodhub/uber-connect/check', { method: 'POST', json: { enable } });
       setChecks(Object.fromEntries(d.rows.map((r) => [r.storeId, r])));
       const mine = d.rows.filter((r) => r.orderManager === 'foodhub').length;
       toast.info(t(`${mine}/${d.rows.length} ${frWord(d.rows.length, 'magasin', 'magasins')} Uber ${frWord(mine, 'envoie ses', 'envoient leurs')} commandes à Food Hub`, `${mine}/${d.rows.length} Uber ${enWord(d.rows.length, 'store')} send their orders to Food Hub`));
       load();
-    } catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(''); }
+    } catch (e) { if (!(e instanceof ApiError && e.status === 499)) toast.error(e instanceof Error ? e.message : String(e)); } finally {
+      uberConnectionBusy.current = false;
+      setUberConnectionAction(null);
+    }
   }
 
   async function linkKnown(k: Known & { brandName: string; locationCode: string }) {
@@ -212,7 +239,7 @@ export function MappingView() {
       {connectId && picks.length > 0 && (
         <Card className="mb-5 border-uber/40">
           <CardHeader icon={<PlatformMark channel="uber_eats" size="sm" />} title={t(`Magasins de votre compte Uber Eats (${picks.length})`, `Stores on your Uber Eats account (${picks.length})`)} subtitle={t('Marque, cuisine et caisse Clover pré-remplies d’après le nom et l’adresse Uber — vérifiez, puis activez. Un magasin encore chez UrbanPiper peut être activé : ses commandes passent à Food Hub quand UrbanPiper le libère.', 'Brand, location and Clover register pre-filled from the Uber name and address — check, then activate. A store still on UrbanPiper can be activated: its orders move to Food Hub once UrbanPiper lets it go.')}
-            right={<Hint id="mapping.activate"><Button variant="brand" loading={busy === 'activate'} disabled={!picks.some((p) => p.include)} onClick={activate}>{t('Activer et relier', 'Activate & link')}</Button></Hint>} />
+            right={<Hint id="mapping.activate"><Button variant="brand" loading={uberConnectionAction === 'activate'} disabled={uberConnectionWorking || !picks.some((p) => p.include)} onClick={activate}>{t('Activer et relier', 'Activate & link')}</Button></Hint>} />
           <Table cards>
             <thead><tr><Th><span className="sr-only">{t('Choisir', 'Pick')}</span></Th><Th>{t('Magasin Uber', 'Uber store')}</Th><Th>{t('Marque', 'Brand')}</Th><Th>{t('Cuisine', 'Kitchen')}</Th><Th>Clover</Th><Th>{t('Commandes vont à', 'Orders go to')}</Th><Th><span className="sr-only">{t('Résultat', 'Result')}</span></Th></tr></thead>
             <tbody>{picks.map((p, i) => {
@@ -226,9 +253,11 @@ export function MappingView() {
                   <Td label={t('Cuisine', 'Kitchen')}><Select selectSize="sm" aria-label={t(`Cuisine de ${p.name}`, `${p.name} kitchen`)} value={p.locationCode} onChange={(e) => upd({ locationCode: e.target.value, cloverMerchantId: '' })}><option value="">—</option>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)}</option>)}</Select></Td>
                   <Td label="Clover"><Select selectSize="sm" value={p.cloverMerchantId} onChange={(e) => upd({ cloverMerchantId: e.target.value })} aria-label="Clover"><option value="">{activationMovesKitchen(p) ? t('Choisir la caisse de destination', 'Choose the destination register') : t('par défaut', 'default')}</option>{cloverMerchants.map((m) => <option key={m.id} value={m.id}>{m.name ? `${m.name} · ${m.id}` : m.id}{m.isDefault ? t(' (défaut)', ' (default)') : ''}</option>)}</Select></Td>
                   <Td label={t('Commandes vont à', 'Orders go to')}><ManagerBadge value={r?.orderManager ?? p.orderManager} /></Td>
-                  <Td>{r && <Badge tone={r.ok ? (r.orderManager === 'other' ? 'wait' : 'go') : 'stop'} title={r.message}>{r.ok ? t('activé', 'activated') : t('échec', 'failed')}</Badge>}
+                  <Td>{r?.disconnected
+                    ? <Badge tone={r.mappingConflict ? 'wait' : 'neutral'} title={r.message}>{r.mappingConflict ? t('Liaison à vérifier', 'Review link') : t('Débranché', 'Disconnected')}</Badge>
+                    : r && <Badge tone={r.ok ? (r.orderManager === 'other' ? 'wait' : 'go') : 'stop'} title={r.message}>{r.ok ? t('activé', 'activated') : t('échec', 'failed')}</Badge>}
                     {((r?.orderManager ?? p.orderManager) === 'foodhub' || (r?.orderManager ?? p.orderManager) === 'pending') && (
-                      <Button variant="ghost" size="sm" className="text-stop" loading={busy === `disconnect:${p.storeId}`} onClick={() => disconnect(p)}>{t('Débrancher d’Uber', 'Disconnect from Uber')}</Button>
+                      <Button variant="ghost" size="sm" className="text-stop" loading={uberConnectionAction === `disconnect:${p.storeId}`} disabled={uberConnectionWorking} onClick={() => disconnect(p)}>{t('Débrancher d’Uber', 'Disconnect from Uber')}</Button>
                     )}</Td>
                 </Tr>
                 {r && <tr><td colSpan={7} className={`px-4 pb-3 text-small ${r.ok ? 'text-ink-2' : 'text-stop-2'}`}>{r.message}</td></tr>}
@@ -275,8 +304,8 @@ export function MappingView() {
 
       <Card>
         <CardHeader title={t(`Magasins branchés (${shown.length})`, `Connected stores (${shown.length})`)} right={<>
-          <Button variant="outline" size="sm" loading={busy === 'check'} onClick={() => checkUber(false)} icon={<ShieldCheck className="size-4" />}>{t('Vérifier chez Uber', 'Check with Uber')}</Button>
-          {Object.values(checks).some((c) => c.integrationEnabled === false) && <Button variant="brand" size="sm" loading={busy === 'enable'} onClick={() => checkUber(true)}>{t('Activer les commandes Uber', 'Switch Uber orders on')}</Button>}
+          <Button variant="outline" size="sm" loading={uberConnectionAction === 'check'} disabled={uberConnectionWorking} onClick={() => checkUber(false)} icon={<ShieldCheck className="size-4" />}>{t('Vérifier chez Uber', 'Check with Uber')}</Button>
+          {Object.values(checks).some((c) => c.integrationEnabled === false) && <Button variant="brand" size="sm" loading={uberConnectionAction === 'enable'} disabled={uberConnectionWorking} onClick={() => checkUber(true)}>{t('Activer les commandes Uber', 'Switch Uber orders on')}</Button>}
           <Button variant="outline" size="sm" loading={busy === 'discover'} onClick={discover} icon={<Radar className="size-4" />}>{t('Découvrir les magasins Uber', 'Discover Uber stores')}</Button>
         </>} />
         {discovered.length > 0 && (

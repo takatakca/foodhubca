@@ -10,7 +10,8 @@ export interface ActivityFilter { limit?: number; since?: string; until?: string
 export interface Doc<T = Record<string, unknown>> { id: string; key?: string | null; at?: string | null; data: T }
 export interface DocFilter { since?: string; until?: string; keys?: string[]; limit?: number }
 
-type StoreSnapshot = Pick<ChannelStore, 'channel' | 'channelStoreId' | 'locationCode' | 'updatedAt' | 'meta'>;
+type StoreSnapshot = Pick<ChannelStore, 'channel' | 'channelStoreId' | 'locationCode' | 'updatedAt' | 'meta' | 'cloverMerchantId'>
+  & Partial<Pick<ChannelStore, 'brandName'>>;
 
 export interface FoodHubRepo {
   mode: 'supabase' | 'memory';
@@ -149,6 +150,8 @@ const memoryRepo: FoodHubRepo = {
     const s = memState();
     const cur = s.stores.get(id);
     if (!cur) return null;
+    if (expected?.cloverMerchantId !== undefined && cur.cloverMerchantId !== expected.cloverMerchantId) return null;
+    if (expected?.brandName !== undefined && cur.brandName !== expected.brandName) return null;
     if (expected && (cur.channel !== expected.channel || cur.channelStoreId !== expected.channelStoreId || cur.locationCode !== expected.locationCode
       || cur.updatedAt !== expected.updatedAt || !isDeepStrictEqual(cur.meta, expected.meta))) return null;
     const next = { ...cur, ...patch, updatedAt: nowIso() };
@@ -437,6 +440,9 @@ function supabaseRepo(): FoodHubRepo {
         if (!expected.updatedAt) return null;
         query = query.eq('channel', expected.channel).eq('channel_store_id', expected.channelStoreId)
           .eq('location_code', expected.locationCode).eq('updated_at', expected.updatedAt).eq('meta', JSON.stringify(expected.meta));
+        if (expected.cloverMerchantId === null) query = query.is('clover_merchant_id', null);
+        else if (expected.cloverMerchantId !== undefined) query = query.eq('clover_merchant_id', expected.cloverMerchantId);
+        if (expected.brandName !== undefined) query = query.eq('brand_name', expected.brandName);
       }
       const data = must(await query.select('*').maybeSingle());
       return data ? rowToStore(data) : null;

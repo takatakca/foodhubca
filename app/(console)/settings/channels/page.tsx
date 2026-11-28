@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Copy, Eye, EyeOff, PlugZap, Printer, RefreshCw } from 'lucide-react';
 import { Badge, PlatformMark, type Tone } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -131,18 +131,29 @@ function UberReviewNotices({ when }: { when: (iso: string) => string }) {
   const [page, setPage] = useState<UberReviewPage | null>(null);
   const [busy, setBusy] = useState(true);
   const [failedOffset, setFailedOffset] = useState<number | null>(null);
+  const activeRequest = useRef<AbortController | null>(null);
   const load = useCallback(async (offset: number) => {
+    activeRequest.current?.abort();
+    const request = new AbortController();
+    activeRequest.current = request;
     setBusy(true);
     setFailedOffset(null);
     try {
-      setPage(await api<UberReviewPage>(`/api/foodhub/channels/uber-review?offset=${offset}`));
+      const next = await api<UberReviewPage>(`/api/foodhub/channels/uber-review?offset=${offset}`, { signal: request.signal });
+      if (!request.signal.aborted) setPage(next);
     } catch {
-      setFailedOffset(offset);
+      if (!request.signal.aborted) setFailedOffset(offset);
     } finally {
-      setBusy(false);
+      if (!request.signal.aborted) {
+        activeRequest.current = null;
+        setBusy(false);
+      }
     }
   }, []);
-  useEffect(() => { void load(0); }, [load]);
+  useEffect(() => {
+    void load(0);
+    return () => activeRequest.current?.abort();
+  }, [load]);
   return (
     <div className="mt-5 border-t border-line pt-4" aria-busy={busy}>
       <div className="font-bold text-ink">{t('Avis Uber à examiner', 'Uber notices to review')}</div>
@@ -185,7 +196,7 @@ function UberReviewNotices({ when }: { when: (iso: string) => string }) {
  * Webhook inbox: every platform message is saved before Food Hub answers; what still needs a look is listed here with
  * Replay (an order is never duplicated — same platform + order id = same order).
  */
-function WebhookInbox({ unparsed, onChanged }: { unparsed: Job[]; onChanged: () => void }) {
+function WebhookInbox({ unparsed, onChanged, reviewRefresh }: { unparsed: Job[]; onChanged: () => void; reviewRefresh: number }) {
   const { t, loc } = useI18n();
   const [data, setData] = useState<InboxData | null>(null);
   const [busy, setBusy] = useState('');
@@ -236,7 +247,7 @@ function WebhookInbox({ unparsed, onChanged }: { unparsed: Job[]; onChanged: () 
           </Table>
         </div>
       )}
-      <UberReviewNotices when={when} />
+      <UberReviewNotices key={reviewRefresh} when={when} />
       {unparsed.length > 0 && (
         <div className="mt-5 border-t border-line pt-4">
           <div className="font-bold text-ink">{t(`Messages illisibles gardés (${unparsed.length})`, `Kept unreadable payloads (${unparsed.length})`)}</div>
@@ -264,6 +275,7 @@ export default function ChannelsSettingsPage() {
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState('');
   const [revealed, setRevealed] = useState(false);
+  const [reviewRefresh, setReviewRefresh] = useState(0);
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState<{ tone: 'go' | 'stop'; text: string } | null>(null);
   useEffect(() => {
@@ -281,7 +293,15 @@ export default function ChannelsSettingsPage() {
     try { await api('/api/foodhub/clover-connect/merchants', { method: 'POST', body: JSON.stringify({ merchantId: mid }) }); await load(revealed); }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
-  const load = useCallback((reveal = false) => { setBusy(true); return api<Data>(`/api/foodhub/channels${reveal ? '?reveal=1' : ''}`).then((d) => { setData(d); setRevealed(reveal); setError(''); }).catch((e) => setError(e instanceof Error ? e.message : String(e))).finally(() => setBusy(false)); }, []);
+  const load = useCallback((reveal = false, refreshReview = false) => {
+    setBusy(true);
+    return api<Data>(`/api/foodhub/channels${reveal ? '?reveal=1' : ''}`).then((d) => {
+      setData(d);
+      setRevealed(reveal);
+      setError('');
+      if (refreshReview) setReviewRefresh((version) => version + 1);
+    }).catch((e) => setError(e instanceof Error ? e.message : String(e))).finally(() => setBusy(false));
+  }, []);
   useEffect(() => { if (can('stores:map')) load(); }, [load, can]);
 
   if (!can('stores:map')) return <div><SettingsHead title={t('Plateformes et Clover', 'Platforms & Clover')} /><Banner tone="info">{t('Réservé aux gérants et au propriétaire.', 'Managers and owner only.')}</Banner></div>;
@@ -295,7 +315,7 @@ export default function ChannelsSettingsPage() {
   return (
     <div>
       <SettingsHead title={t('Plateformes et Clover', 'Platforms & Clover')} intro={<>{t('Vos branchements directs — aucun agrégateur. Donnez à chaque plateforme les adresses et secrets ci-dessous. Les clés d’API se mettent avec', 'Your own direct connections — no aggregator. Give each platform the URLs and secrets below. API keys go in with')} <code className="rounded bg-sunken px-1 text-xs">npm run setup</code> {t('ou dans l’hébergeur, jamais dans le clavardage.', 'or the hosting settings, never in chat.')}</>}
-        right={<>{can('admin') && <Button variant="outline" onClick={() => load(!revealed)} icon={revealed ? <EyeOff className="size-4" /> : <Eye className="size-4" />}>{revealed ? t('Cacher les secrets', 'Hide secrets') : t('Afficher les secrets', 'Show secrets')}</Button>}<Button variant="ghost" loading={busy} onClick={() => load(revealed)} icon={<RefreshCw className="size-4" />}>{t('Actualiser', 'Refresh')}</Button></>} />
+        right={<>{can('admin') && <Button variant="outline" onClick={() => load(!revealed)} icon={revealed ? <EyeOff className="size-4" /> : <Eye className="size-4" />}>{revealed ? t('Cacher les secrets', 'Hide secrets') : t('Afficher les secrets', 'Show secrets')}</Button>}<Button variant="ghost" loading={busy} onClick={() => load(revealed, true)} icon={<RefreshCw className="size-4" />}>{t('Actualiser', 'Refresh')}</Button></>} />
       {error && <Banner tone="stop" className="mb-4">{error}</Banner>}
       {flash && <Banner tone={flash.tone} className="mb-4">{flash.tone === 'go' ? t('Marchand Clover branché : ', 'Clover merchant connected: ') : ''}{flash.text}</Banner>}
       {data.mode === 'memory' && <Banner tone="warn" className="mb-4">{t('Mode démo (mémoire) : rien n’est gardé au redémarrage. Branchez Supabase pour la production.', 'Demo mode (memory): nothing is kept across restarts. Connect Supabase for production.')}</Banner>}
@@ -418,7 +438,7 @@ export default function ChannelsSettingsPage() {
 
       <DoorDashSandboxTests />
 
-      <WebhookInbox unparsed={data.unparsed} onChanged={() => load(revealed)} />
+      <WebhookInbox unparsed={data.unparsed} onChanged={() => load(revealed)} reviewRefresh={reviewRefresh} />
 
       <Section icon={<PlugZap className="size-5" />} title={t('Derniers envois aux plateformes', 'Recent platform jobs')} subtitle={t('Menus, ruptures, pauses, acceptations : chaque action envoyée et sa réponse. Rien n’est affiché comme fait si la plateforme ne l’a pas reçu.', 'Menus, 86s, pauses, accepts: every action sent and its answer. Nothing is shown as done if the platform did not get it.')}>
         {data.jobs.length === 0 ? <p className="text-sm text-ink-3">{t('Aucune action pour l’instant.', 'No action yet.')}</p> : (

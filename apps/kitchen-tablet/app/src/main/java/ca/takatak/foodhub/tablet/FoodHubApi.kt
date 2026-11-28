@@ -12,6 +12,7 @@ import java.net.URLEncoder
  *   GET  /api/foodhub/kitchen/print-queue?paged=1&since=&location=&device=&paper=&lang=&continuation=
  *   POST /api/foodhub/kitchen/print-queue/<orderId>/printed  { deviceId, source, kind, location }
  *   POST /api/foodhub/kitchen/print-queue/pending  { deviceId, location, ids }
+ *   POST /api/foodhub/devices/print-listener  { locationCode } (enrolled device only, best effort)
  * Server side: lib/foodhub/kitchen/print-queue.ts.
  */
 class FoodHubApi(private val origin: String, private val cookie: () -> String?, private val userAgent: String) {
@@ -26,7 +27,7 @@ class FoodHubApi(private val origin: String, private val cookie: () -> String?, 
     /** HTTP status (0 = no answer) and Food Hub's error text. 401 = signed out; 400 + needLocation = choose the kitchen. */
     class ApiError(val status: Int, message: String, val needLocation: Boolean = false) : IOException(message)
 
-    fun queue(since: String?, location: String, deviceId: String, paper: Int, lang: String, continuation: String?): Queue {
+    fun queue(since: String?, location: String, deviceId: String, paper: Int, lang: String, continuation: String?, readCookies: String?): Queue {
         val q = buildList {
             add("paged=1")
             if (!since.isNullOrBlank()) add("since=${enc(since)}")
@@ -36,7 +37,7 @@ class FoodHubApi(private val origin: String, private val cookie: () -> String?, 
             add("paper=$paper")
             add("lang=${enc(lang)}")
         }.joinToString("&")
-        val json = call("GET", "$origin/api/foodhub/kitchen/print-queue?$q", null)
+        val json = call("GET", "$origin/api/foodhub/kitchen/print-queue?$q", null, cookies = { readCookies })
         val arr = json.optJSONArray("items") ?: throw ApiError(0, "Invalid print queue response")
         val next = when (val value = json.opt("continuation")) {
             null, JSONObject.NULL -> null
@@ -61,13 +62,13 @@ class FoodHubApi(private val origin: String, private val cookie: () -> String?, 
     fun claim(item: QueueItem, deviceId: String, location: String, stillAllowed: () -> Boolean): Claim {
         val body = JSONObject().put("deviceId", deviceId).put("source", item.source).put("kind", item.kind)
         if (location.isNotBlank()) body.put("location", location)
-        val json = call("POST", "$origin/api/foodhub/kitchen/print-queue/${enc(item.orderId)}/printed", body.toString(), stillAllowed)
+        val json = call("POST", "$origin/api/foodhub/kitchen/print-queue/${enc(item.orderId)}/printed", body.toString(), stillAllowed = stillAllowed)
         return Claim(json.optBoolean("claimed", false), json.optString("reason").ifBlank { null })
     }
 
     fun pendingStatus(id: String, deviceId: String, location: String, stillAllowed: () -> Boolean): PendingStatus {
         val body = JSONObject().put("location", location).put("deviceId", deviceId).put("ids", JSONArray(listOf(id)))
-        val json = call("POST", "$origin/api/foodhub/kitchen/print-queue/pending", body.toString(), stillAllowed)
+        val json = call("POST", "$origin/api/foodhub/kitchen/print-queue/pending", body.toString(), stillAllowed = stillAllowed)
         if (json.opt("ok") != true || json.opt("location") != location || json.opt("deviceId") != deviceId) {
             throw ApiError(0, "Invalid pending print response")
         }
@@ -79,19 +80,30 @@ class FoodHubApi(private val origin: String, private val cookie: () -> String?, 
         }
     }
 
+    internal fun reportPrintListener(observation: PrintListenerEvidence.Observation, stillAllowed: () -> Boolean) {
+        if (observation.scope.origin != origin || !stillAllowed()) return
+        val enrollment = observation.currentEnrollment(cookie()) ?: return
+        val body = JSONObject().put("locationCode", observation.location).toString()
+        call("POST", "$origin/api/foodhub/devices/print-listener", body, cookies = { enrollment },
+            connectTimeout = 3_000, readTimeout = 3_000, stillAllowed = stillAllowed)
+    }
+
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
-    private fun call(method: String, url: String, body: String?, stillAllowed: () -> Boolean = { true }): JSONObject {
+    private fun call(
+        method: String, url: String, body: String?, cookies: () -> String? = cookie,
+        connectTimeout: Int = 10_000, readTimeout: Int = 15_000, stillAllowed: () -> Boolean = { true },
+    ): JSONObject {
         val conn = (URL(url).openConnection() as HttpURLConnection)
         try {
             conn.requestMethod = method
-            conn.connectTimeout = 10_000
-            conn.readTimeout = 15_000
+            conn.connectTimeout = connectTimeout
+            conn.readTimeout = readTimeout
             conn.useCaches = false
             conn.instanceFollowRedirects = false
             conn.setRequestProperty("Accept", "application/json")
             conn.setRequestProperty("User-Agent", userAgent)
-            cookie()?.takeIf { it.isNotBlank() }?.let { conn.setRequestProperty("Cookie", it) }
+            cookies()?.takeIf { it.isNotBlank() }?.let { conn.setRequestProperty("Cookie", it) }
             if (!stillAllowed()) throw ApiError(0, "Print queue scope changed")
             if (body != null) {
                 conn.doOutput = true

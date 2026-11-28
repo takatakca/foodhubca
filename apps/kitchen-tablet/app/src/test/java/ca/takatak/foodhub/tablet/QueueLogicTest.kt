@@ -1,11 +1,17 @@
 package ca.takatak.foodhub.tablet
 
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.abs
+import java.net.InetAddress
+import java.net.ServerSocket
+import java.time.Instant
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class QueueLogicTest {
     private fun item(id: String, printed: Boolean? = false, elsewhere: Boolean? = false, kind: String = "order") =
@@ -23,7 +29,8 @@ class QueueLogicTest {
         assertFalse(QueueLogic.pendingMatches(original, "A", original, otherOrigin, "A"))
         assertFalse(QueueLogic.pendingMatches(original, "A", original, original, "B"))
         assertFalse(QueueLogic.pendingMatches(null, null, original, changed, "B"))
-        assertTrue(QueueLogic.pendingMatches(original, "A", original, original, null))
+        assertFalse(QueueLogic.pendingMatches(original, "A", original, original, null))
+        assertTrue(QueueLogic.pendingMatches(null, null, original, original, "A"))
     }
 
     @Test
@@ -33,6 +40,71 @@ class QueueLogicTest {
         val error = runCatching { api.claim(item("a"), "fixture-tablet", "A") { current == "A" } }.exceptionOrNull()
         assertTrue(error is FoodHubApi.ApiError)
         assertEquals("Print queue scope changed", error?.message)
+    }
+
+    @Test
+    fun pendingOrderStatusRequiresTheExpectedSignedKitchenDeviceAndReference() {
+        val id = "direct:fixture:colon:order"
+        val url = "/api/foodhub/kitchen/print-queue/pending"
+        val responses = listOf(
+            Triple("A", "tablet-test", JSONObject().put(id, "clear")) to FoodHubApi.PendingStatus.CLEAR,
+            Triple("A", "tablet-test", JSONObject().put(id, "cancelled")) to FoodHubApi.PendingStatus.CANCELLED,
+            Triple("A", "tablet-test", JSONObject().put(id, "unverified")) to FoodHubApi.PendingStatus.UNVERIFIED,
+            Triple("B", "tablet-test", JSONObject().put(id, "clear")) to null,
+            Triple("A", "other-tablet", JSONObject().put(id, "clear")) to null,
+            Triple("A", "tablet-test", JSONObject().put("direct:other:order", "clear")) to null,
+            Triple("A", "tablet-test", JSONObject().put(id, "unknown-verdict")) to null,
+        )
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            ServerSocket(0, 10, InetAddress.getByName("127.0.0.1")).use { server ->
+                server.soTimeout = 3_000
+                val fixtures = executor.submit {
+                    for ((response, _) in responses) {
+                        server.accept().use { socket ->
+                            socket.soTimeout = 3_000
+                            val input = socket.getInputStream().bufferedReader()
+                            assertEquals("POST $url HTTP/1.1", input.readLine())
+                            val headers = generateSequence(input::readLine).takeWhile(String::isNotEmpty)
+                                .associate { it.substringBefore(':').lowercase() to it.substringAfter(':').trim() }
+                            val payload = CharArray(headers.getValue("content-length").toInt()) { input.read().toChar() }.concatToString()
+                            val submitted = JSONObject(payload)
+                            assertEquals("A", submitted.getString("location"))
+                            assertEquals("tablet-test", submitted.getString("deviceId"))
+                            assertEquals(id, submitted.getJSONArray("ids").getString(0))
+                            assertEquals(1, submitted.getJSONArray("ids").length())
+                            assertEquals("session=synthetic", headers["cookie"])
+                            val (location, device, results) = response
+                            val body = JSONObject().put("ok", true).put("location", location).put("deviceId", device).put("results", results)
+                                .toString().toByteArray()
+                            val status = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${body.size}\r\nConnection: close\r\n\r\n"
+                            socket.getOutputStream().apply { write(status.toByteArray()); write(body); flush() }
+                        }
+                    }
+                }
+                val api = FoodHubApi("http://127.0.0.1:${server.localPort}", { "session=synthetic" }, "fixture")
+                for ((_, expected) in responses) {
+                    val actual = runCatching { api.pendingStatus(id, "tablet-test", "A") { true } }
+                    if (expected == null) {
+                        assertTrue(actual.exceptionOrNull() is FoodHubApi.ApiError)
+                        assertEquals("Invalid pending print response", actual.exceptionOrNull()?.message)
+                    } else {
+                        assertEquals(expected, actual.getOrThrow())
+                    }
+                }
+                fixtures.get(3, TimeUnit.SECONDS)
+            }
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun pendingStatusStopsBeforeSendingOnScopeChange() {
+        var current = "A"
+        val api = FoodHubApi("http://127.0.0.1:1", { current = "B"; null }, "fixture")
+        val failure = runCatching { api.pendingStatus("platform:fixture:order", "tablet-test", "A") { current == "A" } }
+        assertEquals("Print queue scope changed", failure.exceptionOrNull()?.message)
     }
 
     @Test
@@ -144,14 +216,48 @@ class QueueLogicTest {
         assertEquals(500, recent.size)
         assertFalse(ticks.first().id in recent)
 
-        val original = QueueDrain(scope, "KITCHEN1", "2026-10-29T15:00:00Z", allHandled)
+        val original = QueueDrain(scope, "KITCHEN1", "2026-10-29T15:00:00Z", allHandled.associateWith { null })
         val returned = QueueDrain(scope, "KITCHEN1", "2026-10-29T16:00:00Z")
         val replay = QueueLogic.reanchorDrain(QueueLogic.drainForScope(original, scope), returned, null)
         val seen = QueueLogic.seenDuringDrain(recent, replay)
         val firstPage = ticks.take(50) + item("new", printed = true)
         assertEquals(listOf("new/order=RECOVER"), steps(QueueLogic.plan(firstPage, seen, emptySet(), print = true, firstRun = false)))
         assertEquals(listOf("new/order=RING"), steps(QueueLogic.plan(firstPage, seen, emptySet(), print = false, firstRun = false)))
-        assertEquals(emptySet<String>(), QueueLogic.reanchorDrain(original, returned.copy(location = "KITCHEN2"), null)?.handledIds)
+        assertEquals(emptyMap<String, Instant?>(), QueueLogic.reanchorDrain(original, returned.copy(location = "KITCHEN2"), null)?.handled)
+    }
+
+    @Test
+    fun completedDrainKeepsMoreThanFiveHundredOverlapReceiptsAcrossRestart() {
+        val scope = QueueScope("https://hub.example", "", "tablet-test")
+        val horizon = Instant.parse("2026-10-29T16:00:00Z")
+        val cutoff = horizon.minusSeconds(QueueLogic.OVERLAP_SECONDS)
+        val replay = (1..550).map { item("overlap-$it", printed = true) }
+        val before = item("before-cutoff", printed = true)
+        val receipts = replay.associate { it.id to cutoff } + (before.id to cutoff.minusMillis(1))
+        val drain = QueueDrain(scope, "A", "2026-10-29T15:00:00Z", receipts)
+
+        val completed = QueueLogic.finishDrain(drain, horizon.toString())
+        val restarted = QueueLogic.drainForScope(QueueDrain.decode(completed.encode()), scope)
+        assertEquals(cutoff.toString(), restarted?.since)
+        assertEquals(550, restarted?.handled?.size)
+        assertFalse(before.id in restarted?.handled.orEmpty())
+        val freshClaim = item("lost-reply", printed = true)
+        val seen = QueueLogic.seenDuringDrain(QueueLogic.remember(emptyList(), receipts.keys), restarted)
+        assertEquals(listOf("lost-reply/order=RECOVER"), steps(QueueLogic.plan(replay + freshClaim, seen, emptySet(), true, false)))
+
+        val moved = QueueLogic.reanchorDrain(restarted, QueueDrain(scope, "B", cutoff.toString()), null)
+        assertTrue(moved?.handled.orEmpty().isEmpty())
+        assertTrue(QueueLogic.finishDrain(completed, horizon.plusMillis(1).toString()).handled.isEmpty())
+    }
+
+    @Test
+    fun oldUndatedReceiptsSurviveAnOverlapAndThenExpire() {
+        val legacy = """{"origin":"https://hub.example","requestedLocation":"","deviceId":"tablet-test","location":"A","since":"2026-10-29T15:00:00Z","handledIds":["platform:legacy:order"]}"""
+        val horizon = Instant.parse("2026-10-29T16:00:00Z")
+        val completed = QueueLogic.finishDrain(QueueDrain.decode(legacy), horizon.toString())
+        assertEquals(horizon, completed.handled["platform:legacy:order"])
+        val advanced = QueueLogic.finishDrain(completed, horizon.plusSeconds(QueueLogic.OVERLAP_SECONDS + 1).toString())
+        assertTrue(advanced.handled.isEmpty())
     }
 
     @Test

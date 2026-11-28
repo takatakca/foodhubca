@@ -1,5 +1,6 @@
 package ca.takatak.foodhub.tablet
 
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -10,6 +11,7 @@ import java.net.URLEncoder
  * Food Hub's print queue, with the WebView's own cookies (the staff session, or the enrolled tablet's device cookie):
  *   GET  /api/foodhub/kitchen/print-queue?paged=1&since=&location=&device=&paper=&lang=&continuation=
  *   POST /api/foodhub/kitchen/print-queue/<orderId>/printed  { deviceId, source, kind, location }
+ *   POST /api/foodhub/kitchen/print-queue/pending  { deviceId, location, ids }
  * Server side: lib/foodhub/kitchen/print-queue.ts.
  */
 class FoodHubApi(private val origin: String, private val cookie: () -> String?, private val userAgent: String) {
@@ -19,6 +21,7 @@ class FoodHubApi(private val origin: String, private val cookie: () -> String?, 
         val continuation: String?, val paged: Boolean,
     )
     data class Claim(val claimed: Boolean, val reason: String?)
+    enum class PendingStatus { CLEAR, CANCELLED, UNVERIFIED }
 
     /** HTTP status (0 = no answer) and Food Hub's error text. 401 = signed out; 400 + needLocation = choose the kitchen. */
     class ApiError(val status: Int, message: String, val needLocation: Boolean = false) : IOException(message)
@@ -48,6 +51,7 @@ class FoodHubApi(private val origin: String, private val cookie: () -> String?, 
                 number = o.optString("number"), brandName = if (o.isNull("brandName")) null else o.optString("brandName"),
                 printed = if (o.isNull("printed")) null else o.optBoolean("printed"), ticket = o.optString("ticket"),
                 printedElsewhere = if (!o.has("printedElsewhere") || o.isNull("printedElsewhere")) null else o.optBoolean("printedElsewhere"),
+                at = QueueLogic.parseInstant(o.opt("at") as? String),
             )
         }
         fun field(name: String) = (json.opt(name) as? String)?.takeIf { it.isNotBlank() }
@@ -59,6 +63,20 @@ class FoodHubApi(private val origin: String, private val cookie: () -> String?, 
         if (location.isNotBlank()) body.put("location", location)
         val json = call("POST", "$origin/api/foodhub/kitchen/print-queue/${enc(item.orderId)}/printed", body.toString(), stillAllowed)
         return Claim(json.optBoolean("claimed", false), json.optString("reason").ifBlank { null })
+    }
+
+    fun pendingStatus(id: String, deviceId: String, location: String, stillAllowed: () -> Boolean): PendingStatus {
+        val body = JSONObject().put("location", location).put("deviceId", deviceId).put("ids", JSONArray(listOf(id)))
+        val json = call("POST", "$origin/api/foodhub/kitchen/print-queue/pending", body.toString(), stillAllowed)
+        if (json.opt("ok") != true || json.opt("location") != location || json.opt("deviceId") != deviceId) {
+            throw ApiError(0, "Invalid pending print response")
+        }
+        return when (json.optJSONObject("results")?.opt(id)) {
+            "clear" -> PendingStatus.CLEAR
+            "cancelled" -> PendingStatus.CANCELLED
+            "unverified" -> PendingStatus.UNVERIFIED
+            else -> throw ApiError(0, "Invalid pending print response")
+        }
     }
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")

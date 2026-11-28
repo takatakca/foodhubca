@@ -101,51 +101,48 @@ class Prefs(context: Context) {
 
     // since / seen / pending are written with commit(), not apply(): they are what keeps a ticket from printing twice
     // (or not at all) when Android kills the app, so they must be on disk before the next step.
-    var since: String?
+    val since: String?
         get() = sp.getString("since", null)
-        set(v) { sp.edit().putString("since", v).commit() }
 
-    /** Window to replay from page one if the app stops before a paged snapshot has been handled. */
-    var queueDrain: QueueDrain?
-        get() {
-            val stored = sp.getString("queue_drain", null) ?: return null
-            return runCatching {
-                val data = JSONObject(stored)
-                QueueDrain(
-                    QueueScope(data.getString("origin"), data.getString("requestedLocation"), data.getString("deviceId")),
-                    data.getString("location"), data.getString("since"),
-                    data.optJSONArray("handledIds")?.let { ids ->
-                        (0 until ids.length()).mapTo(mutableSetOf()) { ids.getString(it) }
-                    }.orEmpty(),
-                )
-            }.getOrNull()
-        }
-        set(value) {
-            synchronized(LOCK) {
-                sp.edit().putString("queue_drain", value?.let(::encodeQueueDrain)).commit()
-            }
-        }
+    /** Durable replay window and completed checkpoint share the same scoped storage. */
+    val queueDrain: QueueDrain?
+        get() = sp.getString("queue_drain", null)?.let { runCatching { QueueDrain.decode(it) }.getOrNull() }
 
-    private fun encodeQueueDrain(drain: QueueDrain): String =
-        JSONObject().put("origin", drain.scope.origin).put("requestedLocation", drain.scope.location)
-            .put("deviceId", drain.scope.deviceId).put("location", drain.location).put("since", drain.since)
-            .put("handledIds", JSONArray(drain.handledIds)).toString()
-
-    fun finishQueueDrain(since: String?) {
+    fun resetQueueProgress(clearSeen: Boolean) {
         synchronized(LOCK) {
-            sp.edit().putString("since", since).remove("queue_drain").putBoolean("first_run", false).commit()
+            val editor = sp.edit().remove("since").remove("queue_drain")
+            if (clearSeen) editor.remove("seen")
+            editor.commit()
+        }
+    }
+
+    fun anchorQueueDrain(returned: QueueDrain, continuation: String?): QueueDrain? {
+        synchronized(LOCK) {
+            val current = queueDrain
+            val anchor = QueueLogic.reanchorDrain(current, returned, continuation)
+            if (anchor != current) sp.edit().putString("queue_drain", anchor?.encode()).commit()
+            return anchor
+        }
+    }
+
+    fun finishQueueDrain(expected: QueueDrain, serverTime: String?) {
+        synchronized(LOCK) {
+            val current = queueDrain?.takeIf { it.scope == expected.scope && it.location == expected.location } ?: return
+            val checkpoint = QueueLogic.finishDrain(current, serverTime)
+            sp.edit().putString("since", checkpoint.since).putString("queue_drain", checkpoint.encode())
+                .putBoolean("first_run", false).commit()
         }
     }
 
     val seen: List<String>
         get() = (sp.getString("seen", "") ?: "").split('\n').filter { it.isNotBlank() }
 
-    /** Retain every handled ID in an unfinished drain as well as the usual bounded history. */
-    fun markSeen(vararg ids: String) {
+    /** Retain handled IDs by ticket time for this kitchen, as well as the bounded history for older checkpoints. */
+    fun markSeen(item: QueueItem, scope: QueueScope, location: String) {
         synchronized(LOCK) {
-            val editor = sp.edit().putString("seen", QueueLogic.remember(seen, ids.toList()).joinToString("\n"))
-            queueDrain?.let { drain ->
-                editor.putString("queue_drain", encodeQueueDrain(drain.copy(handledIds = drain.handledIds + ids)))
+            val editor = sp.edit().putString("seen", QueueLogic.remember(seen, listOf(item.id)).joinToString("\n"))
+            queueDrain?.takeIf { it.scope == scope && it.location == location }?.let { drain ->
+                editor.putString("queue_drain", drain.copy(handled = drain.handled + (item.id to item.at)).encode())
             }
             editor.commit()
         }

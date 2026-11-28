@@ -31,8 +31,9 @@ const OPEN_ORDER: StoredOrder['status'][] = ['new', 'accepted', 'ready', 'dispat
 
 // ---------- settings ----------
 
-export async function getWatchSettings(): Promise<WatchSettings> {
-  const stored = (await getRepo().getKv<Partial<WatchSettings>>(SETTINGS_KEY).catch(() => null)) ?? {};
+export async function getWatchSettings(opts: { strict?: boolean } = {}): Promise<WatchSettings> {
+  const read = getRepo().getKv<Partial<WatchSettings>>(SETTINGS_KEY);
+  const stored = (await (opts.strict ? read : read.catch(() => null))) ?? {};
   const rules = { ...DEFAULT_RULES };
   for (const k of INCIDENT_KINDS) if (stored.rules?.[k]) rules[k] = { ...DEFAULT_RULES[k], ...stored.rules[k] };
   return {
@@ -467,7 +468,10 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
   if (firstStageDue && (smsDue || i.screenFirstCallPending)) {
     const screenAlert = SHARED_PHONE_KINDS.includes(i.kind);
     const kitchen = i.locationCode ? kitchenPhones.get(i.locationCode) : undefined;
-    const target = firstAlertCallTarget(i.kind, s.screenAlertPhone, kitchen);
+    // An earlier incident may have waited on Voice while the owner changed the shared destination.
+    const currentRouting = screenAlert ? await getWatchSettings({ strict: true }).catch(() => null) : null;
+    if (screenAlert && !currentRouting) return changed;
+    const target = firstAlertCallTarget(i.kind, currentRouting?.screenAlertPhone ?? null, kitchen);
     const waitingForVoice = screenAlert && Boolean(target) && !callConfigured();
     if (target && !waitingForVoice) {
       // Keep the claim across ticks and restarts, including when Twilio's reply is uncertain.

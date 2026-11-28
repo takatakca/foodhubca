@@ -47,9 +47,10 @@ export function orderView(o: StoredOrder, merchantOf: (o: StoredOrder) => string
   const salt = (process.env.FOODHUB_SUITE_CUSTOMER_SALT ?? '').trim();
   const contact = salt.length >= 16 ? customerContact(o) : null;
   const customerKey = contact?.phone && contact.canSms ? crypto.createHmac('sha256', salt).update(contact.phone).digest('hex').slice(0, 32) : null;
+  const confirmedMerchant = o.posOrderId ? o.timeline?.posMerchantId : undefined;
   return {
     orderId: o.id, channel: o.channel, displayId: o.displayId ?? null, brandName: o.brandName ?? null, locationCode: o.locationCode ?? null,
-    cloverMerchantId: merchantOf(o), cloverOrderId: o.posOrderId ?? null, status: o.status, fulfillment: o.fulfillment,
+    cloverMerchantId: confirmedMerchant ?? merchantOf(o), cloverOrderId: o.posOrderId ?? null, status: o.status, fulfillment: o.fulfillment,
     placedAt: o.placedAt, readyBy: o.readyBy ?? null, currency: o.currency,
     subtotal: o.subtotal, tax: o.tax, deliveryFee: o.deliveryFee, tip: o.tip, discount: o.discount, total: o.total,
     lines: o.lines.map((l) => ({ name: l.name, quantity: l.quantity, unitPrice: l.unitPrice, total: l.total, cloverItemId: l.posItemRef ?? null })),

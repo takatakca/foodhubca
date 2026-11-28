@@ -49,7 +49,7 @@ beforeEach(async () => {
   otherCalls = [];
   globalThis.fetch = vi.fn(mockQcmevFetch(mock, BASE, async (input: any) => { otherCalls.push(String(input)); return new Response('{}', { status: 404 }); })) as any;
 });
-afterEach(async () => { await settleMevKicks(); globalThis.fetch = realFetch; });
+afterEach(async () => { await settleMevKicks(); globalThis.fetch = realFetch; vi.unstubAllEnvs(); });
 
 const posts = () => mock.state.calls.filter((c: any) => c.method === 'POST');
 
@@ -110,6 +110,24 @@ describe('off by default', () => {
 
 describe('platform orders through QCMEV', () => {
   beforeEach(async () => { env('simulator'); await setSevOfRecord('E2E_A', 'qcmev', ACTOR); });
+
+  it('writes the optional receipt note on the confirmed Clover register after remapping', async () => {
+    const cloverBase = 'https://clover.example.test';
+    vi.stubEnv('FOODHUB_MEV_CLOVER_NOTE', 'on');
+    vi.stubEnv('CLOVER_BASE_URL', cloverBase);
+    vi.stubEnv('CLOVER_MERCHANT_TOKENS', JSON.stringify({ MERCHANT0001: 'stub-source-token', MERCHANT0002: 'stub-new-token' }));
+    const repo = getRepo();
+    const original = await platformOrder();
+    const mapping = { channel: original.channel, channelStoreId: original.channelStoreId, brandName: 'Po Poulet', locationCode: 'E2E_A', cloverMerchantId: 'MERCHANT0001', autoAccept: false, online: true, meta: {} };
+    await repo.upsertStore(mapping);
+    const stored = (await repo.patchOrder(original.id, { posMerchantId: 'MERCHANT0001' }, { posOrderId: 'CONFIRMED' }))!;
+    await repo.upsertStore({ ...mapping, cloverMerchantId: 'MERCHANT0002' });
+
+    const accepted = await accept(stored);
+
+    expect(accepted.timeline?.mev?.status).toBe('accepted');
+    expect(otherCalls).toEqual([`${cloverBase}/v3/merchants/MERCHANT0001/orders/CONFIRMED`]);
+  });
 
   it('accepted → one signed sale; the receipt comes back on the order; a second change sends nothing new', async () => {
     const o = await accept(await platformOrder());

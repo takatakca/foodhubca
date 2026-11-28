@@ -1,3 +1,21 @@
+## 2026-11-28 — Préparation de #184 après la fusion de #183
+
+Le rapprochement sur `8c2f858` conserve les protections Watchtower, la checklist de mise en service et le rejeu PostgreSQL. Le scénario de reprise vérifie aussi que la caisse Clover confirmée reste enregistrée avec la commande récupérée. La preuve sur le téléphone marchand reste suivie dans [#46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-28
+
+## 2026-11-27 — Lecture indisponible des réglages de relève
+
+Quand la lecture des réglages d’alerte renvoie HTTP 503, la page Mise en service garde les autres contrôles visibles et laisse la vérification des alertes à faire. La ligne des téléphones indique les coordonnées configurées dans le catalogue. Les essais de chargement couvrent les deux langues, la réponse normale et les autres erreurs.
+
+— signé : Codex @ cloud · 2026-11-27
+
+## 2026-11-27 — Préparation de #184 après la publication de #204
+
+Le SHA public `04dcc86` était stable et les sept contrôles de santé répondaient correctement. Les deux passages automatiques Watchtower de 23:03:58 et 23:04:58 UTC ont été observés dans la base Food Hub. Le rapprochement local conserve le diagnostic d’impression Clover publié et le rejeu des paliers de relève ajouté par #186 à la branche de #184. La vérification sur un téléphone marchand reste dans [#46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-27
+
 ## 2026-11-26 — Paiement Clover après déplacement d’une liaison
 
 La réconciliation locale de #183 sur `86d190c` conserve les références par magasin de #178 pour la saisie, la reprise, l’import et le paiement Clover. Les 161 essais ciblés couvrent aussi le règlement et l’impression sur la caisse confirmée et le contrôle manuel d’une liaison Uber Eats. Les réponses des fournisseurs sont simulées. La CI du SHA réconcilié et la réception marchande restent à vérifier avant publication.
@@ -24,6 +42,44 @@ La vérification dans Réglages → Canaux lit les pages d’étiquettes et d’
 Quand Uber Eats est configuré via Clover, Food Hub conserve les nouvelles notifications Uber directes et les commandes directes ou relayées encore en file pour vérification. La reprise manuelle applique la même règle. La récupération ne consulte plus les nouvelles commandes côté Uber. L’import natif lit les commandes chez Clover, et les annulations et états des commandes directes déjà reçues continuent d’être traités.
 
 Les essais signés couvrent les notifications ordinaires et planifiées, les entrées déjà normalisées, la reprise, l’import natif Clover et les annulations antérieures. Les preuves de réception réelle restent suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — Réglages indisponibles et reprise du premier appel
+
+Si la lecture des réglages échoue, Watchtower suspend le passage avant la création d’un incident, le marqueur de réussite et les envois. Une modification partielle ne remplace plus les réglages enregistrés dans ce cas. L’API de réglages répond `503`. Une installation sans réglages enregistrés conserve ses valeurs par défaut.
+
+La réservation du premier appel enregistre une empreinte normalisée de la destination. Au passage suivant, la relève conserve la réservation initiale et permet un appel d’un palier suivant vers un autre numéro. Une ancienne réservation reste valable sans faire passer le numéro actuellement affiché pour celui qui a été appelé. Un reçu temporairement illisible est revérifié au passage suivant.
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — Réservation de chaque palier de relève
+
+Deux processus Watchtower peuvent lire la même occurrence alors que le premier vient d’écrire sa révision et attend le fournisseur simulé. Une réservation durable par palier empêche un second envoi pour cette occurrence. Le processus qui observe un palier déjà réservé attend la fin de son envoi ou consigne un résultat non confirmé après deux minutes. Une réservation ambiguë ne déclenche aucun rappel automatique pour le palier concerné. Les paliers ultérieurs reprennent selon les règles existantes.
+
+Avant une demande qui n’a pas encore démarré, la relève vérifie que l’incident est toujours ouvert dans la même cuisine. Le journal conserve le résultat des demandes déjà parties. La preuve de réception réelle reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+Le scénario PostgreSQL du contrôle de reprise maintient le premier appel de gestionnaire simulé en attente pendant qu’un second processus lit et met à jour la même alerte. Il vérifie que ce passage ne renvoie pas l’appel, puis acquitte l’alerte et vérifie que le résultat du premier appel demeure dans l’historique sans appel au gestionnaire de relève.
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — Premier appel d’un incident d’écran enregistré
+
+Sur deux processus reliés au même PostgreSQL, la réaffectation pendant la détection ferme l’ancienne alerte, ouvre une alerte dans la nouvelle cuisine et demande un seul appel simulé vers son numéro. Le lot complet passe 33 contrôles de reprise et 644 contrôles simulés. Le conflit d’écriture pendant une prise en charge ou une résolution conserve le résultat observé sans modifier la décision de l’opérateur. Les 209 essais ciblés couvrent aussi les conflits persistants sans bloquer les autres alertes.
+
+Sur deux processus Next.js reliés au même PostgreSQL 17.12 local et à PostgREST 12.2.3, le scénario passe de deux incidents et deux demandes d’appel simulées à un incident et une demande. Les 29 contrôles de reprise réussissent sur le nouvel arbre.
+
+Watchtower enregistre l’identifiant du nouvel incident avant de demander un appel immédiat. Deux passages qui observent la même panne utilisent le même identifiant et la même réservation d’appel. Une erreur de lecture ou d’enregistrement avant la réservation reporte la demande d’appel au prochain passage. Une réservation déjà enregistrée demande de vérifier le résultat dans le journal des messages. Si un opérateur prend en charge ou résout l’alerte pendant une demande, Watchtower peut rattacher le résultat à la chronologie actuelle selon le périmètre de l’incident. Le journal des messages conserve également l’issue de la demande.
+
+La réapparition dans les dix minutes après une résolution automatique réutilise l’incident existant. Si une occurrence réservée n’a pas été créée, Rouvrir ou Mettre en sourdine peut la récupérer dans sa cuisine avec le même identifiant et les données de la détection qui a créé la réservation. La prochaine détection dans cette cuisine confirme la gravité avant l’appel. Lorsque l’écran a changé de cuisine, Watchtower clôture l’alerte rétablie dans la cuisine d’origine et peut créer la nouvelle alerte au passage suivant. L’historique de la cuisine d’origine conserve son périmètre.
+
+La base utilise la clé unique et les documents existants. Les scénarios locaux couvrent une interruption après acceptation par Twilio simulé, une lecture simultanée sans incident, des erreurs de persistance, les heures silencieuses et la réaffectation pendant une réouverture. Les 178 tests ciblés passent. La vérification PostgreSQL à deux processus fait partie de la revue. La réception sur les téléphones réels reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+Sur l’arbre attendu de #176, Watchtower enregistre la résolution dans la cuisine de départ et la réservation pour la cuisine de destination dans la même mise à jour conditionnelle. Un conflit reporte l’ouverture de destination au passage suivant. Les 207 essais ciblés couvrent aussi le retour dans la cuisine d’origine, avec trois alertes et trois confirmations d’appel simulées distinctes, et le déplacement d’une tablette sans son. Les 33 contrôles locaux sur PostgreSQL ont confirmé qu’une seule demande simulée partait vers la destination après une lecture simultanée par deux processus.
+
+Sur le commit fusionné `b59c904`, 209 essais ciblés réussissent. Les scénarios de prise en charge et de résolution pendant la demande d’appel conservent le résultat dans l’incident et la décision de l’opérateur. Si la mise à jour reste en conflit, Watchtower consigne un avertissement et enregistre les autres alertes. L’essai d’une tablette muette vérifie que son appel est enregistré et ne repart pas au passage suivant.
+
+Sur l’arbre attendu de #178 `85c8163`, les 353 essais ciblés couvrent la saisie par magasin et la reprise Clover, la vérification des liaisons Uber ainsi que le routage et la concurrence des alertes Watchtower. Le code de persistance des liaisons et des incidents est identique à celui préparé sur l’arbre attendu de #177, où 261 essais ciblés réussissent. TypeScript et ESLint réussissent sur le nouvel arbre. La preuve PostgreSQL ci-dessus se rapporte au lot antérieur.
 
 — signé : Codex @ cloud · 2026-11-26
 

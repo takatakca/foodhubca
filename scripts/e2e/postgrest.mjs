@@ -22,7 +22,7 @@ export function serviceRoleJwt(secret, { ttlS = 6 * 3600, now = Date.now() } = {
 }
 
 /** Listens on 127.0.0.1:`port` and forwards /rest/v1/* to `target` (PostgREST root) without the prefix. */
-export function startRestProxy({ target, port }) {
+export function startRestProxy({ target, port, beforeResponse }) {
   const to = new URL(target);
   const server = http.createServer((req, res) => {
     const m = /^\/rest\/v1(\/.*)?$/.exec(req.url.split('?')[0]);
@@ -30,8 +30,10 @@ export function startRestProxy({ target, port }) {
     const rest = req.url.slice('/rest/v1'.length) || '/';
     const headers = { ...req.headers, host: to.host };
     const up = http.request({ hostname: to.hostname, port: to.port || 80, method: req.method, path: `${to.pathname.replace(/\/$/, '')}${rest.startsWith('/') ? rest : `/${rest}`}`, headers }, (r) => {
-      res.writeHead(r.statusCode || 502, r.headers);
-      r.pipe(res);
+      const respond = () => { res.writeHead(r.statusCode || 502, r.headers); r.pipe(res); };
+      const hold = beforeResponse?.(req.method, rest);
+      if (hold) void hold.then(respond);
+      else respond();
     });
     up.on('error', (e) => { if (!res.headersSent) res.writeHead(502, { 'content-type': 'application/json' }); res.end(JSON.stringify({ message: `PostgREST unreachable: ${e.message}` })); });
     req.pipe(up);

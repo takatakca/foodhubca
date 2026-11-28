@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET } from '../app/api/foodhub/kitchen/print-queue/route';
 import { POST } from '../app/api/foodhub/kitchen/print-queue/[orderId]/printed/route';
 import { sessionCookieFor } from '../lib/foodhub/auth';
@@ -157,6 +157,35 @@ describe('kitchen print queue: since cursor', () => {
     }
     expect(continuation).toBeUndefined();
     expect(orderIds).toEqual([own.id, ...ids.sort()]);
+  });
+
+  it('renews the cursor on a later page without moving its initial horizon', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const start = Date.parse('2026-11-28T08:00:00Z');
+      vi.setSystemTime(start);
+      const createdAt = ago(4);
+      await Promise.all(Array.from({ length: 101 }, () => addOrder({ createdAt })));
+      const query = `?location=NDG&device=${DEVICE}&paged=1`;
+      const cookie = await ownerCookie();
+      const first = await (await get(query, cookie)).json();
+      expect(first.continuation).toEqual(expect.any(String));
+
+      vi.setSystemTime(start + 14 * 60_000);
+      const second = await (await get(`${query}&continuation=${encodeURIComponent(first.continuation)}`, cookie)).json();
+      expect(second).toMatchObject({ since: first.since, serverTime: first.serverTime, continuation: expect.any(String) });
+      expect(second.items).toHaveLength(50);
+
+      vi.setSystemTime(start + 16 * 60_000);
+      const last = await get(`${query}&continuation=${encodeURIComponent(second.continuation)}`, cookie);
+      expect(last.status).toBe(200);
+      const tail = await last.json();
+      expect(tail).toMatchObject({ since: first.since, serverTime: first.serverTime });
+      expect(tail.items).toHaveLength(1);
+      expect(tail).not.toHaveProperty('continuation');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('returns no continuation when the only remaining draft is an unprinted cancellation', async () => {

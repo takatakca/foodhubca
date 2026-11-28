@@ -325,6 +325,15 @@ function rowToUser(r: Row): FoodHubUser {
   };
 }
 
+// PostgREST's logical filters need quoted values for punctuation in document IDs and timestamps.
+function rowsAfter(column: 'created_at' | 'at', row: { at: string | null; id: string }, includeUndated = false): string {
+  const quote = (value: string) => `"${value.replace(/[\\"]/g, '\\$&')}"`;
+  const id = quote(row.id);
+  if (row.at === null) return `and(${column}.is.null,id.gt.${id})`;
+  const at = quote(row.at);
+  return `${column}.lt.${at},and(${column}.eq.${at},id.gt.${id})${includeUndated ? `,${column}.is.null` : ''}`;
+}
+
 function must<T>(res: { data: T; error: { message: string } | null }): T {
   if (res.error) throw new Error(`Supabase: ${res.error.message}`);
   return res.data;
@@ -391,17 +400,25 @@ function supabaseRepo(): FoodHubRepo {
     async listOrders(filter = {}) {
       // PostgREST returns at most 1000 rows per request on Supabase: page through.
       const limit = filter.limit ?? 200;
+      const exhaustive = limit === Number.POSITIVE_INFINITY;
       const out: StoredOrder[] = [];
+      let after: { at: string; id: string } | undefined;
       for (let from = 0; from < limit; from += 1000) {
-        const to = Math.min(limit, from + 1000) - 1;
-        let q = db.from('fh_orders').select('*').order('created_at', { ascending: false }).order('id').range(from, to);
+        const count = Math.min(limit - from, 1000);
+        let q = db.from('fh_orders').select('*').order('created_at', { ascending: false }).order('id');
+        q = exhaustive ? q.limit(count) : q.range(from, from + count - 1);
+        if (after) q = q.or(rowsAfter('created_at', after));
         if (filter.statuses?.length) q = q.in('status', filter.statuses);
         if (filter.since) q = q.gte('created_at', filter.since);
         if (filter.until) q = q.lt('created_at', filter.until);
         if (filter.locationCodes?.length) q = q.in('location_code', filter.locationCodes);
         const rows = (must(await q) ?? []) as Row[];
         out.push(...rows.map(rowToOrder));
-        if (rows.length < to - from + 1) break;
+        if (rows.length < count) break;
+        if (exhaustive) {
+          const tail = rows.at(-1)!;
+          after = { at: tail.created_at, id: tail.id };
+        }
       }
       return out;
     },
@@ -524,18 +541,26 @@ function supabaseRepo(): FoodHubRepo {
     },
     async listDocs<T>(collection: string, filter: DocFilter = {}) {
       const limit = filter.limit ?? 100_000;
+      const exhaustive = limit === Number.POSITIVE_INFINITY;
       const out: Doc<T>[] = [];
       const keys = filter.keys?.length ? filter.keys : null;
+      let after: { at: string | null; id: string } | undefined;
       for (let from = 0; from < limit; from += 1000) {
-        const to = Math.min(limit, from + 1000) - 1;
-        let q = db.from('fh_docs').select('id,key,at,data').eq('collection', collection).order('at', { ascending: false, nullsFirst: false }).order('id').range(from, to);
+        const count = Math.min(limit - from, 1000);
+        let q = db.from('fh_docs').select('id,key,at,data').eq('collection', collection).order('at', { ascending: false, nullsFirst: false }).order('id');
+        q = exhaustive ? q.limit(count) : q.range(from, from + count - 1);
+        if (after) q = q.or(rowsAfter('at', after, !filter.since && !filter.until));
         if (filter.since) q = q.gte('at', filter.since);
         if (filter.until) q = q.lt('at', filter.until);
         if (keys) q = q.in('key', keys.slice(0, 500));
         if (filter.locationCode !== undefined) q = q.eq('data->>locationCode', filter.locationCode);
         const rows = (must(await q) ?? []) as Row[];
         out.push(...rows.map((r) => ({ id: r.id, key: r.key, at: r.at, data: r.data as T })));
-        if (rows.length < to - from + 1) break;
+        if (rows.length < count) break;
+        if (exhaustive) {
+          const tail = rows.at(-1)!;
+          after = { at: tail.at, id: tail.id };
+        }
       }
       return out;
     },

@@ -1,5 +1,7 @@
 ## 2026-11-28 — Reprise des lots de tickets sur la tablette Android
 
+Les lectures paginées reprennent après la dernière date et le dernier identifiant lus. Une ligne terminée ou retirée du premier lot ne masque plus la commande suivante. Chaque page prolonge la validité de son jeton, tout en conservant la fenêtre de départ. Les essais comprennent une reprise au-delà de quinze minutes et deux lectures PostgreSQL avec retrait d’une ligne du premier lot.
+
 La tablette relit sa configuration entre les tickets et après une réponse de réclamation. Un ticket confirmé pendant un changement de cuisine reste en attente dans sa cuisine d’origine. Avant d’imprimer, la tablette vérifie ce rattachement et capture la destination d’impression. Les anciens tickets en attente sans liaison utilisent la configuration de démarrage du processus.
 
 Une reprise conserve tous les tickets déjà traités dans sa fenêtre active, y compris au-delà des 500 entrées de l’historique normal. La première page peut corriger une date de reprise sortie de la fenêtre serveur. Les lectures paginées appliquent le filtre de cuisine avant de lire les lots en base, ce qui évite qu’un grand volume masque des commandes admissibles. Les parcours d’impression physique restent à confirmer sur un appareil autorisé.

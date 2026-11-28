@@ -263,7 +263,7 @@ export async function buildPrintQueue(opts: QueueOptions): Promise<{ items: Prin
   const last = items.at(-1);
   const continuation = opts.page && more && last ? await signPrintQueueContinuation({
     scope: opts.page.scope, location: opts.location, device, from: since, horizon, at: last.at, id: last.id,
-    exp: Math.ceil((snapshot + CONTINUATION_LIFETIME_MS) / 1000),
+    exp: Math.ceil((now + CONTINUATION_LIFETIME_MS) / 1000),
   }) : undefined;
   return { items, since, serverTime: horizon, width, lang, ...(opts.page ? { paged: true } as const : {}), ...(continuation ? { continuation } : {}) };
 }

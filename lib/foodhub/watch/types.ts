@@ -4,6 +4,7 @@
 // It never accepts, cancels, refunds or changes anything by itself (AI = supervisor only).
 
 export const WATCH_BACKGROUND_COMPLETION_KEY = 'watch:last-background-completion';
+export const INACTIVE_KITCHEN_CLOSURE = 'Surveillance arrêtée pour cette cuisine désactivée. / Monitoring stopped for this inactive kitchen.';
 
 export interface WatchBackgroundCompletion {
   at: string;
@@ -35,14 +36,39 @@ export type IncidentKind =
 export type Severity = 'critical' | 'warning' | 'info';
 export type IncidentStatus = 'open' | 'acknowledged' | 'snoozed' | 'resolved';
 
+export type DeviceOfflineResolution = 'monitoring-hours-ended' | 'heartbeat-restored' | 'reassigned' | 'unconfirmed';
+
+export const DEVICE_OFFLINE_RESOLUTIONS = {
+  'monitoring-hours-ended': {
+    label: ['Fin de la surveillance', 'Monitoring hours ended'],
+    message: ['La plage de surveillance est terminée. Le retour de la tablette n’est pas confirmé.', 'Monitoring hours ended. The tablet’s recovery is unconfirmed.'],
+  },
+  'heartbeat-restored': {
+    label: ['Signal de la tablette reçu', 'Tablet heartbeat received'],
+    message: ['Watchtower a reçu un nouveau signal de cette tablette.', 'Watchtower received a fresh heartbeat from this tablet.'],
+  },
+  reassigned: {
+    label: ['Tablette réaffectée', 'Tablet reassigned'],
+    message: ['Appareil réaffecté à une autre cuisine.', 'Device reassigned to another kitchen.'],
+  },
+  unconfirmed: {
+    label: ['Fermeture sans retour confirmé', 'Closed without confirmed recovery'],
+    message: ['L’alerte a été fermée automatiquement. Le retour de la tablette n’est pas confirmé.', 'The alert was closed automatically. The tablet’s recovery is unconfirmed.'],
+  },
+} as const;
+
 export interface IncidentStep {
   at: string;
   kind: 'opened' | 'screen' | 'sms' | 'call' | 'chat' | 'email' | 'owner' | 'ack' | 'snooze' | 'resolved' | 'reopened' | 'note' | 'customer_sms' | 'ai';
   to?: string;
   ok?: boolean;
   uncertain?: boolean;
+  /** Identity of a Watchtower dispatch result when it is appended after a concurrent update. */
+  dispatchId?: string;
+  deviceOfflineResolution?: DeviceOfflineResolution;
   by?: string;
   message?: string;
+  resolutionReason?: 'inactive-kitchen';
 }
 
 export interface Incident {
@@ -65,6 +91,14 @@ export interface Incident {
   deviceId?: string | null;
   openedAt: string;
   updatedAt: string;
+  /** Optimistic revision of a screen or tablet incident. Older stored incidents may omit it. */
+  revision?: string;
+  /** A later occurrence has been reserved from this resolved record. */
+  successorReserved?: true;
+  /** Reserved detector data is internal to the predecessor and can name another kitchen. */
+  successorDetection?: Pick<Incident, 'severity' | 'title' | 'titleEn' | 'detail' | 'detailEn' | 'locationCode' | 'brandName' | 'channel' | 'orderId' | 'storeId' | 'deviceId' | 'lastSeenAt'>;
+  /** An operator materialized the reservation. Its current severity needs a matching detection. */
+  awaitingFreshDetection?: true;
   /** Last time the rule saw the problem still there. */
   lastSeenAt: string;
   resolvedAt?: string | null;

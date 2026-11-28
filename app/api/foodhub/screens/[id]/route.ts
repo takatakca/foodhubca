@@ -18,7 +18,8 @@ export const PATCH = withPerm<Ctx>('stores:map', async (req, ctx, actor) => {
     if (!catalog.locations.some((l) => l.code === code && l.active)) return fail('Choisissez une succursale. / Choose a location.');
     if (!inScope(actor, code)) return fail('Not one of your locations.', 403);
   }
-  const r = await updateScreen(id, { name: b.name, platform: b.platform, locationCode: code, viewUrl: b.viewUrl, storeIds: b.storeIds }, actor);
+  const r = await updateScreen(id, { name: b.name, platform: b.platform, locationCode: code, viewUrl: b.viewUrl, storeIds: b.storeIds }, actor,
+    (locationCode) => inScope(actor, locationCode));
   if (!r) return fail('Screen not found', 404);
   return 'error' in r ? fail(r.error) : ok({ screen: r });
 });
@@ -30,9 +31,12 @@ export const POST = withPerm<Ctx>('orders:act', async (req, ctx, actor) => {
   const s = await getScreen(id);
   if (!s || !inScope(actor, s.locationCode)) return fail('Screen not found', 404);
   const b = await readJson(req);
-  if (b.action === 'reload') return ok({ screen: await requestReload(id, actor) });
+  if (b.action === 'reload') {
+    const r = await requestReload(id, actor, (locationCode) => inScope(actor, locationCode));
+    return r ? ok({ screen: r }) : fail('Screen not found', 404);
+  }
   if (b.action === 'open') {
-    const r = await requestOpen(id, actor);
+    const r = await requestOpen(id, actor, (locationCode) => inScope(actor, locationCode));
     return !r ? fail('Screen not found', 404) : 'error' in r ? fail(r.error) : ok({ screen: r });
   }
   return fail('Unknown action');
@@ -40,8 +44,6 @@ export const POST = withPerm<Ctx>('orders:act', async (req, ctx, actor) => {
 
 export const DELETE = withPerm<Ctx>('stores:map', async (_req, ctx, actor) => {
   const { id } = await ctx.params;
-  const s = await getScreen(id);
-  if (!s || !inScope(actor, s.locationCode)) return fail('Screen not found', 404);
-  await removeScreen(id, actor);
-  return ok();
+  const removed = await removeScreen(id, actor, (locationCode) => inScope(actor, locationCode));
+  return removed ? ok() : fail('Screen not found', 404);
 });

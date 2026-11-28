@@ -10,7 +10,8 @@ export const dynamic = 'force-dynamic';
 export const GET = withPerm('view', async (req, _ctx, actor) => {
   const now = Date.now();
   const here = await deviceFromRequest(req);
-  const devices = (await listDevices()).filter((d) => !d.revoked && inScope(actor, d.locationCode)).map((d) => ({ ...d, status: deviceStatus(d, now), userAgent: undefined }));
+  const devices = (await listDevices()).filter((d) => !d.revoked && inScope(actor, d.locationCode))
+    .map((d) => ({ ...d, status: deviceStatus(d, now), userAgent: undefined, lastHeartbeat: undefined }));
   return ok({ devices, thisDevice: here ? here.id : null });
 });
 

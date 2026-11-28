@@ -3,7 +3,7 @@ import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { maskContact, sendSms } from '@/lib/foodhub/notify';
 import { getRepo } from '@/lib/foodhub/repo';
 import { customerContact } from '@/lib/foodhub/watch/customer';
-import { actOnIncident, addIncidentStep, getIncident, listIncidents } from '@/lib/foodhub/watch/engine';
+import { actOnIncident, addIncidentStep, getIncident, listIncidents, SupersededIncidentError } from '@/lib/foodhub/watch/engine';
 import type { IncidentStatus } from '@/lib/foodhub/watch/types';
 
 export const dynamic = 'force-dynamic';
@@ -19,9 +19,13 @@ export const GET = withPerm('view', async (req, _ctx, actor) => {
   const q = new URL(req.url).searchParams;
   const status = (q.get('status') || '').split(',').filter((s) => STATUSES.includes(s as IncidentStatus)) as IncidentStatus[];
   const days = Math.max(1, Math.min(30, Number(q.get('days') || 3)));
-  const found = await listIncidents({ status, since: new Date(Date.now() - days * 86400_000).toISOString(), locationCodes: scopeFilter(actor, list(q.get('locations'))) });
-  const one = q.get('id');
-  return ok({ incidents: one ? found.filter((i) => i.id === one) : found });
+  const incidents = await listIncidents({
+    id: q.get('id') || undefined,
+    status,
+    since: new Date(Date.now() - days * 86400_000).toISOString(),
+    locationCodes: scopeFilter(actor, list(q.get('locations'))),
+  });
+  return ok({ incidents });
 });
 
 // { id, action: 'ack' | 'resolve' | 'snooze' | 'note' | 'reopen' | 'customer_sms', minutes?, note?, text? }
@@ -43,6 +47,11 @@ export const POST = withPerm('orders:act', async (req, _ctx, actor) => {
     return r.ok ? ok({ result: r }) : fail(r.message, 502);
   }
   if (!['ack', 'resolve', 'snooze', 'note', 'reopen'].includes(action)) return fail('action must be ack, resolve, snooze, note, reopen or customer_sms');
-  const i = await actOnIncident(inc.id, action as 'ack', actor, { minutes: Number(b.minutes) || undefined, note: b.note ? String(b.note) : undefined });
-  return ok({ incident: i });
+  try {
+    const i = await actOnIncident(inc.id, action as 'ack', actor, { minutes: Number(b.minutes) || undefined, note: b.note ? String(b.note) : undefined });
+    return ok({ incident: i });
+  } catch (error) {
+    if (error instanceof SupersededIncidentError) return fail(error.message, 409);
+    throw error;
+  }
 });

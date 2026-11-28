@@ -8,9 +8,13 @@ export interface OrderFilter { limit?: number; statuses?: OrderStatus[]; since?:
 export interface ActivityFilter { limit?: number; since?: string; until?: string; kinds?: ActivityKind[]; locationCodes?: string[] }
 /** Generic document store (payout lines, statement imports, reconciliation cases, ledger approvals…). */
 export interface Doc<T = Record<string, unknown>> { id: string; key?: string | null; at?: string | null; data: T }
-export interface DocFilter { since?: string; until?: string; keys?: string[]; limit?: number }
+export interface DocFilter { since?: string; until?: string; keys?: string[]; kinds?: string[]; statuses?: string[]; limit?: number }
 
 type StoreSnapshot = Pick<ChannelStore, 'channel' | 'channelStoreId' | 'locationCode' | 'updatedAt' | 'meta'>;
+
+const KV_UPDATE_ATTEMPTS = 4;
+export class KvReadError extends Error {}
+export class KvUpdateConflict extends Error {}
 
 export interface FoodHubRepo {
   mode: 'supabase' | 'memory';
@@ -44,6 +48,8 @@ export interface FoodHubRepo {
   /** Small key/value store (last sync report, Clover sales cache). */
   getKv<T = unknown>(key: string): Promise<T | null>;
   setKv(key: string, value: unknown): Promise<void>;
+  /** Apply a pure change to the current value. Conflicts re-read the row before retrying. */
+  updateKv<T>(key: string, change: (current: T | null) => T): Promise<T>;
   /**
    * Write `key` only if it does not exist yet, in one atomic step (Supabase: INSERT on the primary key; the database
    * refuses a duplicate). True = this caller claimed it; false = it was already there (another run or container).
@@ -58,6 +64,12 @@ export interface FoodHubRepo {
   getUser(username: string): Promise<FoodHubUser | null>;
   saveUser(user: Omit<FoodHubUser, 'id' | 'createdAt'> & { id?: string; createdAt?: string }): Promise<FoodHubUser>;
   putDocs<T>(collection: string, docs: Doc<T>[]): Promise<void>;
+  /** False means the document ID already exists. Other failures are reported to the caller. */
+  insertDocIfAbsent<T>(collection: string, doc: Doc<T>): Promise<boolean>;
+  /** Replace only the requested revision. An absent revision matches historical documents. */
+  replaceDocIfRevision<T extends { revision?: string }>(collection: string, doc: Doc<T>, expected?: string): Promise<boolean>;
+  /** Delete the captured revision, comparing its key and creation time for historical documents. */
+  deleteDocIfRevision<T extends { revision?: string }>(collection: string, expected: Doc<T>): Promise<boolean>;
   listDocs<T>(collection: string, filter?: DocFilter): Promise<Doc<T>[]>;
   getDoc<T>(collection: string, id: string): Promise<Doc<T> | null>;
   deleteDocs(collection: string, ids: string[]): Promise<void>;
@@ -182,6 +194,20 @@ const memoryRepo: FoodHubRepo = {
   },
   async getKv<T>(key: string) { return (memState().kv.get(key) as T) ?? null; },
   async setKv(key, value) { memState().kv.set(key, JSON.parse(JSON.stringify(value))); },
+  async updateKv<T>(key: string, change: (current: T | null) => T) {
+    const kv = memState().kv;
+    for (let attempt = 0; attempt < KV_UPDATE_ATTEMPTS; attempt++) {
+      const before = kv.get(key);
+      const current = await memoryRepo.getKv<T>(key).catch((cause) => {
+        throw new KvReadError('Saved setting could not be read.', { cause });
+      });
+      if (!Object.is(kv.get(key), before)) continue;
+      const value = change(current);
+      kv.set(key, JSON.parse(JSON.stringify(value)));
+      return value;
+    }
+    throw new KvUpdateConflict('Saved setting changed during update.');
+  },
   async claimKv(key, value) {
     const kv = memState().kv;
     if (kv.has(key)) return false;
@@ -206,13 +232,35 @@ const memoryRepo: FoodHubRepo = {
     for (const d of docs) col.set(d.id, JSON.parse(JSON.stringify(d)));
     st.docs.set(collection, col);
   },
+  async insertDocIfAbsent(collection, doc) {
+    if (memState().docs?.get(collection)?.has(doc.id)) return false;
+    await memoryRepo.putDocs(collection, [doc]);
+    return true;
+  },
+  async replaceDocIfRevision(collection, doc, expected) {
+    const current = memState().docs?.get(collection)?.get(doc.id);
+    if (!current || (current.data.revision ?? undefined) !== expected) return false;
+    await memoryRepo.putDocs(collection, [doc]);
+    return true;
+  },
+  async deleteDocIfRevision(collection, expected) {
+    const docs = memState().docs?.get(collection);
+    if (!docs) return false;
+    const current = docs.get(expected.id);
+    const revision = expected.data.revision ?? undefined;
+    if (!current || (current.data.revision ?? undefined) !== revision) return false;
+    if (revision === undefined && ((current.key ?? null) !== (expected.key ?? null) || (current.at ?? null) !== (expected.at ?? null))) return false;
+    return docs.delete(expected.id);
+  },
   async listDocs<T>(collection: string, filter: DocFilter = {}) {
     const col = memState().docs?.get(collection);
     let list = col ? [...col.values()] as Doc<T>[] : [];
     if (filter.since) list = list.filter((d) => (d.at ?? '') >= filter.since!);
     if (filter.until) list = list.filter((d) => (d.at ?? '') < filter.until!);
     if (filter.keys?.length) list = list.filter((d) => d.key && filter.keys!.includes(d.key));
-    list.sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''));
+    if (filter.kinds?.length) list = list.filter((d) => filter.kinds!.includes((d.data as { kind: string }).kind));
+    if (filter.statuses?.length) list = list.filter((d) => filter.statuses!.includes((d.data as { status: string }).status));
+    list.sort((a, b) => (b.at ?? '').localeCompare(a.at ?? '') || ((filter.keys?.length || filter.kinds?.length) ? a.id.localeCompare(b.id) : 0));
     return list.slice(0, filter.limit ?? 100_000);
   },
   async getDoc<T>(collection: string, id: string) { return (memState().docs?.get(collection)?.get(id) as Doc<T> | undefined) ?? null; },
@@ -481,6 +529,29 @@ function supabaseRepo(): FoodHubRepo {
     async setKv(key, value) {
       must(await db.from('fh_kv').upsert({ key, value, updated_at: nowIso() }, { onConflict: 'key' }));
     },
+    async updateKv<T>(key: string, change: (current: T | null) => T) {
+      for (let attempt = 0; attempt < KV_UPDATE_ATTEMPTS; attempt++) {
+        let current;
+        try {
+          current = must(await db.from('fh_kv').select('value,updated_at').eq('key', key).maybeSingle());
+        } catch (cause) {
+          throw new KvReadError('Saved setting could not be read.', { cause });
+        }
+        const value = change(current ? current.value as T : null);
+        if (!current) {
+          if (await repo.claimKv(key, value)) return value;
+          continue;
+        }
+        const previous = Date.parse(current.updated_at);
+        if (!Number.isFinite(previous)) throw new KvReadError('Saved setting has an invalid revision.');
+        // Always advance the database revision, even when two servers share a millisecond or their clocks differ.
+        const nextRevision = new Date(Math.max(Date.now(), previous + 1)).toISOString();
+        const saved = must(await db.from('fh_kv').update({ value, updated_at: nextRevision })
+          .eq('key', key).eq('updated_at', current.updated_at).select('key').maybeSingle());
+        if (saved) return value;
+      }
+      throw new KvUpdateConflict('Saved setting changed during update.');
+    },
     async claimKv(key, value) {
       const res = await db.from('fh_kv').insert({ key, value, updated_at: nowIso() });
       if (!res.error) return true;
@@ -521,6 +592,29 @@ function supabaseRepo(): FoodHubRepo {
         must(await db.from('fh_docs').upsert(rows, { onConflict: 'collection,id' }));
       }
     },
+    async insertDocIfAbsent(collection, doc) {
+      const res = await db.from('fh_docs').insert({ collection, id: doc.id, key: doc.key ?? null, at: doc.at ?? null, data: doc.data, updated_at: nowIso() });
+      if (!res.error) return true;
+      if (res.error.code === '23505') return false;
+      throw new Error(`Supabase: ${res.error.message}`);
+    },
+    async replaceDocIfRevision(collection, doc, expected) {
+      let update = db.from('fh_docs').update({ key: doc.key ?? null, at: doc.at ?? null, data: doc.data, updated_at: nowIso() }).eq('collection', collection).eq('id', doc.id);
+      update = expected === undefined ? update.is('data->>revision', null) : update.eq('data->>revision', expected);
+      return Boolean(must(await update.select('id').maybeSingle()));
+    },
+    async deleteDocIfRevision(collection, expected) {
+      let remove = db.from('fh_docs').delete().eq('collection', collection).eq('id', expected.id);
+      const revision = expected.data.revision ?? undefined;
+      if (revision === undefined) {
+        remove = remove.is('data->>revision', null);
+        remove = expected.key == null ? remove.is('key', null) : remove.eq('key', expected.key);
+        remove = expected.at == null ? remove.is('at', null) : remove.eq('at', expected.at);
+      } else {
+        remove = remove.eq('data->>revision', revision);
+      }
+      return Boolean(must(await remove.select('id').maybeSingle()));
+    },
     async listDocs<T>(collection: string, filter: DocFilter = {}) {
       const limit = filter.limit ?? 100_000;
       const out: Doc<T>[] = [];
@@ -531,6 +625,8 @@ function supabaseRepo(): FoodHubRepo {
         if (filter.since) q = q.gte('at', filter.since);
         if (filter.until) q = q.lt('at', filter.until);
         if (keys) q = q.in('key', keys.slice(0, 500));
+        if (filter.kinds?.length) q = q.in('data->>kind', filter.kinds);
+        if (filter.statuses?.length) q = q.in('data->>status', filter.statuses);
         const rows = (must(await q) ?? []) as Row[];
         out.push(...rows.map((r) => ({ id: r.id, key: r.key, at: r.at, data: r.data as T })));
         if (rows.length < to - from + 1) break;

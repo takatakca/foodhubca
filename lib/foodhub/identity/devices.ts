@@ -17,6 +17,8 @@ export interface Device {
   enrolledBy: string;
   enrolledAt: string;
   lastSeenAt?: string | null;
+  /** Provenance of the most recent signed heartbeat, separate from enrollment. */
+  lastHeartbeat?: { at: string; locationCode: string };
   /** Last heartbeat details */
   soundOn?: boolean | null;
   visible?: boolean | null;
@@ -30,6 +32,13 @@ export interface Device {
   revokedAt?: string | null;
 }
 
+type StoredDevice = Device & { revision?: string };
+type DeviceBinding = Pick<Device, 'locationCode' | 'enrolledAt'>;
+
+export class DeviceHeartbeatConflict extends Error {
+  constructor(readonly reason: 'revoked' | 'moved' | 'busy') { super(reason); }
+}
+
 export type DeviceStatus = 'online' | 'offline' | 'never' | 'revoked';
 
 export function deviceStatus(d: Device, now = Date.now()): DeviceStatus {
@@ -39,16 +48,35 @@ export function deviceStatus(d: Device, now = Date.now()): DeviceStatus {
 }
 
 export async function listDevices(): Promise<Device[]> {
-  return (await getRepo().listDocs<Device>(DEVICES, { limit: 500 })).map((d) => d.data).sort((a, b) => (a.locationCode + a.name).localeCompare(b.locationCode + b.name));
+  return (await getRepo().listDocs<StoredDevice>(DEVICES, { limit: 500 })).map((d) => publicDevice(d.data)).sort((a, b) => (a.locationCode + a.name).localeCompare(b.locationCode + b.name));
 }
 
 export async function getDevice(id: string): Promise<Device | null> {
-  return (await getRepo().getDoc<Device>(DEVICES, id))?.data ?? null;
+  const stored = await getRepo().getDoc<StoredDevice>(DEVICES, id);
+  return stored ? publicDevice(stored.data) : null;
 }
 
-async function save(d: Device) {
-  await getRepo().putDocs<Device>(DEVICES, [{ id: d.id, key: d.locationCode, at: d.enrolledAt, data: d }]);
-  return d;
+function publicDevice({ revision: _revision, ...device }: StoredDevice): Device {
+  return device;
+}
+
+function deviceDoc(device: Device) {
+  return { id: device.id, key: device.locationCode, at: device.enrolledAt, data: { ...device, revision: crypto.randomUUID() } };
+}
+
+function sameBinding(device: Device, expected: DeviceBinding) {
+  return device.locationCode === expected.locationCode && device.enrolledAt === expected.enrolledAt;
+}
+
+async function changeDevice(id: string, change: (device: Device | null) => Device | null): Promise<Device | null> {
+  const repo = getRepo();
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const current = await repo.getDoc<StoredDevice>(DEVICES, id);
+    const next = change(current ? publicDevice(current.data) : null);
+    if (!current || !next) return null;
+    if (await repo.replaceDocIfRevision(DEVICES, deviceDoc(next), current.data.revision)) return next;
+  }
+  return null;
 }
 
 /** Enrol this browser. Returns the device and the Set-Cookie header value. */
@@ -57,25 +85,26 @@ export async function enrollDevice(input: { name: string; locationCode: string }
     id: crypto.randomUUID(), name: input.name.trim().slice(0, 60) || 'Tablette cuisine', locationCode: input.locationCode,
     enrolledBy: actor.name, enrolledAt: new Date().toISOString(), lastSeenAt: new Date().toISOString(),
   };
-  await save(device);
+  await getRepo().putDocs(DEVICES, [deviceDoc(device)]);
   const token = await signDevice({ d: device.id, l: device.locationCode, exp: Math.floor(Date.now() / 1000) + DEVICE_DAYS * 86400 });
   await logActivity({ actor: actor.name, source: actor.source, kind: 'device', action: 'device_enrolled', status: 'success', locationCode: device.locationCode, summary: `Kitchen tablet "${device.name}" enrolled at ${device.locationCode}` });
   return { device, cookie: `${DEVICE_COOKIE}=${encodeURIComponent(token)}; ${cookieFlags(DEVICE_DAYS * 86400)}` };
 }
 
-export async function updateDevice(id: string, patch: Partial<Pick<Device, 'name' | 'locationCode'>>, actor: Actor): Promise<Device | null> {
-  const d = await getDevice(id);
-  if (!d) return null;
-  const next = { ...d, ...(patch.name ? { name: patch.name.trim().slice(0, 60) } : {}), ...(patch.locationCode ? { locationCode: patch.locationCode } : {}) };
-  await save(next);
+export async function updateDevice(id: string, patch: Partial<Pick<Device, 'name' | 'locationCode'>>, actor: Actor, expected?: DeviceBinding): Promise<Device | null> {
+  const next = await changeDevice(id, (d) => d && (!expected || sameBinding(d, expected))
+    ? { ...d, ...(patch.name ? { name: patch.name.trim().slice(0, 60) } : {}), ...(patch.locationCode ? { locationCode: patch.locationCode } : {}) }
+    : null);
+  if (!next) return null;
   await logActivity({ actor: actor.name, source: actor.source, kind: 'device', action: 'device_updated', status: 'success', locationCode: next.locationCode, summary: `Kitchen tablet "${next.name}" updated` });
   return next;
 }
 
-export async function revokeDevice(id: string, actor: Actor): Promise<boolean> {
-  const d = await getDevice(id);
+export async function revokeDevice(id: string, actor: Actor, expected?: DeviceBinding): Promise<boolean> {
+  const d = await changeDevice(id, (current) => current && (!expected || sameBinding(current, expected))
+    ? { ...current, revoked: true, revokedAt: new Date().toISOString(), signedIn: null }
+    : null);
   if (!d) return false;
-  await save({ ...d, revoked: true, revokedAt: new Date().toISOString(), signedIn: null });
   await logActivity({ actor: actor.name, source: actor.source, kind: 'device', action: 'device_revoked', status: 'success', locationCode: d.locationCode, summary: `Kitchen tablet "${d.name}" removed — it must be enrolled again` });
   return true;
 }
@@ -95,10 +124,16 @@ export function forgetDeviceCookie(): string {
 export async function heartbeat(d: Device, info: { soundOn?: unknown; visible?: unknown; battery?: unknown; charging?: unknown; screen?: unknown; signedIn?: string | null }, userAgent?: string | null): Promise<Device> {
   const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : null);
   const bool = (v: unknown) => (typeof v === 'boolean' ? v : null);
-  const next: Device = {
-    ...d, lastSeenAt: new Date().toISOString(), soundOn: bool(info.soundOn), visible: bool(info.visible), battery: num(info.battery), charging: bool(info.charging),
-    screen: typeof info.screen === 'string' ? info.screen.slice(0, 40) : d.screen ?? null, signedIn: info.signedIn ?? null, userAgent: userAgent?.slice(0, 160) ?? d.userAgent ?? null,
-  };
-  await save(next);
+  const next = await changeDevice(d.id, (current) => {
+    if (!current || current.revoked) throw new DeviceHeartbeatConflict('revoked');
+    if (!sameBinding(current, d)) throw new DeviceHeartbeatConflict('moved');
+    const at = new Date().toISOString();
+    return {
+      ...current, lastSeenAt: at, lastHeartbeat: { at, locationCode: current.locationCode },
+      soundOn: bool(info.soundOn), visible: bool(info.visible), battery: num(info.battery), charging: bool(info.charging),
+      screen: typeof info.screen === 'string' ? info.screen.slice(0, 40) : current.screen ?? null, signedIn: info.signedIn ?? null, userAgent: userAgent?.slice(0, 160) ?? current.userAgent ?? null,
+    };
+  });
+  if (!next) throw new DeviceHeartbeatConflict('busy');
   return next;
 }

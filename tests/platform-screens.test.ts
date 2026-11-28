@@ -2,10 +2,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { saveLocation } from '../lib/foodhub/catalog';
 import * as notify from '../lib/foodhub/notify';
-import { hashPassword } from '../lib/foodhub/auth';
-import { GET as watchSettingsRoute } from '../app/api/foodhub/watch/settings/route';
+import { hashPassword, sessionCookieFor } from '../lib/foodhub/auth';
+import { GET as watchSettingsRoute, PUT as saveWatchSettingsRoute } from '../app/api/foodhub/watch/settings/route';
 import type { Actor } from '../lib/foodhub/activity';
-import { DEVICES, type Device } from '../lib/foodhub/identity/devices';
+import { DEVICES, enrollDevice, type Device } from '../lib/foodhub/identity/devices';
 import { getRepo } from '../lib/foodhub/repo';
 import { allDayWeek, saveHours } from '../lib/foodhub/hours';
 import {
@@ -59,7 +59,7 @@ describe('screens', () => {
     const u = await updateScreen(s.id, { name: 'Uber 1', platform: 'doordash' }, ACTOR);
     expect(u && !('error' in u) && u.platform).toBe('doordash');
     expect((await listScreens()).map((x) => x.name)).toEqual(['Uber 1']);
-    expect(await removeScreen(s.id, ACTOR)).toBe(true);
+    expect(await removeScreen(s.id, ACTOR, () => true)).toBe(true);
     expect(await listScreens()).toEqual([]);
   });
 
@@ -289,8 +289,14 @@ describe('Watchtower: orders waiting on a screen (screen_waiting)', () => {
 });
 
 describe('Watchtower: calls a configured phone for screen and tablet incidents', () => {
-  beforeEach(() => { vi.spyOn(notify, 'callConfigured').mockReturnValue(true); });
-  afterEach(() => { vi.mocked(notify.callConfigured).mockRestore(); });
+  beforeEach(() => {
+    vi.spyOn(notify, 'callConfigured').mockReturnValue(true);
+    vi.stubEnv('SESSION_SECRET', 'test-alert-settings-session-secret');
+  });
+  afterEach(() => {
+    vi.mocked(notify.callConfigured).mockRestore();
+    vi.unstubAllEnvs();
+  });
 
   const sharedPhone = '+15145550124';
   const cases = (['doordash', 'ubereats', 'skip'] as const).flatMap((platform) =>
@@ -376,26 +382,85 @@ describe('Watchtower: calls a configured phone for screen and tablet incidents',
     expect((await getWatchSettings()).screenAlertPhone).toBeNull();
   });
 
-  it('returns the shared destination only to an admin', async () => {
+  it('returns the shared destination only to an account-wide owner outside a tablet session', async () => {
     await saveWatchSettings({ screenAlertPhone: sharedPhone }, ACTOR);
     const password = 'local-alert-settings-test';
     const passwordHash = hashPassword(password);
-    for (const role of ['owner', 'operator'] as const) {
-      const username = `alert-test-${role}`;
-      await getRepo().saveUser({ username, name: 'Alert settings test', role, locations: [], active: true, passwordHash });
+    const location = 'SAINT_LEONARD';
+    const { device } = await enrollDevice({ name: 'Fixture tablet', locationCode: location }, ACTOR);
+    for (const access of ['global', 'restricted', 'tablet', 'operator'] as const) {
+      const username = `alert-test-${access}`;
+      const user = await getRepo().saveUser({ username, name: 'Alert settings test', role: access === 'operator' ? 'operator' : 'owner',
+        locations: access === 'restricted' ? [location] : [], active: true, passwordHash });
       const req = new Request('http://hub.local/api/foodhub/watch/settings', {
-        headers: { authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}` },
+        headers: access === 'tablet' ? { cookie: (await sessionCookieFor(user, 'pin', device.id)).split(';')[0] }
+          : { authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}` },
       });
       const res = await watchSettingsRoute(req, {});
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.screenAlertPhoneConfigured).toBe(true);
-      expect(body.settings.screenAlertPhone).toBe(role === 'owner' ? sharedPhone : null);
+      expect(body.settings.screenAlertPhone).toBe(access === 'global' ? sharedPhone : null);
+      expect(res.headers.get('Cache-Control')).toBe('private, no-store');
     }
     await saveWatchSettings({ screenAlertPhone: null }, ACTOR);
     const auth = `Basic ${Buffer.from(`alert-test-operator:${password}`).toString('base64')}`;
     const res = await watchSettingsRoute(new Request('http://hub.local/api/foodhub/watch/settings', { headers: { authorization: auth } }), {});
     expect(await res.json()).toMatchObject({ screenAlertPhoneConfigured: false, settings: { screenAlertPhone: null } });
+  });
+
+  it('protects the shared destination from scoped writes and preserves other settings edits', async () => {
+    await saveWatchSettings({ screenAlertPhone: sharedPhone }, ACTOR);
+    const password = 'local-alert-settings-test';
+    const passwordHash = hashPassword(password);
+    const location = 'SAINT_LEONARD';
+    const { device } = await enrollDevice({ name: 'Fixture tablet', locationCode: location }, ACTOR);
+    const save = (headers: Record<string, string>, settings: Record<string, unknown>) => saveWatchSettingsRoute(new Request(
+      'http://hub.local/api/foodhub/watch/settings', { method: 'PUT', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ settings }) },
+    ), {});
+    const scoped = { username: 'alert-scoped-owner', name: 'Scoped owner', role: 'owner', locations: [location], active: true, passwordHash } as const;
+    await getRepo().saveUser({ ...scoped, locations: [...scoped.locations] });
+    const global = await getRepo().saveUser({ ...scoped, username: 'alert-global-owner', locations: [] });
+    const basic = (user: string) => ({ authorization: `Basic ${Buffer.from(`${user}:${password}`).toString('base64')}` });
+    const tablet = { cookie: (await sessionCookieFor(global, 'pin', device.id)).split(';')[0] };
+    for (const headers of [basic(scoped.username), tablet]) {
+      const denied = await save(headers, { screenAlertPhone: null });
+      expect(denied.status).toBe(403);
+      expect((await getWatchSettings()).screenAlertPhone).toBe(sharedPhone);
+      const allowed = await save(headers, { smsAfterMin: 7 });
+      expect(allowed.status).toBe(200);
+      expect(allowed.headers.get('Cache-Control')).toBe('private, no-store');
+      expect(await allowed.json()).toMatchObject({ settings: { screenAlertPhone: null, smsAfterMin: 7 } });
+      expect((await getWatchSettings()).screenAlertPhone).toBe(sharedPhone);
+    }
+    const owner = await save(basic(global.username), { screenAlertPhone: null });
+    expect(owner.status).toBe(200);
+    expect((await getWatchSettings()).screenAlertPhone).toBeNull();
+  });
+
+  it('leaves the common destination untouched if saved settings cannot be loaded', async () => {
+    const before = await saveWatchSettings({ screenAlertPhone: sharedPhone, smsAfterMin: 3 }, ACTOR);
+    const repo = getRepo();
+    const username = 'alert-scoped-owner';
+    const password = 'local-alert-settings-test';
+    await repo.saveUser({ username, name: 'Scoped owner', role: 'owner', locations: ['SAINT_LEONARD'], active: true, passwordHash: hashPassword(password) });
+    const uri = 'http://hub.local/api/foodhub/watch/settings';
+    const headers = { authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}` };
+    const originalRead = repo.getKv.bind(repo);
+    const read = vi.spyOn(repo, 'getKv').mockImplementation((key) => key === 'watch:settings' ? Promise.reject(new Error('Fixture read unavailable')) : originalRead(key));
+    const write = vi.spyOn(repo, 'setKv');
+    try {
+      expect.soft((await watchSettingsRoute(new Request(uri, { headers }), {})).status).toBe(503);
+      const response = await saveWatchSettingsRoute(new Request(uri, {
+        method: 'PUT', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ settings: { smsAfterMin: 7 } }),
+      }), {});
+      expect.soft(response.status).toBe(503);
+      expect.soft(write).not.toHaveBeenCalled();
+    } finally {
+      read.mockRestore();
+      write.mockRestore();
+    }
+    expect(await getWatchSettings()).toEqual(before);
   });
 });
 

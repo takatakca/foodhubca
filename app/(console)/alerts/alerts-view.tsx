@@ -20,40 +20,64 @@ import { useScopeLabel } from '@/components/shell/scope-switcher';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { api, ApiError, ago, timeOf } from '@/lib/ui/api';
 import { useI18n, useProduct } from '@/lib/i18n/client';
-import type { Incident } from '@/lib/foodhub/watch/types';
+import type { WatchReport } from '@/lib/foodhub/watch/engine';
+import { DEVICE_OFFLINE_RESOLUTIONS, INACTIVE_KITCHEN_CLOSURE, type DeviceOfflineResolution, type Incident, type IncidentStep } from '@/lib/foodhub/watch/types';
 import type { OutboxEntry } from '@/lib/foodhub/notify';
 import { watchtowerCallSid, type CallStatus } from '@/lib/foodhub/notify/call-status';
 import { cn } from '@/lib/ui/cn';
 
 type Channels = AlertChannels;
+type AlertTab = 'open' | 'resolved' | 'messages';
 const SEV = { critical: 'bg-stop', warning: 'bg-wait', info: 'bg-info' } as const;
 
 export function AlertsView() {
+  const focus = useSearchParams().get('i');
+  return <AlertsViewContent key={focus ?? ''} focus={focus} />;
+}
+
+function AlertsViewContent({ focus }: { focus: string | null }) {
   const { t, loc } = useI18n();
   const product = useProduct();
   const { can, allLocations, full, viewer } = useViewer();
   const canCheckCalls = allLocations && can('admin') && !viewer.device;
   const { setSite } = usePulse();
   const label = useScopeLabel();
-  const params = useSearchParams();
   const toast = useToast();
-  const [tab, setTab] = useState<'open' | 'resolved' | 'messages'>('open');
+  const [selectedTab, setTab] = useState<AlertTab | null>(null);
   const [channels, setChannels] = useState<Channels | null>(null);
   const [messages, setMessages] = useState<OutboxEntry[]>([]);
   const [busy, setBusy] = useState(false);
-  const focus = params.get('i');
 
   // The alerts of the console's scope: location on the server, brand and platform here (an alert for the whole location
   // always shows). The bell keeps counting every alert of the location.
   const { list, filtered, reload: load } = useScopedIncidents({ status: '', days: 3, poll: 10_000, focusId: focus });
+  const focused = focus ? list?.find((incident) => incident.id === focus) : null;
+  const tab = selectedTab ?? (focused?.status === 'resolved' ? 'resolved' : 'open');
   const seeAll = () => setSite({ kitchen: null, brand: null, channel: undefined });
   useEffect(() => { api<{ channels: Channels }>('/api/foodhub/watch/settings').then((d) => setChannels(d.channels)).catch(() => undefined); }, []);
   useEffect(() => { if (tab === 'messages') api<{ messages: OutboxEntry[] }>('/api/foodhub/messages').then((d) => setMessages(d.messages)).catch(() => undefined); }, [tab]);
 
   async function checkNow() {
     setBusy(true);
-    try { const r = await api<{ report: { opened: number; resolved: number; open: number } }>('/api/foodhub/watch/run', { method: 'POST' }); toast.success(t('Vérification faite', 'Checked'), checkSummary(t, r.report)); await load(); refreshEverything(); }
-    catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+    try {
+      const { report } = await api<{ report: Pick<WatchReport, 'ran' | 'relayUnavailable' | 'hoursUnavailable' | 'opened' | 'resolved' | 'open'> }>('/api/foodhub/watch/run', { method: 'POST' });
+      if (report.hoursUnavailable || report.relayUnavailable) {
+        const detail = report.hoursUnavailable ? t(
+          'Horaires indisponibles. Relancez la vérification des écrans et de la relève.',
+          'Opening hours were unavailable. Run the screen and escalation check again.',
+        ) : t(
+          'État des écrans relais indisponible. Les contrôles des tablettes de cuisine et les autres contrôles ont été effectués. Relancez la vérification.',
+          'Relay screen status was unavailable. Kitchen tablets and the other checks ran. Run the check again.',
+        );
+        toast.warn(t('Vérification partielle', 'Partial check'), `${detail}\n${checkSummary(t, report)}`);
+      } else if (report.ran) {
+        toast.success(t('Vérification faite', 'Checked'), checkSummary(t, report));
+      } else {
+        toast.info(t('Vérification non lancée', 'Check did not run'));
+      }
+      await load();
+      refreshEverything();
+    } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
 
   const open = (list ?? []).filter((i) => i.status !== 'resolved');
@@ -67,7 +91,7 @@ export function AlertsView() {
 
       {channels && <ChannelLine channels={channels} />}
 
-      <Tabs className="mb-4" value={tab} onChange={setTab} tabs={[{ key: 'open', label: t('Ouvertes', 'Open'), count: open.length }, { key: 'resolved', label: t('Réglées (3 jours)', 'Fixed (3 days)'), count: resolved.length }, ...(can('stores:map') ? [{ key: 'messages' as const, label: t('Messages envoyés', 'Messages sent') }] : [])]} />
+      <Tabs className="mb-4" value={tab} onChange={setTab} tabs={[{ key: 'open', label: t('Ouvertes', 'Open'), count: open.length }, { key: 'resolved', label: t('Fermées (3 jours)', 'Closed (3 days)'), count: resolved.length }, ...(can('stores:map') ? [{ key: 'messages' as const, label: t('Messages envoyés', 'Messages sent') }] : [])]} />
 
       {tab !== 'messages' && filtered && (
         <div className="text-small mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-ink-3">{t(`Filtré : ${label.words}`, `Filtered: ${label.words}`)}<span aria-hidden>·</span><button type="button" onClick={seeAll} className="min-h-11 font-semibold text-brand hover:underline">{t('Voir toutes les alertes', 'See every alert')}</button></div>
@@ -76,7 +100,7 @@ export function AlertsView() {
         list === null ? <SkeletonList count={3} />
           : shown.length === 0 ? <Card>{filtered && tab === 'open'
             ? <EmptyState icon={<ShieldCheck className="size-6 text-go" />} title={t(`Aucune alerte pour ${label.words}.`, `No alert for ${label.words}.`)} action={<Button variant="outline" size="lg" onClick={seeAll}>{t('Voir toutes les alertes', 'See every alert')}</Button>} />
-            : <EmptyState icon={<ShieldCheck className="size-6 text-go" />} title={tab === 'open' ? t('Tout roule. Rien à faire.', 'All good. Nothing to do.') : t('Rien de réglé récemment', 'Nothing fixed recently')} body={tab === 'open' ? t(`${product.name} continue de surveiller.`, `${product.name} keeps watching.`) : undefined} />}</Card>
+            : <EmptyState icon={<ShieldCheck className="size-6 text-go" />} title={tab === 'open' ? t('Tout roule. Rien à faire.', 'All good. Nothing to do.') : t('Aucune alerte fermée récemment', 'No alerts closed recently')} body={tab === 'open' ? t(`${product.name} continue de surveiller.`, `${product.name} keeps watching.`) : undefined} />}</Card>
             : <div className="space-y-3">{shown.map((i, k) => <IncidentCard key={i.id} i={i} focus={focus === i.id} defaultOpen={focus ? focus === i.id : k === 0} onChanged={load} />)}</div>
       )}
 
@@ -143,6 +167,38 @@ function CallStatusCheck({ id }: { id: string }) {
   );
 }
 
+function inactiveKitchenClosure(step?: IncidentStep) {
+  return step?.kind === 'resolved' && step.by === 'auto'
+    && (step.resolutionReason === 'inactive-kitchen' || step.message === INACTIVE_KITCHEN_CLOSURE);
+}
+
+function nativeTabletClosure(step?: IncidentStep): DeviceOfflineResolution | undefined {
+  if (step?.kind !== 'resolved' || inactiveKitchenClosure(step)) return undefined;
+  if (step.deviceOfflineResolution) return step.deviceOfflineResolution;
+  if (step.by === 'auto') return 'unconfirmed';
+  if (step.by === 'Watchtower' && step.message === DEVICE_OFFLINE_RESOLUTIONS.reassigned.message.join(' / ')) return 'reassigned';
+}
+
+export function IncidentResolutionBadge({ incident }: { incident: Incident }) {
+  const { t } = useI18n();
+  if (incident.status !== 'resolved') return null;
+  const automatic = incident.resolvedBy === 'auto';
+  const closure = automatic ? incident.steps.filter((step) => step.kind === 'resolved').at(-1) : undefined;
+  // A call receipt can be appended after closure. Match the current automatic closing step, including older records.
+  if (closure?.at === incident.resolvedAt && inactiveKitchenClosure(closure)) {
+    return <Badge tone="neutral">{t('surveillance arrêtée', 'monitoring stopped')}</Badge>;
+  }
+  const tabletClosure = incident.kind === 'device_offline'
+    ? nativeTabletClosure(incident.steps.filter((step) => step.kind === 'resolved' && step.by === incident.resolvedBy && step.at === incident.resolvedAt).at(-1))
+      ?? (automatic ? 'unconfirmed' : undefined)
+    : undefined;
+  if (tabletClosure) {
+    const { label } = DEVICE_OFFLINE_RESOLUTIONS[tabletClosure];
+    return <Badge tone={tabletClosure === 'heartbeat-restored' ? 'go' : 'neutral'}>{t(label[0], label[1])}</Badge>;
+  }
+  return <Badge tone="go" icon={<CheckCheck className="size-3" />}>{automatic ? t('réglé tout seul', 'fixed itself') : `${t('réglé par', 'fixed by')} ${incident.resolvedBy}`}</Badge>;
+}
+
 function IncidentCard({ i, focus, defaultOpen, onChanged }: { i: Incident; focus: boolean; defaultOpen: boolean; onChanged: () => void }) {
   const { t, lang, loc } = useI18n();
   const { can, locName } = useViewer();
@@ -179,7 +235,7 @@ function IncidentCard({ i, focus, defaultOpen, onChanged }: { i: Incident; focus
                 <span className="text-body font-bold text-ink">{lang === 'fr' ? i.title : i.titleEn}</span>
                 {i.status === 'acknowledged' && <Badge tone="info" icon={<Hand className="size-3" />}>{t('pris en charge par', 'on it:')} {i.ackBy}</Badge>}
                 {i.status === 'snoozed' && <Badge tone="neutral" icon={<BellOff className="size-3" />}>{t('sourdine jusqu’à', 'snoozed until')} {timeOf(i.snoozedUntil, loc)}</Badge>}
-                {i.status === 'resolved' && <Badge tone="go" icon={<CheckCheck className="size-3" />}>{i.resolvedBy === 'auto' ? t('réglé tout seul', 'fixed itself') : `${t('réglé par', 'fixed by')} ${i.resolvedBy}`}</Badge>}
+                <IncidentResolutionBadge incident={i} />
               </div>
               <div className="text-small mt-0.5 text-ink-3">{[lang === 'fr' ? i.detail : i.detailEn ?? i.detail, i.locationCode ? shortLoc(locName(i.locationCode)) : null, ago(i.openedAt, lang)].filter(Boolean).join(' · ')}</div>
             </div>
@@ -205,13 +261,20 @@ function IncidentCard({ i, focus, defaultOpen, onChanged }: { i: Incident; focus
                   {i.status === 'resolved' && can('orders:act') && <Button variant="ghost" className="mt-3" onClick={() => act('reopen')}>{t('Rouvrir', 'Reopen')}</Button>}
                 </div>
                 <ol className="text-small space-y-2 border-l border-line pl-4">
-                  {i.steps.slice(-10).map((s, k) => (
-                    <li key={k} className="relative">
-                      <span className={cn('absolute top-1.5 -left-[21px] size-2.5 rounded-full border-2 border-surface', s.uncertain ? 'bg-wait' : s.ok === false ? 'bg-stop' : s.kind === 'resolved' ? 'bg-go' : 'bg-ink-4')} />
-                      <span className="num text-ink-3">{timeOf(s.at, loc)}</span> <span className="font-semibold">{stepLabel(t, s.kind)}</span>{s.to ? ` → ${s.to}` : ''}{s.by ? ` · ${s.by}` : ''}
-                      {(s.uncertain || s.message) && <div className="text-ink-3">{s.uncertain ? t(...CALL_OUTCOME_UNCONFIRMED) : incidentStepText(lang, s.message ?? '')}</div>}
-                    </li>
-                  ))}
+                  {i.steps.slice(-10).map((s, k) => {
+                    const tabletResolution = i.kind === 'device_offline' ? nativeTabletClosure(s) : undefined;
+                    const closure = tabletResolution && DEVICE_OFFLINE_RESOLUTIONS[tabletResolution];
+                    const monitoringStopped = inactiveKitchenClosure(s);
+                    const resolutionDot = monitoringStopped || (tabletResolution && tabletResolution !== 'heartbeat-restored') ? 'bg-ink-4' : 'bg-go';
+                    const label = closure ? t(closure.label[0], closure.label[1]) : monitoringStopped ? t('Surveillance arrêtée', 'Monitoring stopped') : stepLabel(t, s.kind);
+                    return (
+                      <li key={k} className="relative">
+                        <span className={cn('absolute top-1.5 -left-[21px] size-2.5 rounded-full border-2 border-surface', s.uncertain ? 'bg-wait' : s.ok === false ? 'bg-stop' : s.kind === 'resolved' ? resolutionDot : 'bg-ink-4')} />
+                        <span className="num text-ink-3">{timeOf(s.at, loc)}</span> <span className="font-semibold">{label}</span>{s.to ? ` → ${s.to}` : ''}{s.by ? ` · ${s.by}` : ''}
+                        {(closure || monitoringStopped || s.uncertain || s.message) && <div className="text-ink-3">{closure ? t(closure.message[0], closure.message[1]) : s.uncertain ? t(...CALL_OUTCOME_UNCONFIRMED) : incidentStepText(lang, s.message ?? (monitoringStopped ? INACTIVE_KITCHEN_CLOSURE : ''))}</div>}
+                      </li>
+                    );
+                  })}
                 </ol>
               </div>
             </div>
@@ -246,10 +309,10 @@ function TextDialog({ i, onClose, onSent }: { i: Incident; onClose: () => void; 
   );
 }
 
-/** "2 nouvelles · 1 réglée · 3 ouvertes" after a manual check. */
+/** "2 nouvelles · 1 fermée · 3 ouvertes" after a manual check. */
 function checkSummary(t: (fr: string, en: string) => string, r: { opened: number; resolved: number; open: number }) {
   const a = plurals(r.opened, ['nouvelle'], ['new', 'new']);
-  const b = plurals(r.resolved, ['réglée'], ['fixed', 'fixed']);
+  const b = plurals(r.resolved, ['fermée'], ['closed', 'closed']);
   const c = plurals(r.open, ['ouverte'], ['open', 'open']);
   return t(`${a[0]} · ${b[0]} · ${c[0]}`, `${a[1]} · ${b[1]} · ${c[1]}`);
 }

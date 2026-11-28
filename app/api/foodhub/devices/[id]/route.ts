@@ -19,7 +19,8 @@ export const PATCH = withPerm<Ctx>('stores:map', async (req, ctx, actor) => {
     const catalog = await getCatalog();
     if (!catalog.locations.some((l) => l.code === code && l.active)) return fail('Choisissez une succursale. / Choose a location.');
   }
-  return ok({ device: await updateDevice(id, { name: b.name, locationCode: code }, actor) });
+  const updated = await updateDevice(id, { name: b.name, locationCode: code }, actor, d);
+  return updated ? ok({ device: { ...updated, lastHeartbeat: undefined } }) : fail('Device changed. Refresh and try again.', 409);
 });
 
 // Remove a tablet: it is signed out at once and must be enrolled again.
@@ -29,7 +30,7 @@ export const DELETE = withPerm<Ctx>('stores:map', async (req, ctx, actor) => {
   if (!d || !inScope(actor, d.locationCode)) return fail('Device not found', 404);
   const gate = await approvalGate(req, actor, 'team.manage', d.locationCode, `remove tablet ${d.name}`);
   if (gate) return gate;
-  await revokeDevice(id, actor);
+  if (!(await revokeDevice(id, actor, d))) return fail('Device changed. Refresh and try again.', 409);
   const here = await deviceFromRequest(req);
   const res = NextResponse.json({ ok: true });
   if (here?.id === id) res.headers.append('Set-Cookie', forgetDeviceCookie());

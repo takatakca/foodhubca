@@ -115,6 +115,9 @@ export interface PlatformScreen {
   storeIds?: string[];
 }
 
+type StoredScreen = PlatformScreen & { revision?: string };
+type ScreenScope = (locationCode: string) => boolean;
+
 // Merchant packages shipped by the Android relay kit. Missing or unknown identities remain compatible with older agents.
 const PLATFORM_BY_ORDER_APP = new Map<string, ScreenPlatform>([
   ['com.dd.ddmerchant', 'doordash'], ['com.uber.restaurants', 'ubereats'], ['ca.skipthedishes.dashboard', 'skip'],
@@ -170,18 +173,37 @@ export function viewHosts(env: Record<string, string | undefined> = process.env)
 }
 
 export async function listScreens(): Promise<PlatformScreen[]> {
-  return (await getRepo().listDocs<PlatformScreen>(SCREENS, { limit: 200 })).map((d) => omitForeignSignal(d.data))
+  return (await getRepo().listDocs<StoredScreen>(SCREENS, { limit: 200 })).map((d) => publicScreen(d.data))
     .sort((a, b) => (a.locationCode + a.platform + a.name).localeCompare(b.locationCode + b.platform + b.name));
 }
 
 export async function getScreen(id: string): Promise<PlatformScreen | null> {
-  const screen = (await getRepo().getDoc<PlatformScreen>(SCREENS, id))?.data;
-  return screen ? omitForeignSignal(screen) : null;
+  const screen = (await getRepo().getDoc<StoredScreen>(SCREENS, id))?.data;
+  return screen ? publicScreen(screen) : null;
 }
 
-async function save(s: PlatformScreen) {
-  await getRepo().putDocs<PlatformScreen>(SCREENS, [{ id: s.id, key: s.locationCode, at: s.createdAt, data: s }]);
-  return s;
+function publicScreen({ revision: _revision, ...s }: StoredScreen): PlatformScreen {
+  return omitForeignSignal(s);
+}
+
+function screenDocument(s: PlatformScreen) {
+  return { id: s.id, key: s.locationCode, at: s.createdAt, data: { ...s, revision: crypto.randomUUID() } };
+}
+
+class ScreenWriteConflict extends Error {}
+
+async function changeScreen(id: string, edit: (s: PlatformScreen) => PlatformScreen | { error: string } | null) {
+  const repo = getRepo();
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const stored = (await repo.getDoc<StoredScreen>(SCREENS, id))?.data;
+    if (!stored) return null;
+    const previous = publicScreen(stored);
+    const screen = edit(previous);
+    if (!screen || 'error' in screen) return screen;
+    if (screen === previous) return { previous, screen, changed: false };
+    if (await repo.replaceDocIfRevision(SCREENS, screenDocument(screen), stored.revision)) return { previous, screen, changed: true };
+  }
+  throw new ScreenWriteConflict('Platform screen changed while saving. Try again.');
 }
 
 const cleanName = (v: unknown, platform: ScreenPlatform) => String(v ?? '').trim().slice(0, 60) || SCREEN_PLATFORM_LABEL[platform];
@@ -212,62 +234,69 @@ export async function addScreen(input: { name?: unknown; platform?: unknown; loc
     id: crypto.randomUUID(), name: cleanName(input.name, platform), platform, locationCode: input.locationCode, viewUrl: url.url,
     createdBy: actor.name, createdAt: new Date().toISOString(), lastSeenAt: null, state: null, storeIds: stores.ids,
   };
-  await save(screen);
+  if (!(await getRepo().insertDocIfAbsent(SCREENS, screenDocument(screen)))) throw new Error('Platform screen already exists.');
   await logActivity({ actor: actor.name, source: actor.source, kind: 'device', action: 'screen_added', status: 'success', locationCode: screen.locationCode, summary: `Platform screen "${screen.name}" (${SCREEN_PLATFORM_LABEL[platform]}) added` });
   return screen;
 }
 
-export async function updateScreen(id: string, patch: { name?: unknown; platform?: unknown; locationCode?: string; viewUrl?: unknown; storeIds?: unknown }, actor: Actor): Promise<PlatformScreen | { error: string } | null> {
-  const s = await getScreen(id);
-  if (!s) return null;
-  const next = { ...s };
-  if (patch.platform !== undefined) {
-    const p = asPlatform(patch.platform);
-    if (!p) return { error: 'Choisissez la plateforme. / Choose the platform.' };
-    if (p !== s.platform) {
-      // Only a heartbeat after the switch can establish readiness for the new channel.
-      const url = screenStartUrl(p);
-      Object.assign(next, EMPTY_MERCHANT_SIGNAL);
-      next.platform = p;
-      next.state = next.lastSeenAt ? 'blank' : null;
-      next.command = url ? { kind: 'open', url, at: new Date().toISOString(), by: actor.name } : null;
+export async function updateScreen(id: string, patch: { name?: unknown; platform?: unknown; locationCode?: string; viewUrl?: unknown; storeIds?: unknown }, actor: Actor, inScope?: ScreenScope): Promise<PlatformScreen | { error: string } | null> {
+  const result = await changeScreen(id, (s) => {
+    if (inScope && !inScope(s.locationCode)) return null;
+    const next = { ...s };
+    if (patch.platform !== undefined) {
+      const p = asPlatform(patch.platform);
+      if (!p) return { error: 'Choisissez la plateforme. / Choose the platform.' };
+      if (p !== s.platform) {
+        // Only a heartbeat after the switch can establish readiness for the new channel.
+        const url = screenStartUrl(p);
+        Object.assign(next, EMPTY_MERCHANT_SIGNAL);
+        next.platform = p;
+        next.state = next.lastSeenAt ? 'blank' : null;
+        next.command = url ? { kind: 'open', url, at: new Date().toISOString(), by: actor.name } : null;
+      }
     }
-  }
-  if (patch.name !== undefined) next.name = cleanName(patch.name, next.platform);
-  if (patch.locationCode) next.locationCode = patch.locationCode;
-  if (patch.viewUrl !== undefined) {
-    const url = checkViewUrl(patch.viewUrl);
-    if ('error' in url) return url;
-    next.viewUrl = url.url;
-  }
-  if (patch.storeIds !== undefined) {
-    const stores = cleanStoreIds(patch.storeIds);
-    if ('error' in stores) return stores;
-    next.storeIds = stores.ids;
-  }
-  await save(next);
-  await logActivity({ actor: actor.name, source: actor.source, kind: 'device', action: 'screen_updated', status: 'success', locationCode: next.locationCode, summary: `Platform screen "${next.name}" updated` });
-  return next;
+    if (patch.name !== undefined) next.name = cleanName(patch.name, next.platform);
+    if (patch.locationCode) next.locationCode = patch.locationCode;
+    if (patch.viewUrl !== undefined) {
+      const url = checkViewUrl(patch.viewUrl);
+      if ('error' in url) return url;
+      next.viewUrl = url.url;
+    }
+    if (patch.storeIds !== undefined) {
+      const stores = cleanStoreIds(patch.storeIds);
+      if ('error' in stores) return stores;
+      next.storeIds = stores.ids;
+    }
+    return next;
+  });
+  if (!result || 'error' in result) return result;
+  const { screen } = result;
+  await logActivity({ actor: actor.name, source: actor.source, kind: 'device', action: 'screen_updated', status: 'success', locationCode: screen.locationCode, summary: `Platform screen "${screen.name}" updated` });
+  return screen;
 }
 
-export async function removeScreen(id: string, actor: Actor): Promise<boolean> {
-  const s = await getScreen(id);
-  if (!s) return false;
-  await getRepo().deleteDocs(SCREENS, [id]);
+export async function removeScreen(id: string, actor: Actor, inScope: ScreenScope): Promise<boolean> {
+  const repo = getRepo();
+  const doc = await repo.getDoc<StoredScreen>(SCREENS, id);
+  if (!doc || !inScope(doc.data.locationCode)) return false;
+  if (!(await repo.deleteDocIfRevision(SCREENS, doc))) return false;
+  const s = doc.data;
   await logActivity({ actor: actor.name, source: actor.source, kind: 'device', action: 'screen_removed', status: 'success', locationCode: s.locationCode, summary: `Platform screen "${s.name}" removed` });
   return true;
 }
 
 /** "Go to the sign-in page" from the console: the agent opens the platform's start page on its next heartbeat. */
-export async function requestOpen(id: string, actor: Actor): Promise<PlatformScreen | { error: string } | null> {
-  const s = await getScreen(id);
-  if (!s) return null;
-  const url = screenStartUrl(s.platform);
-  if (!url) return { error: 'Aucune page de départ pour cette plateforme. / No start page for this platform.' };
-  const next = { ...s, command: { kind: 'open' as const, url, at: new Date().toISOString(), by: actor.name } };
-  await save(next);
-  await logActivity({ actor: actor.name, source: actor.source, kind: 'device', action: 'screen_open', status: 'queued', locationCode: s.locationCode, summary: `Start page asked for platform screen "${s.name}"` });
-  return next;
+export async function requestOpen(id: string, actor: Actor, inScope?: ScreenScope): Promise<PlatformScreen | { error: string } | null> {
+  const result = await changeScreen(id, (s) => {
+    if (inScope && !inScope(s.locationCode)) return null;
+    const url = screenStartUrl(s.platform);
+    if (!url) return { error: 'Aucune page de départ pour cette plateforme. / No start page for this platform.' };
+    return { ...s, command: { kind: 'open', url, at: new Date().toISOString(), by: actor.name } };
+  });
+  if (!result || 'error' in result) return result;
+  const { screen } = result;
+  await logActivity({ actor: actor.name, source: actor.source, kind: 'device', action: 'screen_open', status: 'queued', locationCode: screen.locationCode, summary: `Start page asked for platform screen "${screen.name}"` });
+  return screen;
 }
 
 export type SetupCounts = Partial<Record<Exclude<ScreenPlatform, 'other'>, number>>;
@@ -302,14 +331,15 @@ export async function setupScreens(input: { baseUrl?: unknown; locationCode: str
     const id = slotId(start + i);
     const platform = plan[i];
     if (await getScreen(id)) { kept.push(id); continue; }
-    perPlatform[platform] = (perPlatform[platform] ?? 0) + 1;
+    const number = (perPlatform[platform] ?? 0) + 1;
     const url = screenStartUrl(platform);
     const screen: PlatformScreen = {
-      id, name: `${SCREEN_PLATFORM_LABEL[platform]} ${perPlatform[platform]}`, platform, locationCode: input.locationCode, viewUrl: new URL(`${id}/`, root).toString(),
+      id, name: `${SCREEN_PLATFORM_LABEL[platform]} ${number}`, platform, locationCode: input.locationCode, viewUrl: new URL(`${id}/`, root).toString(),
       createdBy: actor.name, createdAt: now, lastSeenAt: null, state: null, storeIds: [],
       command: url ? { kind: 'open', url, at: now, by: actor.name } : null,
     };
-    await save(screen);
+    if (!(await getRepo().insertDocIfAbsent(SCREENS, screenDocument(screen)))) { kept.push(id); continue; }
+    perPlatform[platform] = number;
     created.push(screen);
   }
   if (created.length) await logActivity({ actor: actor.name, source: actor.source, kind: 'device', action: 'screens_setup', status: 'success', locationCode: input.locationCode, summary: `${created.length} platform screen(s) set up (${created.map((x) => x.id).join(', ')})` });
@@ -317,13 +347,15 @@ export async function setupScreens(input: { baseUrl?: unknown; locationCode: str
 }
 
 /** "Reload" from the console: the agent picks it up on its next heartbeat (≤ 20 s). */
-export async function requestReload(id: string, actor: Actor): Promise<PlatformScreen | null> {
-  const s = await getScreen(id);
-  if (!s) return null;
-  const next = { ...s, command: { kind: 'reload' as const, at: new Date().toISOString(), by: actor.name } };
-  await save(next);
-  await logActivity({ actor: actor.name, source: actor.source, kind: 'device', action: 'screen_reload', status: 'queued', locationCode: s.locationCode, summary: `Reload asked for platform screen "${s.name}"` });
-  return next;
+export async function requestReload(id: string, actor: Actor, inScope?: ScreenScope): Promise<PlatformScreen | null> {
+  const result = await changeScreen(id, (s) => {
+    if (inScope && !inScope(s.locationCode)) return null;
+    return { ...s, command: { kind: 'reload', at: new Date().toISOString(), by: actor.name } };
+  });
+  if (!result || 'error' in result) return null;
+  const { screen } = result;
+  await logActivity({ actor: actor.name, source: actor.source, kind: 'device', action: 'screen_reload', status: 'queued', locationCode: screen.locationCode, summary: `Reload asked for platform screen "${screen.name}"` });
+  return screen;
 }
 
 // ---- Relay agent (deploy/screens/agent.mjs) ----
@@ -379,25 +411,46 @@ export function nextWaitingSince(prev: Pick<PlatformScreen, 'titleCount' | 'wait
 /** Save each screen's report and hand back the commands waiting for it (each command is given once). */
 export type AgentCommand = { id: string; kind: ScreenCommand['kind']; url?: string };
 
-export async function recordHeartbeat(hb: Heartbeat, now = new Date()): Promise<{ commands: AgentCommand[]; unknown: string[] }> {
+function sameScreenBinding(a: PlatformScreen, b: PlatformScreen): boolean {
+  return a.createdAt === b.createdAt && a.locationCode === b.locationCode && a.platform === b.platform && a.viewUrl === b.viewUrl
+    && JSON.stringify(a.storeIds ?? []) === JSON.stringify(b.storeIds ?? []);
+}
+
+export async function recordHeartbeat(hb: Heartbeat, now = new Date()): Promise<{ commands: AgentCommand[]; unknown: string[]; partial?: true }> {
   const commands: AgentCommand[] = [];
   const unknown: string[] = [];
+  const seenAt = now.toISOString();
   for (const r of hb.screens) {
-    const s = await getScreen(r.id);
-    if (!s) { unknown.push(r.id); continue; }
     const title = r.title ? r.title.slice(0, 120) : null;
-    const wasLogin = s.state === 'login';
-    if (s.command?.kind === 'open' && allowedScreenUrl(s.command.url)) commands.push({ id: s.id, kind: 'open', url: s.command.url });
-    else if (s.command?.kind === 'reload') commands.push({ id: s.id, kind: 'reload' });
     const mode: ScreenMode = r.mode ?? 'web';
     const count = titleCount(title) ?? r.waiting ?? null;
-    const next = await save(omitForeignSignal({
-      ...s, lastSeenAt: now.toISOString(), state: r.state, pageTitle: title, pageHost: hostOf(r.url), titleCount: count,
-      waitingSince: nextWaitingSince(s, count, now), mode, app: mode === 'android' ? r.app ?? null : null,
-      autoReloads: r.autoReloads ?? s.autoReloads ?? null, agentVersion: hb.version ?? s.agentVersion ?? null, command: null,
-    }));
-    if (next.state === 'login' && !wasLogin) {
-      await logActivity({ actor: 'Screen relay', source: 'automation', kind: 'device', action: 'screen_signed_out', status: 'failed', locationCode: s.locationCode, summary: `Platform screen "${s.name}" asks to sign in again` });
+    let observed: PlatformScreen | undefined;
+    const saved = await changeScreen(r.id, (s) => {
+      observed ??= s;
+      // A report that raced a reassignment cannot describe the new merchant screen or take its command.
+      if (!sameScreenBinding(observed, s) || (s.lastSeenAt && Date.parse(s.lastSeenAt) > now.getTime())) return s;
+      return omitForeignSignal({
+        ...s, lastSeenAt: seenAt, state: r.state, pageTitle: title, pageHost: hostOf(r.url), titleCount: count,
+        waitingSince: nextWaitingSince(s, count, now), mode, app: mode === 'android' ? r.app ?? null : null,
+        autoReloads: r.autoReloads ?? s.autoReloads ?? null, agentVersion: hb.version ?? s.agentVersion ?? null, command: null,
+      });
+    }).catch((error: unknown) => {
+      // A confirmed conflict leaves this row untouched. Other errors may have followed a committed write.
+      if (error instanceof ScreenWriteConflict) return undefined;
+      if (!commands.length) throw error;
+      console.warn('[foodhub] Screen relay heartbeat could not confirm a screen report. Returning previously claimed commands.');
+      return 'partial' as const;
+    });
+    if (saved === 'partial') return { commands, unknown, partial: true };
+    if (saved === undefined) continue;
+    if (!saved || 'error' in saved) { unknown.push(r.id); continue; }
+    if (!saved.changed) continue;
+    const { previous, screen } = saved;
+    const command = previous.command;
+    if (command?.kind === 'open' && allowedScreenUrl(command.url)) commands.push({ id: screen.id, kind: 'open', url: command.url });
+    else if (command?.kind === 'reload') commands.push({ id: screen.id, kind: 'reload' });
+    if (screen.state === 'login' && previous.state !== 'login') {
+      await logActivity({ actor: 'Screen relay', source: 'automation', kind: 'device', action: 'screen_signed_out', status: 'failed', locationCode: screen.locationCode, summary: `Platform screen "${screen.name}" asks to sign in again` });
     }
   }
   return { commands, unknown };

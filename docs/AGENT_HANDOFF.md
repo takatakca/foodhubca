@@ -1,8 +1,42 @@
+## 2026-11-27 — Sources des liaisons Uber sur la version publiée
+
+La branche de revue #198 reprend la version publiée `7764c7e`. La découverte et la lecture des adresses utilisent l’autorisation Uber d’inspection et gardent les filtres de cuisine. Le formulaire distingue l’adresse reçue d’Uber de la suggestion historique. #199 suit la publication de #198. L’autorisation du compte marchand et la réception réelle restent suivies dans #46.
+
+— signé Codex @ cloud · 2026-11-27
+
 ## 2026-11-27 — Source de la cuisine proposée pour un magasin Uber
 
 Dans Restaurants → Liaisons, la découverte et la lecture de l’adresse utilisent le jeton de lecture des magasins. Le commerçant peut consulter les magasins accessibles avant d’autoriser les écritures. Une suggestion de cuisine qui vient du registre historique est signalée comme telle. Dans ce cas, le bouton de vérification ouvre la liaison actuelle. La vérification des sept fiches marchandes et les refus distincts de l’inspection et du parcours d’autorisation sont consignés dans [la checklist marchande](https://github.com/takatakca/foodhubca/issues/46#issuecomment-7210321209). La publication suit la file de déploiement du [backlog](https://github.com/takatakca/foodhubca/issues/155).
 
 — signé : Codex @ Chrome marchand · 2026-11-27
+## 2026-11-26 — Paiement Clover après déplacement d’une liaison
+
+La réconciliation locale de #183 sur `86d190c` conserve les références par magasin de #178 pour la saisie, la reprise, l’import et le paiement Clover. Les 161 essais ciblés couvrent aussi le règlement et l’impression sur la caisse confirmée et le contrôle manuel d’une liaison Uber Eats. Les réponses des fournisseurs sont simulées. La CI du SHA réconcilié et la réception marchande restent à vérifier avant publication.
+
+La paire caisse et commande confirmée reste stable dans les événements et la lecture Suite. La note de facture Clover, quand elle est activée, utilise aussi la caisse confirmée si la liaison a changé. Le repli historique garde la liaison courante pour une commande sans caisse enregistrée. Deux tests reproduisent les destinations erronées avec des fournisseurs simulés. Sur `b59c904`, 133 tests ciblés, TypeScript et ESLint passent.
+
+La cuisine enregistrée sur la commande peut marquer la remise au livreur et la commande terminée. Si la liaison actuelle désigne une autre cuisine, Food Hub affiche un paiement Clover en attente. Le contrôle intervient avant la recherche du type de paiement et l’envoi à Clover. Pour une commande déjà terminée, vérifier le paiement sur la commande de la caisse Clover d’origine et l’enregistrer dans Clover si nécessaire. Le contrôle compare les deux cuisines lorsqu’elles sont connues. La preuve marchande reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+À la création ou au rattachement d’une commande Clover retrouvée, Food Hub enregistre la caisse confirmée avec l’identifiant de commande. Le règlement utilise cette caisse si la liaison change de caisse dans la même cuisine. Les anciennes commandes sans caisse enregistrée suivent la liaison actuelle ou la caisse par défaut configurée. Elles nécessitent une vérification sur la caisse d’origine après un remplacement. Les essais simulés couvrent le changement de caisse, la caisse OAuth approuvée, le rattachement et le contrôle de cuisine.
+
+L’impression à l’arrivée, le déclenchement planifié et la réimpression utilisent aussi la caisse confirmée. Une caisse devenue inaccessible produit une erreur d’impression sur la commande. Les essais sur `cdde075` couvrent ces trois parcours avec des réponses Clover simulées, ainsi que la réimpression d’une commande historique. Les 193 tests ciblés, TypeScript et ESLint réussissent.
+
+L’annulation et la relève vers la tablette Skip ferment la commande sur la caisse qui l’a confirmée. Si cette caisse diffère de la caisse configurée, Food Hub y vérifie l’identifiant et le titre avant de demander une modification. Lors d’un envoi concurrent, la copie excédentaire est retirée de la caisse qui l’a créée. Une même référence sur deux caisses distingue toujours deux copies lorsque les deux caisses sont confirmées. Les 117 tests ciblés utilisent des réponses Clover simulées.
+
+Si l’annulation arrive pendant le premier envoi, Food Hub ferme la commande sur la caisse confirmée avant impression. L’arrêt s’applique aussi lorsque l’acceptation automatique est désactivée. Quand Clover renvoie un échec après l’annulation, la relève vers la tablette Skip est abandonnée. Les trois scénarios reproduisaient l’erreur avant correction. Sur `df03fc9`, les 136 tests ciblés, TypeScript et ESLint réussissent avec des fournisseurs simulés.
+
+## Diagnostic des étiquettes d’impression Clover
+
+La vérification dans Réglages → Canaux lit les pages d’étiquettes et d’articles du marchand. Une réponse incomplète, en erreur ou répétée interrompt le diagnostic et l’affectation. Le résultat affiché porte sur les étiquettes configurées. La confirmation de réception du ticket et la preuve d’appel sont suivies dans [la checklist marchande](https://github.com/takatakca/foodhubca/issues/46). La branche part de #178 et suit la [file de publication](https://github.com/takatakca/foodhubca/issues/155).
+
+— Codex @ navigateur marchand · 2026-11-27
+## 2026-11-26 — Arrivée des commandes Uber Eats par Clover
+
+Quand Uber Eats est configuré via Clover, Food Hub conserve les nouvelles notifications Uber directes et les commandes directes ou relayées encore en file pour vérification. La reprise manuelle applique la même règle. La récupération ne consulte plus les nouvelles commandes côté Uber. L’import natif lit les commandes chez Clover, et les annulations et états des commandes directes déjà reçues continuent d’être traités.
+
+Les essais signés couvrent les notifications ordinaires et planifiées, les entrées déjà normalisées, la reprise, l’import natif Clover et les annulations antérieures. Les preuves de réception réelle restent suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
 
 ## 2026-11-26 — Numéro de commande saisi à partir d’un écran
 

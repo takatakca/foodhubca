@@ -243,7 +243,7 @@ export function HubPage({ page, lang, ctx }: { page: HubPageKey; lang: Lang; ctx
         </div>
       </header>
 
-      <main id="contenu">
+      <main id="contenu" tabIndex={-1} className="sm:scroll-mt-28">
         <div className={isLanding ? landing.hero : 'bg-rail text-white'}>
           <div className={`mx-auto max-w-6xl px-4 text-white ${isLanding ? landing.heroLayout : 'pb-14 pt-10'}`}>
             <div className={isLanding ? landing.heroCopy : ''}>

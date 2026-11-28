@@ -1,3 +1,7 @@
+## 2026-11-26 — Lien d’évitement de la vitrine
+
+Le lien d’évitement de la vitrine FR/EN cible le contenu principal, qui accepte le focus sans ajouter de nouvelle étape au parcours Tab. Sur les écrans avec un en-tête fixe au défilement, la cible conserve un décalage. Le test de rendu couvre toutes les pages dans les deux langues. Vérifier Tab → Entrée puis Tab en navigateur avant publication.
+
 ## 2026-11-26 — Paiement Clover après déplacement d’une liaison
 
 La réconciliation locale de #183 sur `86d190c` conserve les références par magasin de #178 pour la saisie, la reprise, l’import et le paiement Clover. Les 161 essais ciblés couvrent aussi le règlement et l’impression sur la caisse confirmée et le contrôle manuel d’une liaison Uber Eats. Les réponses des fournisseurs sont simulées. La CI du SHA réconcilié et la réception marchande restent à vérifier avant publication.

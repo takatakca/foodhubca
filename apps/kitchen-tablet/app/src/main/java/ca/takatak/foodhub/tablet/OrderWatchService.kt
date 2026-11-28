@@ -74,6 +74,10 @@ class OrderWatchService : Service() {
     private var wifiLock: WifiManager.WifiLock? = null
     private val main = Handler(Looper.getMainLooper())
     private val draining = AtomicBoolean(false)
+    @Volatile private var queueScope: QueueScope? = null
+    private var startupScope: QueueScope? = null
+    @Volatile private var queueLocation: String? = null
+    private var continuation: String? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -83,9 +87,13 @@ class OrderWatchService : Service() {
         createChannels()
         goForeground(getString(R.string.watch_starting))
         acquireLocks()
-        // After a (re)start the first poll uses the server's default window (15 minutes): no pile of old tickets in the
-        // morning, and the claims already made stop any reprint (after a reinstall: printedElsewhere, Prefs.firstRun).
-        prefs.since = null
+        // Reuse the checkpoint or unfinished window. The first successful response confirms its kitchen.
+        queueScope = configuredQueueScope()
+        startupScope = queueScope
+        val savedProgress = prefs.queueDrain
+        if (savedProgress == null || savedProgress.scope != queueScope) {
+            prefs.resetQueueProgress(queueScope?.origin)
+        }
         poller = Executors.newSingleThreadScheduledExecutor().also { it.scheduleWithFixedDelay({ safePoll() }, 1, POLL_SECONDS, TimeUnit.SECONDS) }
     }
 
@@ -117,17 +125,40 @@ class OrderWatchService : Service() {
     // ------------------------------------------------------------------ polling
 
     private fun safePoll() {
-        try { poll() } catch (e: Throwable) { setStatus(getString(R.string.status_offline, e.message ?: e.javaClass.simpleName)) }
-        // Waiting tickets go to the printer even when Food Hub cannot be reached.
+        try { poll() } catch (e: Throwable) {
+            continuation = null
+            queueLocation = null
+            setStatus(getString(R.string.status_offline, e.message ?: e.javaClass.simpleName))
+        }
+        // The printer thread checks the verified kitchen and current order before sending bytes.
         drainPending()
     }
 
+    private fun configuredQueueScope(): QueueScope? = prefs.withSettings {
+        prefs.origin()?.let { QueueScope(it, prefs.location, prefs.deviceId) }
+    }
+
+    private fun apiFor(scope: QueueScope) =
+        FoodHubApi(scope.origin, { cookieFor(scope.origin) }, "FoodHubTablet/${BuildConfig.VERSION_NAME} (Android ${Build.VERSION.RELEASE})")
+
+    private fun resetQueueScope(scope: QueueScope?, location: String? = null) {
+        queueScope = scope
+        queueLocation = location
+        continuation = null
+        prefs.resetQueueProgress(scope?.origin)
+    }
+
     private fun poll() {
-        val origin = prefs.origin() ?: return setStatus(getString(R.string.status_bad_url))
-        val api = FoodHubApi(origin, { cookieFor(origin) }, "FoodHubTablet/${BuildConfig.VERSION_NAME} (Android ${Build.VERSION.RELEASE})")
+        val scope = configuredQueueScope()
+        if (queueScope != scope) resetQueueScope(scope)
+        if (scope == null) return setStatus(getString(R.string.status_bad_url))
+        val drain = QueueLogic.drainForScope(prefs.queueDrain, scope)
+        val api = apiFor(scope)
         val queue = try {
-            api.queue(prefs.since, prefs.location, prefs.deviceId, prefs.paper, prefs.ticketLang)
+            api.queue(drain?.since ?: prefs.since, scope.location, scope.deviceId, prefs.paper, prefs.ticketLang, continuation)
         } catch (e: FoodHubApi.ApiError) {
+            continuation = null
+            queueLocation = null
             return setStatus(when {
                 e.status == 401 -> getString(R.string.status_signed_out)
                 e.needLocation -> getString(R.string.status_need_location)
@@ -135,34 +166,64 @@ class OrderWatchService : Service() {
                 else -> "HTTP ${e.status} : ${e.message}"
             })
         }
-        val pendingIds = prefs.pending.map { it.id }.toSet()
+        val currentScope = configuredQueueScope()
+        if (currentScope != scope) return resetQueueScope(currentScope)
+        val location = queue.location ?: throw FoodHubApi.ApiError(0, "Missing print queue location")
+        val previousLocation = queueLocation ?: drain?.location
+        if (previousLocation != null && location != previousLocation) return resetQueueScope(scope, location)
+        if (continuation != null && (queue.continuation == continuation || queue.since != drain?.since)) {
+            throw FoodHubApi.ApiError(0, "Invalid print queue continuation")
+        }
+        queueLocation = location
+        val mayHaveMore = QueueLogic.queueMayHaveMore(queue.paged, queue.items.size, queue.continuation)
+        val since = queue.since ?: throw FoodHubApi.ApiError(0, "Missing print queue window")
+        val horizon = QueueLogic.parseInstant(queue.serverTime)
+        val activeDrain = prefs.anchorQueueDrain(QueueDrain(scope, location, since), continuation, horizon)
+            ?: throw FoodHubApi.ApiError(0, "Missing print queue checkpoint")
+        val pendingIds = prefs.pending.filter(::pendingInCurrentScope).map { it.id }.toSet()
         val firstRun = prefs.firstRun
-        val plan = QueueLogic.plan(queue.items, prefs.seen.toSet(), pendingIds, QueueLogic.shouldPrint(prefs.autoPrint, prefs.printerType), firstRun)
+        val restored = if (horizon != null) prefs.recentQueueReceiptIds(scope, location) else emptySet()
+        val seen = QueueLogic.seenDuringDrain(prefs.seen, activeDrain, restored)
+        val plan = QueueLogic.plan(queue.items, seen, pendingIds, QueueLogic.shouldPrint(prefs.autoPrint, prefs.printerType), firstRun)
         // A cancelled order whose ticket still waits for the printer (no paper, printer off): never print it now.
         val dropped = QueueLogic.cancelledPending(queue.items, pendingIds)
-        if (dropped.isNotEmpty()) prefs.updatePending { list -> list.filter { it.id !in dropped } }
+        if (dropped.isNotEmpty()) prefs.updatePending { list -> list.filterNot { it.id in dropped && pendingInCurrentScope(it) } }
         val ring = mutableListOf<QueueItem>()
         var allHandled = true
         for ((item, step) in plan) {
+            val configured = configuredQueueScope()
+            if (configured != scope) return resetQueueScope(configured)
             when (step) {
-                Step.SILENT -> prefs.markSeen(item.id)
-                Step.RING, Step.CANCEL_UNPRINTED -> { prefs.markSeen(item.id); ring += item }
-                Step.RECOVER -> { toPrinter(item); ring += item }
+                Step.SILENT -> prefs.markSeen(item, scope, location)
+                Step.RING, Step.CANCEL_UNPRINTED -> { prefs.markSeen(item, scope, location); ring += item }
+                Step.RECOVER -> { toPrinter(item, scope, location); ring += item }
                 Step.CLAIM -> {
                     val claim = try {
-                        api.claim(item, prefs.deviceId, prefs.location)
+                        api.claim(item, scope.deviceId, location) { configuredQueueScope() == scope }
                     } catch (e: FoodHubApi.ApiError) {
+                        val afterFailure = configuredQueueScope()
+                        if (afterFailure != scope) return resetQueueScope(afterFailure)
                         // 404 / 400: not for this tablet. Otherwise (no answer, 5xx): asked again next poll — and if the
                         // claim did go through, the queue then says printed and the ticket is printed (RECOVER).
-                        if (e.status == 404 || e.status == 400) prefs.markSeen(item.id) else allHandled = false
+                        if (e.status == 404 || e.status == 400) prefs.markSeen(item, scope, location) else allHandled = false
                         continue
                     }
-                    if (claim.claimed) { toPrinter(item); ring += item } else prefs.markSeen(item.id)
+                    val afterClaim = configuredQueueScope()
+                    if (afterClaim != scope) {
+                        // Preserve a confirmed claim for the original kitchen without sending it to a new printer.
+                        if (claim.claimed) rememberPending(item, scope, location)
+                        return resetQueueScope(afterClaim)
+                    }
+                    if (claim.claimed) { toPrinter(item, scope, location); ring += item } else prefs.markSeen(item, scope, location)
                 }
             }
         }
-        prefs.since = QueueLogic.nextSince(prefs.since, queue.serverTime, allHandled)
-        if (firstRun && allHandled) prefs.firstRun = false
+        val afterPage = configuredQueueScope()
+        if (afterPage != scope) return resetQueueScope(afterPage)
+        continuation = queue.continuation.takeIf { allHandled }
+        if (allHandled && !mayHaveMore) {
+            prefs.finishQueueDrain(activeDrain, queue.serverTime)
+        }
         if (ring.isNotEmpty()) announce(ring)
         setStatus(getString(R.string.status_ok, LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss")), queue.location ?: "?", ring.size))
     }
@@ -185,43 +246,98 @@ class OrderWatchService : Service() {
      * A ticket this tablet claimed: written down (waiting list + seen, on disk) BEFORE it goes to the printer, so a
      * printer error or the app being killed in between never loses it, and it is never claimed or recovered twice.
      */
-    private fun toPrinter(item: QueueItem) {
-        prefs.updatePending { list -> if (list.any { it.id == item.id }) list else list + PendingTicket(item.id, item.number, item.ticket, System.currentTimeMillis(), 0) }
-        prefs.markSeen(item.id)
+    private fun rememberPending(item: QueueItem, scope: QueueScope, location: String) {
+        val ticket = PendingTicket(item.id, item.number, item.ticket, System.currentTimeMillis(), 0, scope, location)
+        prefs.withSettings {
+            prefs.updatePending { list -> if (list.any { it.sameTicket(ticket) }) list else list + ticket }
+            prefs.markSeen(item, scope, location)
+        }
+    }
+
+    private fun toPrinter(item: QueueItem, scope: QueueScope, location: String) {
+        rememberPending(item, scope, location)
         drainPending()
     }
 
+    private fun pendingInCurrentScope(ticket: PendingTicket): Boolean {
+        val current = configuredQueueScope()
+        val activeLocation = queueLocation.takeIf { queueScope == current }
+        return QueueLogic.pendingMatches(ticket.scope, ticket.resolvedLocation, startupScope, current, activeLocation)
+    }
+
+    private fun stillPending(ticket: PendingTicket, scope: QueueScope, location: String): Boolean =
+        queueScope == scope && queueLocation == location && pendingInCurrentScope(ticket) && prefs.pending.any(ticket::sameTicket)
+
+    private fun cancelPendingOrder(ticket: PendingTicket, scope: QueueScope, location: String) {
+        val cancel = QueueItem(
+            ticket.id.removeSuffix(":order") + ":cancel",
+            ticket.id.substringAfter(':').substringBeforeLast(':'), ticket.id.substringBefore(':'),
+            "cancel", ticket.number, null, true, "",
+        )
+        val removed = prefs.withSettings {
+            if (!stillPending(ticket, scope, location)) return@withSettings false
+            prefs.markSeen(cancel, scope, location)
+            prefs.updatePending { list -> list.filterNot { it.sameTicket(ticket) } }
+            true
+        }
+        if (removed) announce(listOf(cancel))
+    }
+
     /**
-     * Prints the waiting tickets, oldest first, one at a time on the printer thread. A ticket leaves the list only once
-     * printed; the first failure stops the run (printer still down: next poll). One run at a time.
+     * Prints waiting tickets on the printer thread. A failed printer stops the pass. An unverified order stays
+     * pending for the next poll, while other eligible orders still get checked.
      */
     private fun drainPending() {
-        if (prefs.pending.isEmpty() || !draining.compareAndSet(false, true)) return
+        val scope = configuredQueueScope() ?: return
+        val location = queueLocation.takeIf { queueScope == scope } ?: return
+        if (prefs.pending.none(::pendingInCurrentScope) || !draining.compareAndSet(false, true)) return
         EscPosPrinter.onPrinterThread(this) { app ->
-            var failed = false
+            val attempted = mutableSetOf<Triple<String, QueueScope?, String?>>()
             try {
-                while (true) {
-                    val p = prefs.pending.firstOrNull() ?: break
+                while (queueScope == scope && queueLocation == location && configuredQueueScope() == scope) {
+                    val p = prefs.pending.firstOrNull {
+                        Triple(it.id, it.scope, it.resolvedLocation) !in attempted &&
+                            QueueLogic.pendingMatches(it.scope, it.resolvedLocation, startupScope, scope, location)
+                    } ?: break
+                    attempted.add(Triple(p.id, p.scope, p.resolvedLocation))
                     if (System.currentTimeMillis() - p.since > PENDING_MAX_MS) {
-                        prefs.updatePending { list -> list.filter { it.id != p.id } }
+                        prefs.updatePending { list -> list.filterNot { it.sameTicket(p) } }
                         notifyPrinter(getString(R.string.printer_gave_up, p.number))
                         continue
                     }
-                    val out = EscPosPrinter.printNow(app, p.ticket)
+                    var status = FoodHubApi.PendingStatus.UNVERIFIED
+                    var statusFailed = false
+                    val out = EscPosPrinter.printNow(app, p.ticket, authorizeWrite = {
+                        when {
+                            p.id.endsWith(":cancel") -> true
+                            p.id.endsWith(":order") -> {
+                                status = try {
+                                    apiFor(scope).pendingStatus(p.id, scope.deviceId, location) { stillPending(p, scope, location) }
+                                } catch (e: FoodHubApi.ApiError) {
+                                    statusFailed = true
+                                    FoodHubApi.PendingStatus.UNVERIFIED
+                                }
+                                status == FoodHubApi.PendingStatus.CLEAR
+                            }
+                            else -> false
+                        }
+                    }) { stillPending(p, scope, location) }
+                    if (status == FoodHubApi.PendingStatus.CANCELLED) cancelPendingOrder(p, scope, location)
+                    if (out is EscPosPrinter.Outcome.Held) {
+                        if (statusFailed) break
+                        continue
+                    }
                     if (out is EscPosPrinter.Outcome.Failed) {
-                        prefs.updatePending { list -> list.map { if (it.id == p.id) it.copy(attempts = it.attempts + 1) else it } }
+                        prefs.updatePending { list -> list.map { if (it.sameTicket(p)) it.copy(attempts = it.attempts + 1) else it } }
                         printerProblem(out.message)
-                        failed = true
                         break
                     }
-                    prefs.updatePending { list -> list.filter { it.id != p.id } }
+                    prefs.updatePending { list -> list.filterNot { it.sameTicket(p) } }
                 }
                 if (prefs.pending.isEmpty()) runCatching { NotificationManagerCompat.from(app).cancel(ID_PRINTER) }
             } finally {
                 draining.set(false)
             }
-            // A ticket added between the last check and the end of this run: print it now, not in 15 s.
-            if (!failed && prefs.pending.isNotEmpty()) drainPending()
         }
     }
 

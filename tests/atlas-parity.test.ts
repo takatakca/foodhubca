@@ -112,7 +112,10 @@ describe('sign-in and roles', () => {
   it('signs and verifies session cookies; rejects tampering and expiry', async () => {
     const t = await signSession({ u: 'marie', n: 'Marie', r: 'operator', l: ['NDG_MAIN'], exp: Math.floor(Date.now() / 1000) + 60 });
     expect((await verifySession(t))?.u).toBe('marie');
-    expect(await verifySession(t.slice(0, -2) + 'xx')).toBeNull();
+    const [payload, encodedSignature] = t.split('.');
+    const signature = Buffer.from(encodedSignature, 'base64url');
+    signature[0] ^= 1;
+    expect(await verifySession(`${payload}.${signature.toString('base64url')}`)).toBeNull();
     const old = await signSession({ u: 'x', n: 'x', r: 'owner', l: [], exp: Math.floor(Date.now() / 1000) - 1 });
     expect(await verifySession(old)).toBeNull();
     process.env.DASHBOARD_PASSWORD = 'changed';

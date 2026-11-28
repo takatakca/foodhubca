@@ -1,6 +1,7 @@
 import { UBER_ADJUST_REASONS, type UberAdjustReason } from '@/lib/foodhub/adapters/uber-api';
 import { approvalGate, inScope, withPerm } from '@/lib/foodhub/auth';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
+import { presentTabletPrintEvent } from '@/lib/foodhub/kitchen/tablet-print-events';
 import { allowedActions, ORDER_ACTIONS, runOrderAction, type OrderAction } from '@/lib/foodhub/pipeline';
 import type { PolicyAction } from '@/lib/foodhub/policy';
 import { getRepo } from '@/lib/foodhub/repo';
@@ -18,7 +19,8 @@ export const GET = withPerm<Ctx>('view', async (_req, context, actor) => {
   const repo = getRepo();
   const order = await repo.getOrder(id);
   if (!order || !inScope(actor, order.locationCode)) return fail('Order not found', 404);
-  return ok({ order, events: await repo.listEvents(id), actions: allowedActions(order), reasons: CANCEL_REASON_LABELS });
+  const events = (await repo.listEvents(id)).map(presentTabletPrintEvent);
+  return ok({ order, events, actions: allowedActions(order), reasons: CANCEL_REASON_LABELS });
 });
 
 // { action, reasonCode?, reason?, missing?, prepMinutes?, delayMinutes? } (+ header x-approval-pin when asked)

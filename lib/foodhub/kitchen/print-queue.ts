@@ -9,7 +9,7 @@
 // key in Supabase) that is read back; only the caller whose nonce comes back prints. One claim per device, order and
 // kind ('order' = the ticket, 'cancel' = the short « ANNULÉE » ticket, only for an order this device printed).
 // A cancelled order is never printed. The first claim of a ticket in a kitchen also leaves a kitchen-wide mark: a
-// reinstalled app (new device id, empty memory) is told what the kitchen already printed (printedElsewhere) and does
+// reinstalled app (new device id, empty memory) is told what the kitchen already claimed (printedElsewhere) and does
 // not print it again.
 //
 // Who may call: a signed-in person who can see the kitchen ('view', location in scope), or an enrolled kitchen tablet
@@ -19,11 +19,12 @@ import { listDirectOrders, getDirectOrder } from '../delivery/store';
 import { KITCHEN_SOURCES } from '../delivery/kitchen';
 import type { DirectOrder } from '../delivery/types';
 import { fail } from '../http';
-import { deviceFromRequest, getDevice } from '../identity/devices';
+import { deviceFromRequest, getDevice, type Device } from '../identity/devices';
 import { getRepo } from '../repo';
 import { isWaitingScheduled } from '../scheduling';
-import { can } from '../session';
+import { can, signPrintQueueContinuation, verifyPrintQueueContinuation } from '../session';
 import type { StoredOrder } from '../types';
+import { TABLET_PRINT_CLAIM_EVENTS } from './tablet-print-events';
 import {
   directLabel, platformLabel, platformNumber, renderCancelTicket, renderKitchenTicket, ticketFromDirectOrder, ticketFromStoredOrder,
   type TicketLang, type TicketWidth,
@@ -49,7 +50,7 @@ export interface PrintQueueItem {
   /** Already claimed by this device (null when no device id was given). */
   printed: boolean | null;
   /**
-   * Not claimed by this device, but already printed by another tablet of this kitchen (null when no device id was
+   * Not claimed by this device, but already claimed by another tablet of this kitchen (null when no device id was
    * given). The app reads it on its first run after an install or a data wipe: no second ticket for what the previous
    * install printed. Afterwards each tablet prints its own copy, as before.
    */
@@ -64,6 +65,7 @@ export const MAX_SINCE_MS = 24 * 3600_000;
 const PLATFORM_WINDOW_MS = 24 * 3600_000;
 const DIRECT_WINDOW_MS = 12 * 3600_000; // same as the kitchen screen (delivery/kitchen.ts)
 const MAX_ITEMS = 50;
+const CONTINUATION_LIFETIME_MS = 15 * 60_000;
 
 // ------------------------------------------------------------------ small pure helpers
 
@@ -90,7 +92,7 @@ export function claimKey(deviceId: string, kind: PrintKind, source: PrintSource,
   return `tablet_print:${deviceId}:${kind}:${source}:${orderId}`;
 }
 
-/** Kitchen-wide mark left by the first tablet that printed this ticket (any device). */
+/** Kitchen-wide mark left by the first tablet that claimed this ticket. */
 export function kitchenPrintKey(kind: PrintKind, source: PrintSource, orderId: string): string {
   return `tablet_print_any:${kind}:${source}:${orderId}`;
 }
@@ -137,7 +139,7 @@ function directCancelledAt(o: DirectOrder): string {
 
 // ------------------------------------------------------------------ who is calling
 
-export type PrintCaller = { location: string; label: string; actor: AuthUser | null };
+export type PrintCaller = { location: string; label: string; actor: AuthUser | null; cursorScope: string; enrollment?: Device };
 
 /** A staff session (with 'view', location in scope) or an enrolled tablet's device cookie (its own location). 401 otherwise. */
 export async function resolvePrintCaller(req: Request, requested?: string | null): Promise<PrintCaller | Response> {
@@ -150,14 +152,26 @@ export async function resolvePrintCaller(req: Request, requested?: string | null
     if (!location && actor.locations.length === 1) location = actor.locations[0];
     if (!location) return fail('Choose the kitchen: add ?location=<code> (Settings in the tablet app).', 400, { needLocation: true });
     if (!inScope(actor, location)) return fail('This kitchen is not in your locations.', 403);
-    return { location, label: actor.name, actor };
+    return { location, label: actor.name, actor, cursorScope: `staff:${actor.username}:${actor.deviceId ?? ''}` };
   }
   const device = await deviceFromRequest(req);
   if (device) {
     if (want && want !== device.locationCode) return fail('This tablet is enrolled for another kitchen.', 403);
-    return { location: device.locationCode, label: `Tablet ${device.name}`, actor: null };
+    return { location: device.locationCode, label: `Tablet ${device.name}`, actor: null, cursorScope: `tablet:${device.id}:${device.enrolledAt}`, enrollment: device };
   }
   return fail('Please sign in.', 401);
+}
+
+/** A pending ticket belongs to the enrolled kitchen even if a wider staff session is also present. */
+export async function resolvePrintEnrollment(req: Request, caller: PrintCaller): Promise<Device | null | Response> {
+  const cookieDevice = caller.enrollment ?? await deviceFromRequest(req);
+  const sessionDeviceId = caller.actor?.deviceId;
+  if (sessionDeviceId && cookieDevice && sessionDeviceId !== cookieDevice.id) return fail('Tablet sessions do not match.', 403);
+  const device = cookieDevice ?? (sessionDeviceId ? await getDevice(sessionDeviceId) : null);
+  if ((sessionDeviceId && !device) || device?.revoked || (device && device.locationCode !== caller.location)) {
+    return fail('This tablet is enrolled for another kitchen.', 403);
+  }
+  return device;
 }
 
 // ------------------------------------------------------------------ the queue
@@ -169,20 +183,53 @@ export interface QueueOptions {
   paper?: unknown;
   lang?: unknown;
   now?: number;
+  page?: { scope: string; continuation: string | null };
 }
 
-export async function buildPrintQueue(opts: QueueOptions): Promise<{ items: PrintQueueItem[]; since: string; serverTime: string; width: TicketWidth; lang: TicketLang }> {
+export class InvalidPrintQueueContinuation extends Error {}
+
+function ticketOrder(a: { at: string; id: string }, b: { at: string; id: string }): number {
+  const time = Date.parse(a.at) - Date.parse(b.at);
+  if (time) return time;
+  if (a.id === b.id) return 0;
+  return a.id < b.id ? -1 : 1;
+}
+
+export async function buildPrintQueue(opts: QueueOptions): Promise<{ items: PrintQueueItem[]; since: string; serverTime: string; width: TicketWidth; lang: TicketLang; paged?: true; continuation?: string }> {
   const now = opts.now ?? Date.now();
-  const since = parseSince(opts.since, now);
+  const device = validDeviceId(opts.deviceId) ? opts.deviceId : null;
+  const token = opts.page?.continuation;
+  const cursor = typeof token === 'string' && token.length <= 2048 && /^[\w-]+\.[\w-]{43}$/.test(token)
+    ? await verifyPrintQueueContinuation(token) : null;
+  if (token != null && (!cursor || cursor.scope !== opts.page?.scope || cursor.location !== opts.location || cursor.device !== device
+    || Date.parse(cursor.horizon) > now || (opts.since && parseSince(opts.since, Date.parse(cursor.horizon)) !== cursor.from))) {
+    throw new InvalidPrintQueueContinuation();
+  }
+  const horizon = cursor?.horizon ?? new Date(now).toISOString();
+  const snapshot = Date.parse(horizon);
+  const since = cursor?.from ?? parseSince(opts.since, snapshot);
+  const lowerBound = Date.parse(since);
+  const reachedWithin = (at: string) => {
+    if (!opts.page) return at >= since;
+    const time = Date.parse(at);
+    return time >= lowerBound && time <= snapshot;
+  };
+  const until = opts.page ? new Date(snapshot + 1).toISOString() : undefined; // repository bounds are exclusive
   const width = ticketWidth(opts.paper);
   const lang = ticketLang(opts.lang);
   const timeZone = process.env.FOODHUB_TIMEZONE || 'America/Toronto';
-  const device = validDeviceId(opts.deviceId) ? opts.deviceId : null;
   const repo = getRepo();
 
+  // The paged response is terminal only after both bounded-by-time source queries are exhausted.
   const [platform, direct] = await Promise.all([
-    repo.listOrders({ since: new Date(now - PLATFORM_WINDOW_MS).toISOString(), statuses: ['new', 'accepted', 'cancelled'], locationCodes: [opts.location], limit: 500 }),
-    listDirectOrders({ since: new Date(now - DIRECT_WINDOW_MS).toISOString(), limit: 1000, locationCodes: [opts.location] }),
+    repo.listOrders({
+      since: new Date(snapshot - PLATFORM_WINDOW_MS).toISOString(), until, statuses: ['new', 'accepted', 'cancelled'],
+      locationCodes: [opts.location], limit: opts.page ? Number.POSITIVE_INFINITY : 500,
+    }),
+    listDirectOrders({
+      since: new Date(snapshot - DIRECT_WINDOW_MS).toISOString(), until, limit: opts.page ? Number.POSITIVE_INFINITY : 1000,
+      ...(opts.page ? { locationCode: opts.location } : { locationCodes: [opts.location] }),
+    }),
   ]);
 
   type Draft = Omit<PrintQueueItem, 'printed' | 'printedElsewhere' | 'ticket'> & { render: () => string };
@@ -190,28 +237,30 @@ export async function buildPrintQueue(opts: QueueOptions): Promise<{ items: Prin
   for (const o of platform) {
     if (o.locationCode !== opts.location) continue;
     const base = { orderId: o.id, source: 'platform' as const, channel: o.channel, number: platformNumber(o), brandName: o.brandName ?? null, locationCode: opts.location, createdAt: o.createdAt };
-    if (platformToCook(o, now) && platformKitchenAt(o) >= since) {
+    if (platformToCook(o, snapshot) && reachedWithin(platformKitchenAt(o))) {
       drafts.push({ ...base, id: `platform:${o.id}:order`, kind: 'order', at: platformKitchenAt(o), render: () => renderKitchenTicket(ticketFromStoredOrder(o), { width, lang, timeZone }) });
     } else if (o.status === 'cancelled' && device) {
       const at = o.timeline?.cancelledAt ?? o.updatedAt;
-      if (at >= since) drafts.push({ ...base, id: `platform:${o.id}:cancel`, kind: 'cancel', at, render: () => renderCancelTicket({ platform: platformLabel(o.channel), number: platformNumber(o), brandName: o.brandName, cancelledAt: at, reason: o.timeline?.cancelReason }, { width, lang, timeZone }) });
+      if (reachedWithin(at)) drafts.push({ ...base, id: `platform:${o.id}:cancel`, kind: 'cancel', at, render: () => renderCancelTicket({ platform: platformLabel(o.channel), number: platformNumber(o), brandName: o.brandName, cancelledAt: at, reason: o.timeline?.cancelReason }, { width, lang, timeZone }) });
     }
   }
   for (const o of direct) {
     if (o.locationCode !== opts.location || !KITCHEN_SOURCES.includes(o.source)) continue;
     const base = { orderId: o.id, source: 'direct' as const, channel: o.source, number: o.number, brandName: o.brandName ?? null, locationCode: opts.location, createdAt: o.createdAt };
-    if (directToCook(o) && directKitchenAt(o) >= since) {
+    if (directToCook(o) && reachedWithin(directKitchenAt(o))) {
       drafts.push({ ...base, id: `direct:${o.id}:order`, kind: 'order', at: directKitchenAt(o), render: () => renderKitchenTicket(ticketFromDirectOrder(o, lang), { width, lang, timeZone }) });
     } else if (o.status === 'cancelled' && device) {
       const at = directCancelledAt(o);
-      if (at >= since) drafts.push({ ...base, id: `direct:${o.id}:cancel`, kind: 'cancel', at, render: () => renderCancelTicket({ platform: directLabel(o.source, lang), number: o.number, brandName: o.brandName, cancelledAt: at }, { width, lang, timeZone }) });
+      if (reachedWithin(at)) drafts.push({ ...base, id: `direct:${o.id}:cancel`, kind: 'cancel', at, render: () => renderCancelTicket({ platform: directLabel(o.source, lang), number: o.number, brandName: o.brandName, cancelledAt: at }, { width, lang, timeZone }) });
     }
   }
-  drafts.sort((a, b) => a.at.localeCompare(b.at));
+  drafts.sort(opts.page ? ticketOrder : (a, b) => a.at.localeCompare(b.at));
 
   const items: PrintQueueItem[] = [];
+  let more = false;
   for (const d of drafts) {
-    if (items.length >= MAX_ITEMS) break;
+    if (!opts.page && items.length >= MAX_ITEMS) break;
+    if (cursor && ticketOrder(d, cursor) <= 0) continue;
     let printed: boolean | null = null;
     let printedElsewhere: boolean | null = null;
     if (device) {
@@ -220,10 +269,16 @@ export async function buildPrintQueue(opts: QueueOptions): Promise<{ items: Prin
       if (d.kind === 'cancel' && (printed || !(await repo.getKv(claimKey(device, 'order', d.source, d.orderId))))) continue;
       printedElsewhere = !printed && d.kind === 'order' && Boolean(await repo.getKv(kitchenPrintKey(d.kind, d.source, d.orderId)));
     }
+    if (items.length === MAX_ITEMS) { more = true; break; }
     const { render, ...rest } = d;
     items.push({ ...rest, printed, printedElsewhere, ticket: render() });
   }
-  return { items, since, serverTime: new Date(now).toISOString(), width, lang };
+  const last = items.at(-1);
+  const continuation = opts.page && more && last ? await signPrintQueueContinuation({
+    scope: opts.page.scope, location: opts.location, device, from: since, horizon, at: last.at, id: last.id,
+    exp: Math.ceil((now + CONTINUATION_LIFETIME_MS) / 1000),
+  }) : undefined;
+  return { items, since, serverTime: horizon, width, lang, ...(opts.page ? { paged: true } as const : {}), ...(continuation ? { continuation } : {}) };
 }
 
 // ------------------------------------------------------------------ the claim
@@ -233,6 +288,8 @@ export type ClaimResult =
   | { claimed: false; id?: string; reason: 'already_printed' | 'cancelled' | 'not_cancelled' | 'not_printed_here' | 'not_found' | 'other_kitchen' | 'not_for_kitchen' | 'conflict' };
 
 type Found = { source: 'platform'; order: StoredOrder } | { source: 'direct'; order: DirectOrder };
+
+type PrintClaim = { deviceId: string; location?: string; enrollmentId?: string };
 
 async function findOrder(orderId: string, source?: PrintSource | null): Promise<Found | null> {
   if (source !== 'direct') {
@@ -246,13 +303,47 @@ async function findOrder(orderId: string, source?: PrintSource | null): Promise<
   return null;
 }
 
+export const MAX_PENDING_PRINT_CLAIMS = 50;
+type PendingPrintRef = { id: string; source: PrintSource; orderId: string };
+type PendingPrintStatus = 'clear' | 'cancelled' | 'unverified';
+
+export function parsePendingPrintRefs(value: unknown): PendingPrintRef[] | null {
+  if (!Array.isArray(value) || value.length < 1 || value.length > MAX_PENDING_PRINT_CLAIMS) return null;
+  const refs: PendingPrintRef[] = [];
+  const seen = new Set<string>();
+  for (const id of value) {
+    if (typeof id !== 'string' || seen.has(id) || !id.endsWith(':order')) return null;
+    const divider = id.indexOf(':');
+    const source = id.slice(0, divider);
+    const orderId = id.slice(divider + 1, -':order'.length);
+    if ((source !== 'platform' && source !== 'direct') || !orderId.trim() || orderId.length > 120) return null;
+    refs.push({ id, source, orderId });
+    seen.add(id);
+  }
+  return refs;
+}
+
+/** Resolve each already-claimed order against its current state, independently of the queue's fixed horizon. */
+export async function readPendingPrintClaims(opts: { refs: PendingPrintRef[]; deviceId: string; location: string; enrollmentId?: string }): Promise<Record<string, PendingPrintStatus>> {
+  const repo = getRepo();
+  const statuses = await Promise.all(opts.refs.map(async ({ id, source, orderId }): Promise<[string, PendingPrintStatus]> => {
+    const mark = await repo.getKv<PrintClaim>(claimKey(opts.deviceId, 'order', source, orderId));
+    if (mark?.deviceId !== opts.deviceId || (mark.location && mark.location !== opts.location)
+      || (mark.enrollmentId && mark.enrollmentId !== opts.enrollmentId)) return [id, 'unverified'];
+    const found = await findOrder(orderId, source);
+    if (!found || found.order.id !== orderId || found.order.locationCode !== opts.location) return [id, 'unverified'];
+    return [id, found.order.status === 'cancelled' ? 'cancelled' : 'clear'];
+  }));
+  return Object.fromEntries(statuses);
+}
+
 /**
  * Claims one ticket for one device, BEFORE it is printed: written once (atomic insert), then read back. Only a
  * { claimed: true } answer may print. A second call — the same device again, a retry after a lost answer — gets
  * { claimed: false, reason: 'already_printed' }; the queue then says printed: true for it, and the app prints a ticket
  * it claimed but never wrote down as handled (apps/kitchen-tablet QueueLogic.plan, step RECOVER).
  */
-export async function claimTabletPrint(opts: { orderId: string; deviceId: string; location: string; by: string; source?: PrintSource | null; kind?: PrintKind | null; now?: number }): Promise<ClaimResult> {
+export async function claimTabletPrint(opts: { orderId: string; deviceId: string; location: string; by: string; enrollmentId?: string; source?: PrintSource | null; kind?: PrintKind | null; now?: number }): Promise<ClaimResult> {
   const kind: PrintKind = opts.kind === 'cancel' ? 'cancel' : 'order';
   const found = await findOrder(opts.orderId, opts.source);
   if (!found) return { claimed: false, reason: 'not_found' };
@@ -271,7 +362,10 @@ export async function claimTabletPrint(opts: { orderId: string; deviceId: string
   const repo = getRepo();
   const key = claimKey(opts.deviceId, kind, source, order.id);
   const nonce = crypto.randomUUID();
-  const won = await repo.claimKv(key, { at: new Date(opts.now ?? Date.now()).toISOString(), deviceId: opts.deviceId, by: opts.by, nonce });
+  const won = await repo.claimKv(key, {
+    at: new Date(opts.now ?? Date.now()).toISOString(), deviceId: opts.deviceId, location: opts.location,
+    ...(opts.enrollmentId ? { enrollmentId: opts.enrollmentId } : {}), by: opts.by, nonce,
+  });
   if (!won) return { claimed: false, id, reason: 'already_printed' };
   // Read back: only the nonce we wrote may print (never twice, even if two calls raced through the insert).
   const back = await repo.getKv<{ nonce?: string }>(key);
@@ -279,7 +373,8 @@ export async function claimTabletPrint(opts: { orderId: string; deviceId: string
   // Kitchen-wide mark (the first tablet wins; never read by the claim itself): a reinstalled app skips it on its first run.
   await repo.claimKv(kitchenPrintKey(kind, source, order.id), { at: new Date(opts.now ?? Date.now()).toISOString(), deviceId: opts.deviceId }).catch(() => false);
   if (source === 'platform') {
-    await repo.addEvent(order.id, kind === 'cancel' ? 'tablet_cancel_printed' : 'tablet_printed', { message: `${kind === 'cancel' ? 'Cancel ticket' : 'Ticket'} printed on the kitchen tablet app`, deviceId: opts.deviceId, by: opts.by }).catch(() => undefined);
+    const event = TABLET_PRINT_CLAIM_EVENTS[kind];
+    await repo.addEvent(order.id, event.type, { ...event.detail, deviceId: opts.deviceId, by: opts.by }).catch(() => undefined);
   }
   return { claimed: true, id };
 }

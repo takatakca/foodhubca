@@ -4,12 +4,18 @@ import android.content.Context
 import android.content.SharedPreferences
 import org.json.JSONArray
 import org.json.JSONObject
+import java.time.Instant
 import java.util.UUID
 
 enum class PrinterType { NONE, BLUETOOTH, NETWORK }
 
 /** A ticket this tablet claimed but could not print yet (printer off, paper out): retried at every poll. */
-data class PendingTicket(val id: String, val number: String, val ticket: String, val since: Long, val attempts: Int)
+data class PendingTicket(
+    val id: String, val number: String, val ticket: String, val since: Long, val attempts: Int,
+    val scope: QueueScope? = null, val resolvedLocation: String? = null,
+) {
+    fun sameTicket(other: PendingTicket) = id == other.id && scope == other.scope && resolvedLocation == other.resolvedLocation
+}
 
 /** The tablet's settings (Settings screen) and its small local state. App-private storage only. */
 class Prefs(context: Context) {
@@ -87,7 +93,7 @@ class Prefs(context: Context) {
         }
 
     /**
-     * True from a new install (or a data wipe) until the first poll whose tickets were all handled. Meanwhile, what
+     * True from a new install (or a data wipe) until the first queue snapshot is handled. Meanwhile, what
      * another tablet of this kitchen already printed (the previous install) is neither printed nor rung again.
      */
     var firstRun: Boolean
@@ -96,17 +102,74 @@ class Prefs(context: Context) {
 
     // since / seen / pending are written with commit(), not apply(): they are what keeps a ticket from printing twice
     // (or not at all) when Android kills the app, so they must be on disk before the next step.
-    var since: String?
+    val since: String?
         get() = sp.getString("since", null)
-        set(v) { sp.edit().putString("since", v).commit() }
 
-    var seen: List<String>
+    /** Durable replay window and completed checkpoint share the same scoped storage. */
+    val queueDrain: QueueDrain?
+        get() = sp.getString("queue_drain", null)?.let { runCatching { QueueDrain.decode(it) }.getOrNull() }
+
+    private val recentQueueReceipts: RecentQueueReceipts?
+        get() = sp.getString(RECENT_QUEUE_RECEIPTS, null)?.let { runCatching { RecentQueueReceipts.decode(it) }.getOrNull() }
+
+    fun recentQueueReceiptIds(scope: QueueScope, location: String): Set<String> =
+        recentQueueReceipts?.ids(scope, location).orEmpty()
+
+    fun resetQueueProgress(origin: String?) {
+        synchronized(LOCK) {
+            val previousOrigin = sp.getString("seen_origin", null) ?: queueDrain?.scope?.origin
+            val editor = sp.edit().remove("since").remove("queue_drain")
+            if (QueueLogic.seenOriginChanged(previousOrigin, origin)) editor.remove("seen").remove(RECENT_QUEUE_RECEIPTS)
+            (origin ?: previousOrigin)?.let { editor.putString("seen_origin", it) }
+            editor.commit()
+        }
+    }
+
+    fun anchorQueueDrain(returned: QueueDrain, continuation: String?, horizon: Instant?): QueueDrain? {
+        synchronized(LOCK) {
+            val current = queueDrain
+            val anchor = QueueLogic.reanchorDrain(current, returned, continuation)
+            val receipts = horizon?.let { recentQueueReceipts }
+            val advanced = horizon?.let {
+                val scope = returned.scope
+                receipts?.takeIf { it.matches(scope) }?.advance(it)
+                    ?: RecentQueueReceipts(scope.origin, scope.deviceId, it)
+            }
+            if (anchor != current || advanced != receipts) {
+                val editor = sp.edit()
+                if (anchor != current) editor.putString("queue_drain", anchor?.encode())
+                if (advanced != receipts) editor.putString(RECENT_QUEUE_RECEIPTS, advanced?.encode())
+                editor.commit()
+            }
+            return anchor
+        }
+    }
+
+    fun finishQueueDrain(expected: QueueDrain, serverTime: String?) {
+        synchronized(LOCK) {
+            val current = queueDrain?.takeIf { it.scope == expected.scope && it.location == expected.location } ?: return
+            val checkpoint = QueueLogic.finishDrain(current, serverTime)
+            sp.edit().putString("since", checkpoint.since).putString("queue_drain", checkpoint.encode())
+                .putBoolean("first_run", false).commit()
+        }
+    }
+
+    val seen: List<String>
         get() = (sp.getString("seen", "") ?: "").split('\n').filter { it.isNotBlank() }
-        set(v) { sp.edit().putString("seen", v.joinToString("\n")).commit() }
 
-    /** Adds ids to the seen list, kept bounded (QueueLogic.remember). */
-    fun markSeen(vararg ids: String) {
-        synchronized(LOCK) { seen = QueueLogic.remember(seen, ids.toList()) }
+    /** Retain handled IDs for this active drain and for a fresh read after leaving and returning to this kitchen. */
+    fun markSeen(item: QueueItem, scope: QueueScope, location: String) {
+        synchronized(LOCK) {
+            val editor = sp.edit().putString("seen", QueueLogic.remember(seen, listOf(item.id)).joinToString("\n"))
+            queueDrain?.takeIf { it.scope == scope && it.location == location }?.let { drain ->
+                editor.putString("queue_drain", drain.copy(handled = drain.handled + (item.id to item.at)).encode())
+            }
+            recentQueueReceipts?.takeIf { it.matches(scope) }?.let { receipts ->
+                val recorded = receipts.record(location, item.id, item.at)
+                if (recorded != receipts) editor.putString(RECENT_QUEUE_RECEIPTS, recorded.encode())
+            }
+            editor.commit()
+        }
     }
 
     val pending: List<PendingTicket>
@@ -114,7 +177,9 @@ class Prefs(context: Context) {
             val arr = JSONArray(sp.getString("pending", "[]") ?: "[]")
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                PendingTicket(o.getString("id"), o.optString("number"), o.getString("ticket"), o.optLong("since"), o.optInt("attempts"))
+                val scope = o.optJSONObject("scope")?.let { QueueScope(it.getString("origin"), it.getString("location"), it.getString("deviceId")) }
+                PendingTicket(o.getString("id"), o.optString("number"), o.getString("ticket"), o.optLong("since"), o.optInt("attempts"), scope,
+                    o.optString("resolvedLocation").takeIf { it.isNotEmpty() })
             }
         } catch (e: Exception) { emptyList() }
 
@@ -122,16 +187,23 @@ class Prefs(context: Context) {
     fun updatePending(change: (List<PendingTicket>) -> List<PendingTicket>) {
         synchronized(LOCK) {
             val arr = JSONArray()
-            change(pending).forEach { arr.put(JSONObject().put("id", it.id).put("number", it.number).put("ticket", it.ticket).put("since", it.since).put("attempts", it.attempts)) }
+            change(pending).forEach {
+                val data = JSONObject().put("id", it.id).put("number", it.number).put("ticket", it.ticket).put("since", it.since).put("attempts", it.attempts)
+                it.scope?.let { scope -> data.put("scope", JSONObject().put("origin", scope.origin).put("location", scope.location).put("deviceId", scope.deviceId)) }
+                it.resolvedLocation?.let { location -> data.put("resolvedLocation", location) }
+                arr.put(data)
+            }
             sp.edit().putString("pending", arr.toString()).commit()
         }
     }
 
     private companion object {
+        const val RECENT_QUEUE_RECEIPTS = "recent_queue_receipts"
         /** One lock for every Prefs instance (they share the same file). */
         val LOCK = Any()
     }
 
     fun origin(): String? = QueueLogic.originOf(kitchenUrl)
     fun width(): Int = if (paper == 58) 32 else 42
+    fun <T> withSettings(action: () -> T): T = synchronized(LOCK, action)
 }

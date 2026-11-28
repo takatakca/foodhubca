@@ -1,3 +1,11 @@
+## 2026-11-28 — Numéro commun relu avant un nouvel appel d’écran
+
+Le passage Watchtower relit les réglages avant de réserver le premier appel d’un écran admissible. Une sauvegarde autorisée pendant un appel déjà lancé s’applique au prochain incident. Le reçu du premier appel et le rattachement de chaque alerte à sa cuisine sont conservés. Si les réglages ne peuvent pas être relus, le passage laisse cette alerte sans réservation et pourra la reprendre au prochain passage.
+
+Les tests de relais signés reproduisent la sauvegarde entre deux réponses d’appel simulées et un échec de lecture. La réception sur le téléphone marchand reste à vérifier dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-28
+
 ## 2026-11-28 — Préparation de #188 sur la tête de #184
 
 Le rapprochement local part de `d46b3d3` après l’intégration de #183 et #194. Les préférences de relève, les reçus du fournisseur et les protections du relais et des tablettes de #190 sont conservés. Le rejeu PostgreSQL vérifie la caisse Clover et les appels concurrents. Suivre la publication exacte de #184 avant la reprise de #188. La réception sur le téléphone marchand reste suivie dans [#46](https://github.com/takatakca/foodhubca/issues/46).

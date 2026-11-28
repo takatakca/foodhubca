@@ -578,11 +578,15 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
   try {
     const firstStageDue = elapsed >= s.smsAfterMin;
     const smsDue = firstStageDue && i.level < 1;
+    const firstCallDue = firstStageDue && (smsDue || i.screenFirstCallPending);
+    // Refresh the shared destination before reserving any stage so a failed read can retry next tick.
+    const routing = screenAlert && firstCallDue ? await getWatchSettings({ strict: true }).catch(() => null) : s;
+    if (!routing) return changed;
     const firstStage = smsDue ? await reserve(1) : 'dispatch';
     if (firstStage === 'defer') return changed;
-    if (firstStageDue && (smsDue || i.screenFirstCallPending)) {
+    if (firstCallDue) {
       const kitchen = i.locationCode ? kitchenPhones.get(i.locationCode) : undefined;
-      const target = firstAlertCallTarget(i.kind, s.screenAlertPhone, kitchen);
+      const target = firstAlertCallTarget(i.kind, routing.screenAlertPhone, kitchen);
       const waitingForVoice = screenAlert && Boolean(target) && !callConfigured();
       if (target && !waitingForVoice) {
         // Keep the claim across ticks and restarts, including when Twilio's reply is uncertain.

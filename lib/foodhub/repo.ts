@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { createServiceClient, hasSupabaseEnv } from '../supabase/server';
 import { nowIso } from './config';
+import { isUberPollReviewNotice, UBER_POLL_MISMATCH_REASON, type UberReviewNotice } from './uber-review';
 import type { ActivityEntry, ActivityKind, ChannelKey, ChannelStore, FoodHubJob, FoodHubUser, MasterMenu, NormalizedOrder, OrderEvent, OrderStatus, OrderTimeline, StoredOrder } from './types';
 
 export interface OrderFilter { limit?: number; statuses?: OrderStatus[]; since?: string; until?: string; locationCodes?: string[] }
@@ -11,6 +12,11 @@ export interface Doc<T = Record<string, unknown>> { id: string; key?: string | n
 export interface DocFilter { since?: string; until?: string; keys?: string[]; limit?: number }
 
 type StoreSnapshot = Pick<ChannelStore, 'channel' | 'channelStoreId' | 'locationCode' | 'updatedAt' | 'meta'>;
+type JobReferenceFilter = Partial<Pick<FoodHubJob, 'kind' | 'channel'>> & {
+  reason?: string;
+  listedStoreId?: string;
+  reviewOnly?: true;
+};
 
 export interface FoodHubRepo {
   mode: 'supabase' | 'memory';
@@ -38,9 +44,11 @@ export interface FoodHubRepo {
   saveMenu(menu: MasterMenu): Promise<MasterMenu>;
   listMenus(): Promise<MasterMenu[]>;
   addJob(job: Omit<FoodHubJob, 'id' | 'createdAt' | 'updatedAt'>): Promise<FoodHubJob>;
-  findJobByReference(reference: string): Promise<FoodHubJob | null>;
+  findJobByReference(reference: string, filter?: JobReferenceFilter): Promise<FoodHubJob | null>;
   updateJob(id: string, patch: Partial<FoodHubJob>): Promise<void>;
   listJobs(limit?: number): Promise<FoodHubJob[]>;
+  /** A missing store scope means account-wide; an explicit empty scope matches nothing. */
+  listUberReviewNotices(filter: { offset: number; limit: number; storeRefs?: string[] }): Promise<UberReviewNotice[]>;
   /** Small key/value store (last sync report, Clover sales cache). */
   getKv<T = unknown>(key: string): Promise<T | null>;
   setKv(key: string, value: unknown): Promise<void>;
@@ -168,9 +176,16 @@ const memoryRepo: FoodHubRepo = {
     memState().jobs.set(full.id, full);
     return full;
   },
-  async findJobByReference(reference) {
-    // Newest first, same as the Supabase implementation.
-    return [...memState().jobs.values()].reverse().find((j) => j.reference === reference) ?? null;
+  async findJobByReference(reference, { kind, channel, reason, listedStoreId, reviewOnly } = {}) {
+    // Jobs are inserted in creation order, so the last match is the newest.
+    const matches = [...memState().jobs.values()].filter((job) => job.reference === reference
+      && (kind === undefined || job.kind === kind)
+      && (channel === undefined || job.channel === channel)
+      && (reason === undefined || job.result?.reason === reason)
+      && (!reviewOnly || job.request?.replayable === false)
+      && (listedStoreId === undefined
+        || (job.request?.body as { meta?: { user_id?: unknown } } | undefined)?.meta?.user_id === listedStoreId));
+    return matches.at(-1) ?? null;
   },
   async updateJob(id, patch) {
     const s = memState();
@@ -179,6 +194,22 @@ const memoryRepo: FoodHubRepo = {
   },
   async listJobs(limit = 50) {
     return [...memState().jobs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit);
+  },
+  async listUberReviewNotices({ offset, limit, storeRefs }) {
+    if (storeRefs?.length === 0) return [];
+    const allowed = storeRefs && new Set(storeRefs);
+    return [...memState().jobs.values()].filter(isUberPollReviewNotice)
+      .map((job): UberReviewNotice => {
+        const meta = (job.request.body as { meta?: { resource_id?: unknown; user_id?: unknown } } | null)?.meta;
+        return {
+          id: job.id, createdAt: job.createdAt, reason: 'order_store_mismatch',
+          orderRef: typeof meta?.resource_id === 'string' ? meta.resource_id : null,
+          storeRef: typeof meta?.user_id === 'string' ? meta.user_id : null,
+        };
+      })
+      .filter((notice) => !allowed || (notice.storeRef !== null && allowed.has(notice.storeRef)))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))
+      .slice(offset, offset + limit);
   },
   async getKv<T>(key: string) { return (memState().kv.get(key) as T) ?? null; },
   async setKv(key, value) { memState().kv.set(key, JSON.parse(JSON.stringify(value))); },
@@ -459,8 +490,14 @@ function supabaseRepo(): FoodHubRepo {
       const data = must(await db.from('fh_jobs').insert({ kind: job.kind, channel: job.channel, reference: job.reference, status: job.status, request: job.request, result: job.result ?? null }).select('*').single());
       return rowToJob(data);
     },
-    async findJobByReference(reference) {
-      const data = must(await db.from('fh_jobs').select('*').eq('reference', reference).order('created_at', { ascending: false }).limit(1).maybeSingle());
+    async findJobByReference(reference, { kind, channel, reason, listedStoreId, reviewOnly } = {}) {
+      let query = db.from('fh_jobs').select('*').eq('reference', reference);
+      if (kind !== undefined) query = query.eq('kind', kind);
+      if (channel !== undefined) query = query.eq('channel', channel);
+      if (reason !== undefined) query = query.eq('result->>reason', reason);
+      if (reviewOnly) query = query.eq('request->replayable', false);
+      if (listedStoreId !== undefined) query = query.eq('request->body->meta->>user_id', listedStoreId);
+      const data = must(await query.order('created_at', { ascending: false }).limit(1).maybeSingle());
       return data ? rowToJob(data) : null;
     },
     async updateJob(id, patch) {
@@ -473,6 +510,24 @@ function supabaseRepo(): FoodHubRepo {
     async listJobs(limit = 50) {
       const data = must(await db.from('fh_jobs').select('*').order('created_at', { ascending: false }).limit(limit));
       return (data ?? []).map(rowToJob);
+    },
+    async listUberReviewNotices({ offset, limit, storeRefs }) {
+      if (storeRefs?.length === 0) return [];
+      let query = db.from('fh_jobs').select('id,created_at,order_ref:request->body->meta->resource_id,store_ref:request->body->meta->user_id')
+        .eq('kind', 'webhook_unparsed').eq('channel', 'uber_eats')
+        .contains('request', { replayable: false }).contains('result', { reason: UBER_POLL_MISMATCH_REASON });
+      if (storeRefs) {
+        // These are persisted mapping values. Quote each value for PostgREST's list grammar.
+        const values = [...new Set(storeRefs)].map((value) => `"${value.replace(/[\\"]/g, '\\$&')}"`).join(',');
+        query = query.filter('request->body->meta->>user_id', 'in', `(${values})`);
+      }
+      const data = must(await query.order('created_at', { ascending: false }).order('id', { ascending: false })
+        .range(offset, offset + limit - 1));
+      return (data ?? []).map((row: Row) => ({
+        id: row.id, createdAt: row.created_at, reason: 'order_store_mismatch',
+        orderRef: typeof row.order_ref === 'string' ? row.order_ref : null,
+        storeRef: typeof row.store_ref === 'string' ? row.store_ref : null,
+      }));
     },
     async getKv<T>(key: string) {
       const data = must(await db.from('fh_kv').select('value').eq('key', key).maybeSingle());

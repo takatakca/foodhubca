@@ -225,8 +225,13 @@ describe('manual Uber store inspection', () => {
     const response = await check({ storeIds: [mapped!.id, other.id, relay.id] });
     expect(response.status).toBe(200);
     expect((await response.json()).rows).toEqual([
-      expect.objectContaining({ storeId: mapped!.id, ok: true, orderManager: 'foodhub', integrationEnabled: false }),
+      expect.objectContaining({
+        storeId: mapped!.id, ok: true, orderManager: 'foodhub', integrationEnabled: false,
+        message: expect.stringContaining('Order webhooks are off.'),
+      }),
     ]);
+    expect((await getRepo().listActivity({})).find((entry) => entry.action === 'uber_check')?.summary)
+      .toContain('0 report Food Hub as order manager with order webhooks enabled');
     expect(tokenScopes).toEqual([READ_SCOPE]);
     expect(posRequests).toEqual([{ path: POS_PATH, method: 'GET', bearer: 'Bearer store-token-1' }]);
     expect((await getRepo().getStore(mapped!.id))?.meta.uberPos).toMatchObject({ orderManager: 'foodhub', integrationEnabled: false });

@@ -177,6 +177,38 @@ describe('activation (integration activation flow)', () => {
   });
 });
 
+describe('Uber activation routing evidence', () => {
+  it.each([
+    { label: 'off', enabled: false, pending: false, orderManager: 'foodhub', message: /order webhooks are off/i },
+    { label: 'unknown', enabled: undefined, pending: false, orderManager: 'foodhub', message: /has not confirmed.*order webhooks/i },
+    { label: 'on', enabled: true, pending: false, orderManager: 'foodhub', message: /order webhooks are on.*test order/i },
+    { label: 'pending', enabled: true, pending: true, orderManager: 'pending', message: /move to Food Hub is pending/i },
+  ])('reports $label from POS readback after accepting the activation', async ({ enabled, pending, orderManager, message }) => {
+    const id = 'd'.repeat(36);
+    const storeId = 'fixture-uber-readback';
+    const password = 'fixture-uber-readback-password';
+    vi.stubEnv('DASHBOARD_PASSWORD', password);
+    await getRepo().setKv(`uber-connect:${id}`, {
+      createdAt: Date.now(), token: 'merchant-token', stores: [{ id: storeId }],
+    });
+    mockFetch((c) => appToken(c) ?? (c.method === 'GET' && c.url.endsWith('/pos_data')
+      ? { status: 200, body: { order_manager_client_id: 'uber-id', integration_enabled: enabled, is_order_manager_pending: pending } }
+      : { status: 204 }));
+    const response = await activateUberRoute(new Request('https://hub.example.test/api/foodhub/uber-connect/activate', {
+      method: 'POST',
+      headers: { authorization: `Basic ${Buffer.from(`owner:${password}`).toString('base64')}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ id, stores: [{ storeId, brandName: 'Pi Pita', locationCode: 'SAINT_LEONARD' }] }),
+    }), undefined);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ results: [{
+      storeId, ok: true, orderManager, integrationEnabled: enabled ?? null, message: expect.stringMatching(message),
+    }] });
+    expect(calls.filter((c) => c.url.endsWith('/pos_data')).map((c) => c.method)).toEqual(['POST', 'PATCH', 'GET']);
+    await expect(getRepo().getKv(`uber-connect:${id}`)).resolves.toMatchObject({ token: null });
+  });
+});
+
 describe('tokens and hosts', () => {
   it('one token request: kept in the database for other instances / restarts; a new secret never reuses it', async () => {
     mockFetch((c) => appToken(c) ?? { status: 200, body: {} });

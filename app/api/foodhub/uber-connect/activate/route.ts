@@ -86,15 +86,16 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
   const elsewhere = results.filter((x) => x.pos?.orderManager === 'other').length;
   const reported = results.map((x) => {
     const orderManager = x.pos?.orderManager ?? null;
+    const integrationEnabled = x.pos?.integrationEnabled ?? null;
     if (mappingConflicts.has(x.storeId)) return {
-      storeId: x.storeId, ok: false, orderManager, providerAccepted: true, mappingConflict: true,
+      storeId: x.storeId, ok: false, orderManager, integrationEnabled, providerAccepted: true, mappingConflict: true,
       message: 'Uber accepted activation. The Food Hub mapping changed during the request. Review the saved kitchen and Clover register in Stores → Mapping.',
     };
-    return { storeId: x.storeId, ok: x.result.ok, orderManager, message: x.message };
+    return { storeId: x.storeId, ok: x.result.ok, orderManager, integrationEnabled, message: x.message };
   });
   const status = mappingConflicts.size || okCount !== results.length ? 'failed' : elsewhere ? 'info' : 'success';
   await logActivity({ actor: actor.name, source: actor.source, kind: 'settings', action: 'uber_activate', status, channel: 'uber_eats',
-    summary: `Uber Eats store activation: ${okCount}/${results.length} activated${elsewhere ? `, ${elsewhere} still taking orders through another integration (UrbanPiper)` : ''}${mappingConflicts.size ? `, ${mappingConflicts.size} local mapping conflict(s)` : ''} (${picks.map((p) => `${p.brandName} · ${p.locationCode}`).join(', ')})`,
+    summary: `Uber Eats store activation: ${okCount}/${results.length} requests accepted${elsewhere ? `, Uber reports another order manager for ${elsewhere}` : ''}${mappingConflicts.size ? `, ${mappingConflicts.size} local mapping conflict(s)` : ''} (${picks.map((p) => `${p.brandName} · ${p.locationCode}`).join(', ')})`,
     detail: { results: reported } });
   return ok({ results: reported });
 });

@@ -1,3 +1,9 @@
+## 2026-11-28 — Routage déclaré par Uber
+
+L’activation indique si Uber a accepté la demande, quel gestionnaire Uber déclare et si Uber confirme l’état des webhooks. Les résultats et le journal comptent la configuration seulement quand Uber désigne Food Hub avec les webhooks actifs. Une nouvelle vérification en échec remplace l’indication précédente. La preuve de réception en cuisine reste suivie dans [#46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé Codex @ cloud · 2026-11-28
+
 ## 2026-11-27 — Choix en double à l’activation Uber
 
 Un lot qui sélectionne deux fois le même magasin Uber reçoit HTTP 400 avant les appels fournisseur et les écritures de liaison. Les deux essais authentifiés couvrent un choix répété à l’identique et une autre destination Clover pour le même magasin. Ils conservent la session marchande et la liaison déjà enregistrée. La preuve de réception marchande reste suivie dans [la checklist #46](https://github.com/takatakca/foodhubca/issues/46).

@@ -50,7 +50,14 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
     const repo = getRepo();
     const job = (await repo.listJobs(500)).find((j) => j.id === String(b.jobId) && j.kind === 'webhook_unparsed');
     if (!job) return fail('No kept payload with that id.', 404);
-    const target = asInbox(job.channel, (job.request as { body?: unknown })?.body);
+    const request = job.request as { body?: unknown; replayable?: boolean } | null;
+    if (request?.replayable === false) {
+      if (actor.locations?.length && (job.channel !== 'uber_eats' || !(await inboxVisibleTo({ channel: job.channel, kind: 'uber', body: request.body }, actor.locations)))) {
+        return fail('No kept payload with that id.', 404);
+      }
+      return fail('This notice is for review only and cannot be replayed. Food Hub will check again during Uber order recovery.', 409);
+    }
+    const target = asInbox(job.channel, request?.body);
     if (!target) return fail('Food Hub still cannot read this payload — send it to your developer (nothing was lost).', 422);
     if (!(await inboxVisibleTo({ channel: job.channel, ...target }, actor.locations))) return fail('No kept payload with that id.', 404);
     const entry = await receiveWebhook({ channel: job.channel, ...target });

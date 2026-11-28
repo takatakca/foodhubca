@@ -23,7 +23,7 @@ type Channel = {
 };
 type CloverMerchant = { merchantId: string; name: string | null; connectedAt: string; refreshedAt: string | null; accessExpiresAt: string | null; refreshExpiresAt: string | null; needsReconnect: boolean; status: 'active' | 'pending' };
 type CloverApp = { configured: boolean; appId: string | null; missing: string[]; siteUrl: string; launchPath: string; redirectUri: string; connectUrl: string; merchants: CloverMerchant[]; legal?: { privacy: string; terms: string; support: string } };
-type Job = { id: string; kind: string; channel: string; status: string; createdAt: string; reference?: string | null; result?: { message?: string } | null; request?: { body?: unknown } | null };
+type Job = { id: string; kind: string; channel: string; status: string; createdAt: string; reference?: string | null; result?: { message?: string } | null; request?: { body?: unknown; replayable?: boolean } | null };
 type Data = {
   mode: string; publicUrl: string; liveEnabled: boolean; dashboardProtected: boolean;
   clover: { configured: boolean; injectionEnabled: boolean; missing: string[]; note: string; noteFr?: string; webhookUrl: string; webhookAuthSet: boolean; verification: { code: string; at: string } | null; recordPayments: boolean; orderTypes: boolean; inventorySync: boolean; app?: CloverApp };
@@ -188,7 +188,9 @@ function WebhookInbox({ unparsed, onChanged }: { unparsed: Job[]; onChanged: () 
             <div key={j.id} className="rounded-md border border-line">
               <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs">
                 <span className="flex items-center gap-2"><PlatformMark channel={j.channel} size="xs" /><span className="text-ink-3">{when(j.createdAt)}</span><span className="text-ink-2">{(j.result as { reason?: string } | null | undefined)?.reason ?? ''}</span></span>
-                {j.status !== 'done' ? <Button size="xs" variant="outline" loading={busy === j.id} onClick={() => replay({ jobId: j.id })}>{t('Rejouer', 'Replay')}</Button> : <Badge tone="go">{t('Rejoué', 'Replayed')}</Badge>}
+                {j.request?.replayable === false ? <Badge tone="neutral">{t('À vérifier', 'Review only')}</Badge>
+                  : j.status !== 'done' ? <Button size="xs" variant="outline" loading={busy === j.id} onClick={() => replay({ jobId: j.id })}>{t('Rejouer', 'Replay')}</Button>
+                    : <Badge tone="go">{t('Rejoué', 'Replayed')}</Badge>}
               </div>
               <pre className="scrollbar-thin max-h-40 overflow-auto rounded-b-md bg-ink p-3 font-mono text-[11px] text-canvas">{JSON.stringify(j.request?.body, null, 2)}</pre>
             </div>

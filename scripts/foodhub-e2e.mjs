@@ -1188,9 +1188,12 @@ try {
   check('sync reports both failed reads of one candidate without saving it', sy41.json?.report?.uberMissed?.error === 'Uber order fetch failed: HTTP 503' && sent('GET', /\/v2\/eats\/order\/uber-flaky-missed-1$/).length === 2 && !(await findOrder('uber-flaky-missed-1')), JSON.stringify(sy41.json?.report?.uberMissed));
   check('sync finds the order no webhook announced and processes it (Clover first, then accept)', sy41.json?.report?.uberMissed?.recovered === 1 && !!(await waitFor(async () => { const o = await findOrder('uber-missed-1'); return o?.posOrderId && o.status === 'accepted' && o.channelStoreId === 'uber-new-1' && o.locationCode === 'HOCHELAGA' ? o : null; })), JSON.stringify(sy41.json?.report?.uberMissed));
   const heldIdentity = ((await call('GET', '/api/foodhub/channels')).json?.unparsed ?? []).find((job) => job.reference === 'uber-mismatch-1');
-  check('missed-order check retains a contradictory store without creating or accepting the order',
-    heldIdentity?.request?.body?.meta?.user_id === 'uber-new-1' && !(await findOrder('uber-mismatch-1'))
-      && sent('GET', /\/v2\/eats\/order\/uber-mismatch-1$/).length === 1 && !sent('POST', /\/uber-mismatch-1\//).length);
+  const replayIdentity = heldIdentity && await call('POST', '/api/foodhub/inbox', { body: { jobId: heldIdentity.id } });
+  check('a contradictory Uber read is retained for review and cannot be replayed as a webhook',
+    heldIdentity?.request?.replayable === false && heldIdentity.request?.body?.meta?.user_id === 'uber-new-1'
+      && !heldIdentity.request.body.event_type && !heldIdentity.request.body.resource_href && replayIdentity?.status === 409
+      && !(await findOrder('uber-mismatch-1')) && sent('GET', /\/v2\/eats\/order\/uber-mismatch-1$/).length === 1
+      && !sent('POST', /\/uber-mismatch-1\//).length);
   uberCreated.set('uber-new-1', missedOrderFixtures);
   check('missed-order check skips stores not confirmed as Food Hub’s, orders past the 11.5-min window and orders the webhook may still bring', !(await findOrder('uber-not-mine-1')) && !(await findOrder('uber-too-old-1')) && !(await findOrder('uber-too-new-1')) && !sent('GET', /\/v1\/eats\/stores\/uber-store-uuid-1\/created-orders$/).length);
 

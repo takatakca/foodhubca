@@ -14,7 +14,7 @@ import { getInboxEntry, INBOX, inboxSummary, MAX_RECOVERY_ATTEMPTS, receiveWebho
 import { cloverRetryOpen, noteLastOrder } from '../lib/foodhub/order-retry';
 import { _resetOrderTypeCache, cloverOrderTitle, printKitchenTicket } from '../lib/foodhub/pos/clover-order';
 import { importCloverPlatformOrders } from '../lib/foodhub/pos/clover-platform-orders';
-import { processIncomingOrder, resendToClover } from '../lib/foodhub/pipeline';
+import { applyExternalStatus, processIncomingOrder, resendToClover } from '../lib/foodhub/pipeline';
 import { cloverRetryTooLate, runCloverRetries } from '../lib/foodhub/recovery';
 import { getRepo } from '../lib/foodhub/repo';
 import type { MasterMenu, NormalizedOrder, StoredOrder } from '../lib/foodhub/types';
@@ -32,7 +32,7 @@ type Call = { method: string; path: string; body: any };
 let calls: Call[] = [];
 let cloverOrders: Array<{ id: string; title: string; total: number; createdTime: number }> = [];
 /** Runs while Clover is creating an order (a person's send or a platform cancel landing meanwhile). */
-let duringAtomic: (() => Promise<void>) | null = null;
+let duringAtomic: (() => Promise<Response | void>) | null = null;
 let seq = 0;
 
 const json = (j: unknown, status = 200) => new Response(JSON.stringify(j), { status, headers: { 'Content-Type': 'application/json' } });
@@ -53,7 +53,8 @@ function mockPlatforms() {
       if (p.endsWith('/atomic_order/orders')) {
         const id = `CLV${++seq}`;
         cloverOrders.push({ id, title: body.orderCart.title, total: 1999, createdTime: Date.now() });
-        if (duringAtomic) await duringAtomic();
+        const reply = await duringAtomic?.();
+        if (reply) return reply;
         return json({ id, total: 1999 });
       }
       if (/\/orders$/.test(p) && method === 'GET') return json({ elements: cloverOrders.map((o) => ({ ...o })) });
@@ -221,7 +222,7 @@ describe('an order stored before a server stop is finished, not answered "duplic
     const n = await storedOnly('uber-resume-2', 2);
     cloverOrders.push({ id: 'CLV-EARLIER', title: cloverOrderTitle(n), total: 1931, createdTime: Date.now() - 60_000 });
     const out = await processIncomingOrder(await uberOrder('uber-resume-2'));
-    expect(out.order.posOrderId).toBe('CLV-EARLIER');
+    expect(await getRepo().getOrder(out.order.id)).toMatchObject({ posOrderId: 'CLV-EARLIER', timeline: { posMerchantId: MID } });
     expect(sent('POST', /atomic_order/)).toHaveLength(0);
   });
 
@@ -282,6 +283,56 @@ describe('Clover kitchen printing uses the register that received the order', ()
     expect(await printKitchenTicket('test-existing-order', null, locationCode)).toMatchObject({ ok: false, message: 'No Clover merchant configured.' });
     expect(sent('POST', /print_event$/)).toEqual([]);
   });
+
+  it('prints at the confirmed OAuth merchant if a second merchant is approved during creation', async () => {
+    delete process.env.CLOVER_MERCHANT_ID;
+    delete process.env.CLOVER_ACCESS_TOKEN;
+    const repo = getRepo();
+    await approvedAndPending();
+    await repo.upsertStore({ channel: 'uber_eats', channelStoreId: 'ue-popoulet-ndg', brandName: menu.brandName, locationCode, cloverMerchantId: null, autoAccept: true, online: true, meta: {} });
+    duringAtomic = () => repo.setKv('clover_oauth_merchants', { [MID2]: appMerchant(MID2, 'active'), [MID]: appMerchant(MID, 'active') });
+
+    const outcome = await processIncomingOrder(await uberOrder('uber-clover-print-oauth-change'));
+    expect(sent('POST', /atomic_order/)).toMatchObject([{ path: `/v3/merchants/${MID2}/atomic_order/orders` }]);
+    expect(sent('POST', /print_event$/)).toEqual([{ method: 'POST', path: `/v3/merchants/${MID2}/print_event`, body: { orderRef: { id: 'CLV1' } } }]);
+    expect(outcome.order).toMatchObject({ posOrderId: 'CLV1', timeline: { posMerchantId: MID2, printedAt: expect.any(String) } });
+  });
+});
+
+describe('cancellation during the first Clover send', () => {
+  it.each([true, false])('closes the late Clover receipt without printing when auto-accept is %s', async (autoAccept) => {
+    const repo = getRepo();
+    const n = await uberOrder('uber-cancel-during-first-send');
+    const mapping = (await repo.findStore(n.channel, n.channelStoreId))!;
+    await repo.upsertStore({ ...mapping, autoAccept });
+    duringAtomic = async () => { await applyExternalStatus(n.channel, n.externalOrderId, 'cancelled'); };
+
+    const outcome = await processIncomingOrder(n);
+
+    expect(outcome.order).toMatchObject({ status: 'cancelled', posOrderId: 'CLV1', timeline: { posMerchantId: MID, posClosedAt: expect.any(String) } });
+    expect(sent('DELETE', /\/orders\/CLV1$/)).toHaveLength(1);
+    expect(sent('POST', /print_event|\/accept/)).toHaveLength(0);
+  });
+
+  it('does not request Skip tablet fallback after a cancellation during a failed Clover send', async () => {
+    const repo = getRepo();
+    const n = { ...(await uberOrder('skip-cancel-during-first-send')), channel: 'skip' as const, marketplace: 'skip' as const };
+    await repo.upsertStore({ channel: n.channel, channelStoreId: n.channelStoreId, brandName: 'Po Poulet', locationCode: 'NDG_6284', cloverMerchantId: MID, autoAccept: true, online: true, meta: {} });
+    duringAtomic = async () => {
+      await applyExternalStatus(n.channel, n.externalOrderId, 'cancelled');
+      return json({ error: 'Clover temporarily unavailable' }, 503);
+    };
+
+    const outcome = await processIncomingOrder(n);
+
+    expect(outcome.order.status).toBe('cancelled');
+    expect(outcome.pos?.ok).toBe(false);
+    const events = (await repo.listEvents(outcome.order.id)).map((event) => event.type);
+    expect(events).toContain('pos_failed');
+    expect(events).not.toContain('routed_to_skip_tablet');
+    expect(events).not.toContain('routed_to_skip_tablet_failed');
+    expect(sent('POST', /print_event|sent-to-pos/)).toHaveLength(0);
+  });
 });
 
 describe('Clover retry guards', () => {
@@ -311,10 +362,25 @@ describe('Clover retry guards', () => {
     expect((await getRepo().listEvents(o.id)).map((e) => e.type)).toContain('pos_duplicate');
   });
 
+  it('removes the extra copy from the sending register when another register already confirmed the same POS ID', async () => {
+    process.env.CLOVER_MERCHANT_TOKENS = JSON.stringify({ [MID]: 'clover-token', [MID2]: 'clover-token-2' });
+    const o = await waiting('uber-guard-cross-register');
+    duringAtomic = async () => {
+      await getRepo().updateOrder(o.id, { posOrderId: 'CLV1', timeline: { posMerchantId: MID2 } });
+    };
+
+    const result = await resendToClover(o);
+
+    expect(result.order).toMatchObject({ posOrderId: 'CLV1', timeline: { posMerchantId: MID2 } });
+    expect(sent('DELETE', /\/orders\/CLV1$/)).toEqual([{ method: 'DELETE', path: `/v3/merchants/${MID}/orders/CLV1`, body: null }]);
+    expect(sent('POST', /print_event/)).toHaveLength(0);
+  });
+
   it('cancelled by the platform while Clover was called: no kitchen ticket, removed from Clover', async () => {
     const o = await waiting('uber-guard-3');
     duringAtomic = async () => { await getRepo().updateOrder(o.id, { status: 'cancelled' }); };
     await resendToClover(o);
+    expect(await getRepo().getOrder(o.id)).toMatchObject({ status: 'cancelled', posOrderId: 'CLV1', timeline: { posMerchantId: MID } });
     expect(sent('POST', /print_event/)).toHaveLength(0);
     expect(sent('DELETE', /\/orders\/CLV1$/)).toHaveLength(1);
   });

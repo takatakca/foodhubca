@@ -90,6 +90,39 @@ describe('Clover cancellation uses the order’s selected register', () => {
     ]);
   });
 
+  it.each([
+    { status: 'cancelled' as const, channel: 'uber_eats' as const },
+    { status: 'failed' as const, channel: 'skip' as const },
+  ])('uses the confirmed register when $channel becomes $status after a register change', async ({ status, channel }) => {
+    vi.stubEnv('CLOVER_MERCHANT_TOKENS', JSON.stringify({ [EXPLICIT]: 'test-explicit-token' }));
+    const repo = getRepo();
+    const incoming = { ...testOrder(), channel, marketplace: channel };
+    const mapping = { channel, channelStoreId: incoming.channelStoreId, brandName: 'Test brand', locationCode: 'TEST', cloverMerchantId: OAUTH, autoAccept: false, online: true, meta: {} };
+    await repo.upsertStore(mapping);
+    const outcome = await processIncomingOrder(incoming);
+    expect(outcome.order).toMatchObject({ posOrderId: POS_ID, timeline: { posMerchantId: OAUTH } });
+
+    await repo.upsertStore({ ...mapping, cloverMerchantId: EXPLICIT });
+    const updated = await repo.updateOrder(outcome.order.id, { status });
+    const settled = await settleInClover(updated);
+
+    expect(settled?.timeline?.posClosedAt).toBeTruthy();
+    expect(requests()).toEqual([
+      { path: `/v3/merchants/${OAUTH}/atomic_order/orders`, method: 'POST' },
+      { path: orderPath(OAUTH), method: 'GET' },
+      { path: orderPath(OAUTH), method: 'DELETE' },
+    ]);
+  });
+
+  it('does not switch registers when the confirmed order cannot be verified', async () => {
+    vi.stubEnv('CLOVER_MERCHANT_TOKENS', JSON.stringify({ [EXPLICIT]: 'test-explicit-token' }));
+    const order = { ...testOrder(), posOrderId: POS_ID, timeline: { posMerchantId: OAUTH } };
+    fetchMock.mockResolvedValueOnce(Response.json({ id: POS_ID, title: 'Unrelated order' }));
+
+    expect(await closeCancelledCloverOrder(order, EXPLICIT)).toMatchObject({ ok: false });
+    expect(requests()).toEqual([{ path: orderPath(OAUTH), method: 'GET' }]);
+  });
+
   it('retains the flag-only path and never deletes the order', async () => {
     const order = { ...testOrder(), posOrderId: POS_ID, channel: 'tgtg' as const, marketplace: 'tgtg' as const };
     fetchMock.mockResolvedValueOnce(Response.json({ id: POS_ID, title: cloverOrderTitle(order), note: 'Synthetic pickup note' }));

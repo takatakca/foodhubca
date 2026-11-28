@@ -1,3 +1,9 @@
+## 2026-11-28 — Références identiques dans deux cuisines Clover
+
+Quand deux commandes distinctes portent le même code affiché, un reçu Food Hub confirmé dans une autre cuisine et sur une autre caisse permet l’import de la commande native vers la destination explicitement liée. La caisse du reçu provient du correctif #183. Une caisse inconnue, commune ou ambiguë garde le contrôle de doublon existant. Les références Clover déjà connues et les titres complets des commandes saisies à l’écran restent protégés. L’essai utilise l’entrée normale de commande et une réponse Clover simulée, puis un rafraîchissement du statut du commerce avant l’import de l’autre cuisine.
+
+— signé : Codex @ cloud · 2026-11-28
+
 ## 2026-11-26 — Paiement Clover après déplacement d’une liaison
 
 La réconciliation locale de #183 sur `86d190c` conserve les références par magasin de #178 pour la saisie, la reprise, l’import et le paiement Clover. Les 161 essais ciblés couvrent aussi le règlement et l’impression sur la caisse confirmée et le contrôle manuel d’une liaison Uber Eats. Les réponses des fournisseurs sont simulées. La CI du SHA réconcilié et la réception marchande restent à vérifier avant publication.

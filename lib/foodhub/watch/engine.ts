@@ -454,6 +454,11 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
     i.steps.push({ at: new Date(now).toISOString(), kind, to, ok, message, ...(uncertain ? { uncertain } : {}) });
     changed = true;
   };
+  const currentCallRecipient = async (candidate: FoodHubUser) => {
+    const user = await getRepo().getUser(candidate.username);
+    if (user?.id !== candidate.id || user.role !== candidate.role || !isRecipient(user, i, 'call')) return null;
+    return user;
+  };
 
   // A delayed tick can make several escalation stages due at once. One phone
   // can be listed in multiple roles; later ticks can still escalate normally.
@@ -517,14 +522,14 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
     for (const candidate of (to.length ? to : recipients(users, i, ['owner'], 'call')).slice(0, 2)) {
       let user: FoodHubUser | null;
       try {
-        user = await getRepo().getUser(candidate.username);
+        user = await currentCallRecipient(candidate);
       } catch {
         // Retry a stage that has not sent anything. Once a call was attempted,
         // keeping its progress prevents replaying a provider request on the next tick.
         if (!attempted) return changed;
         break;
       }
-      if (user?.id !== candidate.id || user.role !== candidate.role || !isRecipient(user, i, 'call')) continue;
+      if (!user) continue;
       if (await call(user.phone!, user.name, user.prefs?.lang ?? 'fr', 'alert')) attempted = true;
     }
     i.level = 2; changed = true;
@@ -534,7 +539,9 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
     for (const u of recipients(users, i, ['owner'], 'sms')) {
       const r = await sendSms({ to: u.phone!, body: `${smsText(i, u.prefs?.lang ?? 'fr')}\n(${Math.round(elapsed)} min sans réponse / no answer)` }, { purpose: 'alert_owner', incidentId: i.id });
       step('owner', `${u.name} (${maskContact(u.phone!)})`, r.ok, r.message);
-      if (u.prefs?.alertCall !== false) await call(u.phone!, u.name, u.prefs?.lang ?? 'fr', 'alert_owner');
+      // The owner may have changed their voice preference while the SMS was in flight.
+      const user = await currentCallRecipient(u).catch(() => null);
+      if (user) await call(user.phone!, user.name, user.prefs?.lang ?? 'fr', 'alert_owner');
     }
     for (const p of s.supportPhones) await call(p, 'support', 'fr', 'alert_support');
   }

@@ -1,3 +1,11 @@
+## 2026-11-28 — Appel personnel du propriétaire après le SMS
+
+Au dernier palier Watchtower, le compte est relu entre le SMS et l’appel personnel. La vérification porte sur l’identité, le rôle, la cuisine, l’état de garde et la préférence d’appel. Si la lecture échoue, l’appel est suspendu pour ce destinataire. Le reçu du SMS est conservé et la relève configurée continue.
+
+Deux essais simulés couvrent la désactivation des appels depuis un profil signé pendant le SMS et une lecture temporairement indisponible avec un numéro de soutien configuré. La réception marchande reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-28
+
 ## 2026-11-28 — Préférences avant l’appel de relève Watchtower
 
 Le deuxième palier relit le compte de chaque destinataire juste avant l’appel. Il vérifie l’identité, le rôle, la cuisine, l’état de garde et la préférence d’appel. Si la lecture échoue avant le premier envoi du palier, le prochain passage retente le palier. Après un envoi, Watchtower conserve son résultat et passe au palier suivant sans rejouer cet appel.

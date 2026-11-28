@@ -56,11 +56,15 @@ export async function handleUberEvent(
       || (detailStoreId != null && String(detailStoreId) !== polled.storeId))) {
       const reason = 'Uber polled order details do not match the listed order and store';
       const previous = await getRepo().findJobByReference(polled.orderId);
-      if (previous?.kind === 'webhook_unparsed' && previous.channel === 'uber_eats' && previous.result?.reason === reason) {
-        return { result: `kept: ${reason}` };
+      if (previous?.kind !== 'webhook_unparsed' || previous.channel !== 'uber_eats' || previous.result?.reason !== reason) {
+        // Review the listed identity without keeping data that can enter the normal webhook handler on Replay.
+        await getRepo().addJob({
+          kind: 'webhook_unparsed', channel: 'uber_eats', reference: polled.orderId, status: 'error',
+          request: { replayable: false, body: { meta: { resource_id: polled.orderId, user_id: polled.storeId } } },
+          result: { reason },
+        });
       }
-      // Retain the scoped listing notice. Another order's details are not needed for review.
-      return kept(body, reason, polled.orderId);
+      return { result: `kept: ${reason}` };
     }
     const order = parseUberOrder(details, polled?.storeId ?? body.meta?.user_id);
     if (!order) return kept(details, 'Uber order details could not be parsed', orderId || null);

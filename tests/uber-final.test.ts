@@ -2,6 +2,7 @@
 // integration_enabled, order manager), menu body (one translation, tax_info, energy_interval), webhook inbox and
 // replay, documented event payloads, missed-order check, tokens, "Do not touch" and the publish-to-all-Uber dry run.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { POST as replayKeptPayload } from '../app/api/foodhub/inbox/route';
 import { forgetUberTokenMemory, invalidateUberToken, listUberStorePages, uberAccessToken, uberApiBase, uberOrderManager, uberTokenUrl } from '../lib/foodhub/adapters/uber-eats';
 import { activateUberStores, activationMessage, explainActivationError, suggestMapping, uberPosDataBody } from '../lib/foodhub/adapters/uber-provision';
 import { saveUberWebhook, UBER_INBOX, type UberInboxEntry } from '../lib/foodhub/adapters/uber-inbox';
@@ -321,7 +322,7 @@ describe('missed-order check (created-orders)', () => {
     }
     const held = (await repo.listJobs()).filter((job) => job.kind === 'webhook_unparsed' && job.reference === listedId);
     expect(held).toHaveLength(1);
-    expect(held[0].request).toMatchObject({ body: { meta: { resource_id: listedId, user_id: managedStore } } });
+    expect(held[0].request).toEqual({ replayable: false, body: { meta: { resource_id: listedId, user_id: managedStore } } });
     expect(JSON.stringify(held)).not.toContain(sentinel);
     expect(calls.filter((c) => !c.url.endsWith('/oauth/v2/token')).every((c) => c.method === 'GET')).toBe(true);
   });
@@ -351,6 +352,25 @@ describe('missed-order check (created-orders)', () => {
     expect(await recoverMissedUberOrders(now)).toEqual({ recovered: 0 });
     const [retained] = await notices();
     expect(retained?.result?.reason).toBe(reason);
+    vi.stubEnv('DASHBOARD_PASSWORD', 'fixture-replay-owner-password');
+    const beforeReplay = calls.length;
+    try {
+      const replay = await replayKeptPayload(new Request('http://hub.local/api/foodhub/inbox', {
+        method: 'POST',
+        headers: {
+          authorization: 'Basic ' + Buffer.from('owner:fixture-replay-owner-password').toString('base64'),
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ jobId: retained.id }),
+      }), undefined);
+      expect(replay.status).toBe(409);
+      expect((await replay.json()).error).toMatch(/review|replay/i);
+      expect(calls).toHaveLength(beforeReplay);
+      expect(await repo.findOrder('uber_eats', orderId)).toBeNull();
+      expect(await notices()).toEqual([retained]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
     expect(await recoverMissedUberOrders(now + 60_000)).toEqual({ recovered: 0 });
     expect(await notices()).toEqual([retained]);
     expect(await repo.findOrder('uber_eats', orderId)).toBeNull();

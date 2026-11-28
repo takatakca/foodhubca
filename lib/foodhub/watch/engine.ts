@@ -156,16 +156,17 @@ function coveredMinutes(spans: Array<[number, number]>): number {
 
 interface NativeTabletObservation {
   locationCode: string;
-  heartbeatAt: number;
+  confirmedHeartbeatAt: number;
   outsideKnownHours: boolean;
 }
 
-async function detect(s: WatchSettings, now: number) {
+async function detect(s: WatchSettings, now: number, injectedNow?: number) {
   const repo = getRepo();
   const tz = foodhubTimeZone();
-  const [catalog, savedHours, orders, stores, devices, jobs, sync, screens] = await Promise.all([
+  const [catalog, savedHours, orders, stores, deviceSnapshot, jobs, sync, screens] = await Promise.all([
     getCatalog(), getHours({ strict: true }).catch(() => null), repo.listOrders({ since: new Date(now - 24 * 3600_000).toISOString(), limit: 3000 }),
-    repo.listStores(), listDevices(), repo.listJobs(200), repo.getKv<{ at: string }>('sync:last').catch(() => null), listScreens().catch(() => []),
+    repo.listStores(), listDevices().then((devices) => ({ devices, readAt: injectedNow ?? Date.now() })),
+    repo.listJobs(200), repo.getKv<{ at: string }>('sync:last').catch(() => null), listScreens().catch(() => []),
   ]);
   const hours = savedHours ?? { locations: {}, brands: {}, holidays: [] };
   const nativeTablets = new Map<string, NativeTabletObservation>();
@@ -282,10 +283,15 @@ async function detect(s: WatchSettings, now: number) {
     }
   }
 
-  for (const d of devices.filter((x) => !x.revoked)) {
+  for (const d of deviceSnapshot.devices.filter((x) => !x.revoked)) {
     const open = locationOpen(hours, d.locationCode, brandsAt(d.locationCode), now, tz);
     const heartbeatAt = Date.parse(d.lastSeenAt ?? '');
-    nativeTablets.set(d.id, { locationCode: d.locationCode, heartbeatAt, outsideKnownHours: savedHours !== null && !open });
+    const heartbeatMatchesKitchen = d.lastHeartbeat?.at === d.lastSeenAt && d.lastHeartbeat?.locationCode === d.locationCode;
+    nativeTablets.set(d.id, {
+      locationCode: d.locationCode,
+      confirmedHeartbeatAt: heartbeatMatchesKitchen ? heartbeatAt : NaN,
+      outsideKnownHours: savedHours !== null && !open,
+    });
     if (!open) continue;
     const seenAgo = d.lastSeenAt ? now - heartbeatAt : Infinity;
     const base = { locationCode: d.locationCode, deviceId: d.id };
@@ -411,13 +417,13 @@ async function detect(s: WatchSettings, now: number) {
         detail: `${j.lastError ?? j.wait ?? ''}`.slice(0, 200) || undefined, detailEn: `${j.lastError ?? j.wait ?? ''}`.slice(0, 200) || undefined });
     }
   }
-  return { detections: out, nativeTablets };
+  return { detections: out, nativeTablets, nativeTabletsReadAt: deviceSnapshot.readAt };
 }
 
-function nativeTabletResolution(i: Incident, observed: NativeTabletObservation | undefined, now: number): DeviceOfflineResolution {
+function nativeTabletResolution(i: Incident, observed: NativeTabletObservation | undefined, readAt: number): DeviceOfflineResolution {
   if (!observed || observed.locationCode !== i.locationCode) return 'unconfirmed';
-  const heartbeatAge = now - observed.heartbeatAt;
-  if (heartbeatAge >= 0 && heartbeatAge <= DEVICE_OFFLINE_AFTER_MS && observed.heartbeatAt > Date.parse(i.lastSeenAt)) return 'heartbeat-restored';
+  const heartbeatAge = readAt - observed.confirmedHeartbeatAt;
+  if (heartbeatAge >= 0 && heartbeatAge <= DEVICE_OFFLINE_AFTER_MS && observed.confirmedHeartbeatAt > Date.parse(i.lastSeenAt)) return 'heartbeat-restored';
   return observed.outsideKnownHours ? 'monitoring-hours-ended' : 'unconfirmed';
 }
 
@@ -559,7 +565,7 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
   try {
     await repo.setKv(LAST_KEY, { at: new Date(now).toISOString() });
     const report = empty(true);
-    const { detections, nativeTablets } = await detect(s, now);
+    const { detections, nativeTablets, nativeTabletsReadAt } = await detect(s, now, opts.now);
     report.detections = detections.length;
     const all = (await repo.listDocs<Incident>(INCIDENTS, { since: new Date(now - 3 * 86400_000).toISOString(), limit: 2000 })).map((d) => d.data);
     const live = new Map(all.filter((i) => i.status !== 'resolved').map((i) => [i.key, i]));
@@ -611,7 +617,7 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
       if (seen.has(i.key)) continue;
       Object.assign(i, { status: 'resolved', resolvedAt: iso, resolvedBy: 'auto', updatedAt: iso });
       const deviceOfflineResolution = i.kind === 'device_offline'
-        ? nativeTabletResolution(i, i.deviceId ? nativeTablets.get(i.deviceId) : undefined, now)
+        ? nativeTabletResolution(i, i.deviceId ? nativeTablets.get(i.deviceId) : undefined, nativeTabletsReadAt)
         : undefined;
       i.steps.push({
         at: iso, kind: 'resolved', by: 'auto',

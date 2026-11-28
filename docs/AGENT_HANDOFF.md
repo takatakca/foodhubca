@@ -1,3 +1,9 @@
+## 2026-11-28 — Sélection des annulations Uber manquées
+
+La recherche lit les 500 commandes ouvertes récentes après avoir sélectionné Uber, ses magasins gérés et les commandes directes. Les commandes relayées et importées de Clover sont filtrées avant la limite. Un magasin dont aucune commande directe admissible n’est ouverte ne déclenche pas de lecture chez Uber. La preuve marchande reste suivie dans [#46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé Codex @ cloud · 2026-11-28
+
 ## 2026-11-28 — Reprise Uber après une lecture en échec
 
 La reprise garde le résultat des commandes traitées et poursuit les autres lectures après l’échec d’une commande. Un refus du jeton commun met fin aux nouvelles lectures de commandes. La vérification des annulations peut encore utiliser son jeton de lecture. Les données conservées pour examen sans commande enregistrée sortent du compteur de reprise. La preuve en cuisine reste suivie dans [#46](https://github.com/takatakca/foodhubca/issues/46).

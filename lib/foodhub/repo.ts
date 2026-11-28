@@ -4,7 +4,16 @@ import { createServiceClient, hasSupabaseEnv } from '../supabase/server';
 import { nowIso } from './config';
 import type { ActivityEntry, ActivityKind, ChannelKey, ChannelStore, FoodHubJob, FoodHubUser, MasterMenu, NormalizedOrder, OrderEvent, OrderStatus, OrderTimeline, StoredOrder } from './types';
 
-export interface OrderFilter { limit?: number; statuses?: OrderStatus[]; since?: string; until?: string; locationCodes?: string[] }
+export interface OrderFilter {
+  limit?: number;
+  statuses?: OrderStatus[];
+  since?: string;
+  until?: string;
+  locationCodes?: string[];
+  channel?: ChannelKey;
+  channelStoreIds?: string[];
+  directOnly?: boolean;
+}
 export interface ActivityFilter { limit?: number; since?: string; until?: string; kinds?: ActivityKind[]; locationCodes?: string[] }
 /** Generic document store (payout lines, statement imports, reconciliation cases, ledger approvals…). */
 export interface Doc<T = Record<string, unknown>> { id: string; key?: string | null; at?: string | null; data: T }
@@ -125,6 +134,9 @@ const memoryRepo: FoodHubRepo = {
     if (filter.since) list = list.filter((o) => o.createdAt >= filter.since!);
     if (filter.until) list = list.filter((o) => o.createdAt < filter.until!);
     if (filter.locationCodes?.length) list = list.filter((o) => o.locationCode && filter.locationCodes!.includes(o.locationCode));
+    if (filter.channel) list = list.filter((o) => o.channel === filter.channel);
+    if (filter.channelStoreIds?.length) list = list.filter((o) => filter.channelStoreIds!.includes(o.channelStoreId));
+    if (filter.directOnly) list = list.filter((o) => o.viaHub == null && o.viaPos == null);
     return list.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, filter.limit ?? 200);
   },
   async addEvent(orderId, type, detail = {}) {
@@ -409,6 +421,9 @@ function supabaseRepo(): FoodHubRepo {
         if (filter.since) q = q.gte('created_at', filter.since);
         if (filter.until) q = q.lt('created_at', filter.until);
         if (filter.locationCodes?.length) q = q.in('location_code', filter.locationCodes);
+        if (filter.channel) q = q.eq('channel', filter.channel);
+        if (filter.channelStoreIds?.length) q = q.in('channel_store_id', filter.channelStoreIds);
+        if (filter.directOnly) q = q.is('data->>viaHub', null).is('data->>viaPos', null);
         const rows = (must(await q) ?? []) as Row[];
         out.push(...rows.map(rowToOrder));
         if (rows.length < to - from + 1) break;

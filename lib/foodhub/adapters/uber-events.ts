@@ -238,8 +238,15 @@ export async function recoverMissedUberCancellations(now = Date.now(), managed?:
   if (!uberEatsAdapter.readiness().canSend) return 0;
   const repo = getRepo();
   const stores = managed ?? (await repo.listStores('uber_eats')).filter((s) => uberPosForStore(s)?.orderManager === 'foodhub');
-  const open = (await repo.listOrders({ statuses: ['new', 'accepted', 'ready'], since: new Date(now - 3 * 3600_000).toISOString(), limit: 500 }))
-    .filter((o) => o.channel === 'uber_eats' && !o.viaHub && !o.viaPos);
+  if (!stores.length) return 0;
+  const open = await repo.listOrders({
+    channel: 'uber_eats',
+    channelStoreIds: stores.map((store) => store.channelStoreId),
+    directOnly: true,
+    statuses: ['new', 'accepted', 'ready'],
+    since: new Date(now - 3 * 3600_000).toISOString(),
+    limit: 500,
+  });
   let cancelled = 0;
   for (const s of stores) {
     const mine = open.filter((o) => o.channelStoreId === s.channelStoreId);

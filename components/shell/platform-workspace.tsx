@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { LayoutDashboard, MonitorPlay } from 'lucide-react';
 import { usePulse, useScopeHref } from '@/components/live/pulse';
 import { useViewer } from './viewer';
-import { countStores, type Scope, type StorePoint } from '@/lib/foodhub/scope';
+import { storeSourcesText } from './scope-switcher';
+import { countStoreSources, type Scope, type StorePoint } from '@/lib/foodhub/scope';
 import { useI18n } from '@/lib/i18n/client';
 import type { T } from '@/lib/i18n';
 import { cn } from '@/lib/ui/cn';
@@ -21,7 +22,9 @@ export function WorkspaceControls({ site, stores, onPick, screensHref, t }: {
   site: Scope; stores: StorePoint[]; onPick: (channel: string | undefined) => void; screensHref: string; t: T;
 }) {
   const selected = WORKSPACES.find((w) => w.channel === site.channel);
-  const n = countStores({ stores }, site);
+  const counts = countStoreSources({ stores }, site);
+  const n = counts.unknown;
+  const summary = storeSourcesText(t, counts) ?? t(`${n} magasin${n === 1 ? '' : 's'} dans cette vue`, `${n} store${n === 1 ? '' : 's'} in this view`);
   return (
     <div className="border-t border-line bg-surface px-3 py-2 sm:px-6 lg:px-8">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -37,7 +40,7 @@ export function WorkspaceControls({ site, stores, onPick, screensHref, t }: {
           <MonitorPlay className="size-4" aria-hidden />{t('Tablettes virtuelles', 'Virtual tablets')}
         </Link>
         <span className="text-small text-ink-3" role="status">
-          {selected?.label ?? 'Food Hub'} · {t(`${n} magasin${n === 1 ? '' : 's'} dans cette vue`, `${n} store${n === 1 ? '' : 's'} in this view`)}
+          {selected?.label ?? 'Food Hub'} · {summary}
         </span>
       </div>
     </div>

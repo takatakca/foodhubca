@@ -38,6 +38,8 @@ export interface StorePoint {
   brandName: string;
   locationCode: string;
   channel: string;
+  /** Display provenance only. Existing points can omit it. */
+  source?: 'saved' | 'screenshot';
 }
 
 /** What the person may pick: their kitchens, the brands each kitchen sells, and the platforms they have stores on. */
@@ -201,6 +203,15 @@ export function scopedAlerts<T extends ScopedRow & { id: string }>(rows: readonl
 /** How many platform stores the scope covers ("45 magasins"). */
 export function countStores(catalog: Pick<ScopeCatalog, 'stores'>, scope: Scope): number {
   return (catalog.stores ?? []).filter((p) => inScope(p, scope)).length;
+}
+
+/** Provenance of the same visible store points, without changing scope selection. */
+export function countStoreSources(catalog: Pick<ScopeCatalog, 'stores'>, scope: Scope) {
+  const totals = { saved: 0, screenshot: 0, unknown: 0 };
+  for (const point of catalog.stores ?? []) {
+    if (inScope(point, scope)) totals[point.source ?? 'unknown']++;
+  }
+  return totals;
 }
 
 const channelRank = (ch: string) => { const i = (CHANNEL_ORDER as readonly string[]).indexOf(ch); return i < 0 ? CHANNEL_ORDER.length : i; };

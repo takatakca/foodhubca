@@ -12,7 +12,7 @@ import { Modal } from '@/components/ui/overlay';
 import { usePulse } from '@/components/live/pulse';
 import { shortLoc, useViewer } from './viewer';
 import { useWide } from './use-wide';
-import { channelCounts, channelName, countStores, isAllRestaurants, isEverything, sameScope, type Scope } from '@/lib/foodhub/scope';
+import { channelCounts, channelName, countStoreSources, countStores, isAllRestaurants, isEverything, sameScope, type Scope } from '@/lib/foodhub/scope';
 import { useI18n } from '@/lib/i18n/client';
 import type { T } from '@/lib/i18n';
 import { cn } from '@/lib/ui/cn';
@@ -20,6 +20,14 @@ import { cn } from '@/lib/ui/cn';
 const fold = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 export const storesText = (t: T, n: number) => t(`${n} magasin${n > 1 ? 's' : ''}`, `${n} store${n > 1 ? 's' : ''}`);
+export function storeSourcesText(t: T, { saved, screenshot, unknown }: ReturnType<typeof countStoreSources>) {
+  if (!saved && !screenshot) return null;
+  return [
+    saved > 0 && t(`${saved} liaison${saved === 1 ? ' enregistrée' : 's enregistrées'}`, `${saved} saved mapping${saved === 1 ? '' : 's'}`),
+    screenshot > 0 && t(`${screenshot} fiche${screenshot === 1 ? ' de capture historique' : 's de captures historiques'}`, `${screenshot} historical screenshot listing${screenshot === 1 ? '' : 's'}`),
+    unknown > 0 && t(`${unknown} fiche${unknown === 1 ? '' : 's'} à vérifier`, `${unknown} listing${unknown === 1 ? '' : 's'} to verify`),
+  ].filter(Boolean).join(' · ');
+}
 export const brandsText = (t: T, n: number) => t(`${n} marque${n > 1 ? 's' : ''}`, `${n} brand${n > 1 ? 's' : ''}`);
 export const locationsText = (t: T, n: number) => t(`${n} succursale${n > 1 ? 's' : ''}`, `${n} location${n > 1 ? 's' : ''}`);
 
@@ -42,10 +50,11 @@ const Heading = ({ children }: { children: ReactNode }) => <div className="px-3 
 export function useScopeLabel(): { title: string; sub: string; words: string } {
   const { t } = useI18n();
   const { site } = usePulse();
-  const { locations, brands, brandsByKitchen, locName, allLocations, stores } = useViewer();
+  const { viewer, locations, brands, brandsByKitchen, locName, allLocations, stores } = useViewer();
   const ch = site.channel ? channelName(site.channel) : null;
   const counted = stores.length > 0;
-  const n = countStores({ stores }, site);
+  const counts = countStoreSources({ stores }, site);
+  const summary = (!viewer.device && storeSourcesText(t, counts)) || storesText(t, counts.saved + counts.screenshot + counts.unknown);
   let title: string;
   let sub: string;
   if (site.brand) {
@@ -53,10 +62,10 @@ export function useScopeLabel(): { title: string; sub: string; words: string } {
     sub = [site.kitchen ? shortLoc(locName(site.kitchen)) : t('Toutes les succursales', 'Every location'), ch].filter(Boolean).join(' · ');
   } else if (site.kitchen) {
     title = shortLoc(locName(site.kitchen));
-    sub = [ch, brandsText(t, (brandsByKitchen[site.kitchen] ?? []).length), counted ? storesText(t, n) : null].filter(Boolean).join(' · ');
+    sub = [ch, brandsText(t, (brandsByKitchen[site.kitchen] ?? []).length), counted ? summary : null].filter(Boolean).join(' · ');
   } else {
     title = allLocations ? t('Tous les restaurants', 'All restaurants') : t('Mes restaurants', 'My restaurants');
-    sub = [ch, locationsText(t, locations.length), counted ? storesText(t, n) : brandsText(t, brands.length)].filter(Boolean).join(' · ');
+    sub = [ch, locationsText(t, locations.length), counted ? summary : brandsText(t, brands.length)].filter(Boolean).join(' · ');
   }
   return { title, sub, words: sub ? `${title} · ${sub}` : title };
 }
@@ -90,7 +99,7 @@ export function ScopeSwitcher() {
       </span>
       <span className="min-w-0 text-left leading-tight">
         <span className="block max-w-[calc(100vw-15rem)] truncate text-body font-extrabold text-ink sm:max-w-[16rem]">{label.title}</span>
-        <span className="block max-w-[calc(100vw-15rem)] truncate text-small font-medium text-ink-3 sm:max-w-[16rem]">{label.sub}</span>
+        <span title={locked ? undefined : label.sub} className="block max-w-[calc(100vw-15rem)] truncate text-small font-medium text-ink-3 sm:max-w-[16rem]">{label.sub}</span>
       </span>
     </span>
   );

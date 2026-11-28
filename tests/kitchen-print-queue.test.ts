@@ -1,11 +1,13 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET } from '../app/api/foodhub/kitchen/print-queue/route';
+import { POST as POST_PENDING } from '../app/api/foodhub/kitchen/print-queue/pending/route';
 import { POST } from '../app/api/foodhub/kitchen/print-queue/[orderId]/printed/route';
+import { GET as GET_ORDER } from '../app/api/foodhub/orders/[id]/route';
 import { sessionCookieFor } from '../lib/foodhub/auth';
 import { addDirectEvent, getDirectOrder, saveDirectOrder } from '../lib/foodhub/delivery/store';
 import type { DirectOrder } from '../lib/foodhub/delivery/types';
-import { enrollDevice } from '../lib/foodhub/identity/devices';
-import { buildPrintQueue, claimTabletPrint, directKitchenAt, kitchenPrintKey, parseSince } from '../lib/foodhub/kitchen/print-queue';
+import { enrollDevice, updateDevice } from '../lib/foodhub/identity/devices';
+import { buildPrintQueue, claimKey, claimTabletPrint, directKitchenAt, kitchenPrintKey, parseSince } from '../lib/foodhub/kitchen/print-queue';
 import { getRepo } from '../lib/foodhub/repo';
 import type { NormalizedOrder, StoredOrder } from '../lib/foodhub/types';
 
@@ -46,6 +48,10 @@ async function addDirect(over: Partial<DirectOrder> = {}): Promise<DirectOrder> 
 const get = (qs: string, cookie?: string) => GET(new Request(`${BASE}${qs}`, { headers: cookie ? { cookie } : {} }));
 const claim = (orderId: string, body: Record<string, unknown>, cookie?: string) =>
   POST(new Request(`${BASE}/${encodeURIComponent(orderId)}/printed`, { method: 'POST', headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: JSON.stringify(body) }), { params: Promise.resolve({ orderId }) });
+const pending = (body: Record<string, unknown>, cookie?: string) =>
+  POST_PENDING(new Request(`${BASE}/pending`, { method: 'POST', headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: JSON.stringify(body) }));
+const getOrder = (id: string, cookie: string) =>
+  GET_ORDER(new Request(`http://localhost/api/foodhub/orders/${id}`, { headers: { cookie } }), { params: Promise.resolve({ id }) });
 
 describe('kitchen print queue: who may call', () => {
   beforeEach(fresh);
@@ -88,6 +94,117 @@ describe('kitchen print queue: who may call', () => {
 
 describe('kitchen print queue: since cursor', () => {
   beforeEach(fresh);
+
+  it('drains 51 same-time orders after a reconnect under a fixed, kitchen-scoped continuation', async () => {
+    const owner = { username: 'owner', name: 'Owner', source: 'dashboard' } as const;
+    const { cookie, device } = await enrollDevice({ name: 'Recovery tablet', locationCode: 'NDG' }, owner);
+    const tablet = cookie.split(';')[0];
+    const createdAt = ago(4);
+    const since = ago(10);
+    const ids = await Promise.all(Array.from({ length: 51 }, () => addOrder({ createdAt }).then((order) => order.id)));
+    const other = await addOrder({ createdAt, locationCode: 'VERDUN' });
+    const qs = `?paged=1&device=${DEVICE}&since=${encodeURIComponent(since)}`;
+    const first = await get(qs, tablet);
+    expect(first.status).toBe(200);
+    const batch = await first.json();
+    expect(batch.items).toHaveLength(50);
+    expect(batch.paged).toBe(true);
+    expect(batch.continuation).toEqual(expect.any(String));
+    const legacyAfterCursor = await (await get(`?device=${DEVICE}&since=${encodeURIComponent(new Date(Date.parse(batch.serverTime) - 120_000).toISOString())}`, tablet)).json();
+    expect(legacyAfterCursor).toMatchObject({ items: [] });
+    expect(legacyAfterCursor).not.toHaveProperty('paged');
+    const afterHorizon = await addOrder({ createdAt: new Date(Date.parse(batch.serverTime) + 60_000).toISOString() });
+    const cursorQuery = `${qs}&continuation=${encodeURIComponent(batch.continuation)}`;
+    const second = await get(cursorQuery, tablet);
+    expect(second.status).toBe(200);
+    const tail = await second.json();
+    expect(tail).toMatchObject({ serverTime: batch.serverTime, since: batch.since, items: [expect.objectContaining({ locationCode: 'NDG' })] });
+    expect(tail).not.toHaveProperty('continuation');
+    expect([...batch.items, ...tail.items].map((item) => item.orderId)).toEqual(ids.sort());
+    expect([...batch.items, ...tail.items].some((item) => item.orderId === other.id || item.orderId === afterHorizon.id)).toBe(false);
+    expect((await get(`${cursorQuery}&location=VERDUN`, tablet)).status).toBe(403);
+    expect((await get(cursorQuery.replace(DEVICE, 'different-tablet'), tablet)).status).toBe(400);
+    expect((await get(`${qs}&continuation=garbage`, tablet)).status).toBe(400);
+    await updateDevice(device.id, { locationCode: 'VERDUN' }, owner);
+    expect((await get(cursorQuery, tablet)).status).toBe(400);
+  });
+
+  it('drains 501 platform orders and a direct ticket behind 1,000 newer documents from another kitchen', async () => {
+    const own = await addDirect({ createdAt: ago(5), sourceRef: 'fixture-direct-own-source' });
+    const foreignAt = ago(1);
+    await getRepo().putDocs<DirectOrder>('direct_orders', Array.from({ length: 1000 }, (_, i) => {
+      const id = `fixture-foreign-${i}`;
+      return {
+        id, key: `phone:${id}`, at: foreignAt,
+        data: { ...own, id, sourceRef: id, locationCode: 'VERDUN', createdAt: foreignAt, placedAt: foreignAt },
+      };
+    }));
+    const platformAt = ago(4);
+    const ids = await Promise.all(Array.from({ length: 501 }, () => addOrder({ createdAt: platformAt }).then((order) => order.id)));
+    const { cookie } = await enrollDevice({
+      name: 'Large queue tablet', locationCode: 'NDG',
+    }, { username: 'owner', name: 'Owner', source: 'dashboard' });
+    const tablet = cookie.split(';')[0];
+    const query = `?device=${DEVICE}`;
+    const legacy = await (await get(query, tablet)).json();
+    expect(legacy.items).toHaveLength(50);
+    expect(legacy.items.every((item: { source: string }) => item.source === 'platform')).toBe(true);
+    expect(legacy).not.toHaveProperty('paged');
+
+    const orderIds: string[] = [];
+    let continuation: string | undefined;
+    for (let i = 0; i < 11; i++) {
+      const response = await get(`${query}&paged=1${continuation ? `&continuation=${encodeURIComponent(continuation)}` : ''}`, tablet);
+      expect(response.status).toBe(200);
+      const page = await response.json();
+      orderIds.push(...page.items.map((item: { orderId: string }) => item.orderId));
+      continuation = page.continuation;
+      if (!continuation) break;
+    }
+    expect(continuation).toBeUndefined();
+    expect(orderIds).toEqual([own.id, ...ids.sort()]);
+  });
+
+  it('renews the cursor on a later page without moving its initial horizon', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const start = Date.parse('2026-11-28T08:00:00Z');
+      vi.setSystemTime(start);
+      const createdAt = ago(4);
+      await Promise.all(Array.from({ length: 101 }, () => addOrder({ createdAt })));
+      const query = `?location=NDG&device=${DEVICE}&paged=1`;
+      const cookie = await ownerCookie();
+      const first = await (await get(query, cookie)).json();
+      expect(first.continuation).toEqual(expect.any(String));
+
+      vi.setSystemTime(start + 14 * 60_000);
+      const second = await (await get(`${query}&continuation=${encodeURIComponent(first.continuation)}`, cookie)).json();
+      expect(second).toMatchObject({ since: first.since, serverTime: first.serverTime, continuation: expect.any(String) });
+      expect(second.items).toHaveLength(50);
+
+      vi.setSystemTime(start + 16 * 60_000);
+      const last = await get(`${query}&continuation=${encodeURIComponent(second.continuation)}`, cookie);
+      expect(last.status).toBe(200);
+      const tail = await last.json();
+      expect(tail).toMatchObject({ since: first.since, serverTime: first.serverTime });
+      expect(tail.items).toHaveLength(1);
+      expect(tail).not.toHaveProperty('continuation');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('returns no continuation when the only remaining draft is an unprinted cancellation', async () => {
+    const createdAt = ago(4);
+    await Promise.all(Array.from({ length: 50 }, () => addOrder({ createdAt })));
+    const cancelled = await addOrder({ createdAt });
+    await getRepo().patchOrder(cancelled.id, { cancelledAt: ago(3) }, { status: 'cancelled' });
+    const response = await get(`?location=NDG&device=${DEVICE}&paged=1`, await ownerCookie());
+    expect(response.status).toBe(200);
+    const batch = await response.json();
+    expect(batch.items).toHaveLength(50);
+    expect(batch).not.toHaveProperty('continuation');
+  });
 
   it('parses, defaults to 15 minutes back and clamps to 24 hours and now', () => {
     const now = Date.parse('2026-10-30T16:00:00Z');
@@ -175,13 +292,38 @@ describe('kitchen print queue: never twice, cancelled never printed', () => {
     expect(again).toMatchObject({ ok: true, claimed: false, reason: 'already_printed' });
     const q = await (await get(`?location=NDG&device=${DEVICE}`, cookie)).json();
     expect(q.items[0]).toMatchObject({ orderId: o.id, printed: true });
+    expect((await getRepo().listEvents(o.id)).filter((e) => e.type.startsWith('tablet_'))).toMatchObject([
+      { type: 'tablet_print_claimed', detail: { deviceId: DEVICE, stage: 'claimed', message: 'Order ticket reserved for printing.', messageFr: 'Ticket de commande réservé pour impression.' } },
+    ]);
     // Another tablet has its own claim.
     expect(await claimTabletPrint({ orderId: o.id, deviceId: 'tablet-test-0002', location: 'NDG', by: 'test' })).toMatchObject({ claimed: true });
     // Two claims racing for one device: exactly one wins.
     const o2 = await addOrder();
     const race = await Promise.all([1, 2, 3].map(() => claimTabletPrint({ orderId: o2.id, deviceId: DEVICE, location: 'NDG', by: 'test' })));
     expect(race.filter((r) => r.claimed)).toHaveLength(1);
-    expect((await getRepo().listEvents(o.id)).some((e) => e.type === 'tablet_printed')).toBe(true);
+    expect((await getRepo().listEvents(o2.id)).filter((e) => e.type === 'tablet_print_claimed')).toHaveLength(1);
+  });
+
+  it('projects historic tablet claims in the scoped order history and preserves unrelated evidence and stored rows', async () => {
+    const o = await addOrder();
+    const repo = getRepo();
+    await repo.addEvent(o.id, 'tablet_printed', { message: 'Ticket printed on the kitchen tablet app', deviceId: DEVICE, by: 'operator' });
+    await repo.addEvent(o.id, 'tablet_cancel_printed', { message: 'Cancel ticket printed on the kitchen tablet app', deviceId: DEVICE, by: 'operator' });
+    await repo.addEvent(o.id, 'printed', { message: 'Clover confirmation', by: 'Clover' });
+    const before = await repo.listEvents(o.id);
+    const r = await getOrder(o.id, await ownerCookie());
+    expect(r.status).toBe(200);
+    const { events } = await r.json();
+    const [legacyOrder, legacyCancel, clover] = before.slice(-3);
+    expect(events.slice(-3)).toEqual([
+      { ...legacyOrder, type: 'tablet_print_claimed', detail: { deviceId: DEVICE, by: 'operator', stage: 'claimed', message: 'Order ticket reserved for printing.', messageFr: 'Ticket de commande réservé pour impression.' } },
+      { ...legacyCancel, type: 'tablet_cancel_print_claimed', detail: { deviceId: DEVICE, by: 'operator', stage: 'claimed', message: 'Cancellation ticket reserved for printing.', messageFr: 'Ticket d’annulation réservé pour impression.' } },
+      clover,
+    ]);
+    expect(await repo.listEvents(o.id)).toEqual(before);
+    await repo.saveUser({ username: 'cook', name: 'Cook', role: 'operator', locations: ['VERDUN'], active: true, passwordHash: null });
+    const cook = (await sessionCookieFor((await repo.getUser('cook'))!, 'otp')).split(';')[0];
+    expect((await getOrder(o.id, cook)).status).toBe(404);
   });
 
   it('a reinstalled app (new device id) is told what this kitchen already printed, and a lost claim answer reads printed: true', async () => {
@@ -246,6 +388,10 @@ describe('kitchen print queue: never twice, cancelled never printed', () => {
     expect(await claimTabletPrint({ orderId: o.id, deviceId: DEVICE, location: 'NDG', by: 't', kind: 'cancel' })).toMatchObject({ claimed: true });
     expect(await claimTabletPrint({ orderId: o.id, deviceId: DEVICE, location: 'NDG', by: 't', kind: 'cancel' })).toMatchObject({ claimed: false, reason: 'already_printed' });
     expect((await buildPrintQueue({ location: 'NDG', deviceId: DEVICE })).items).toEqual([]);
+    expect((await getRepo().listEvents(o.id)).filter((e) => e.type.startsWith('tablet_'))).toMatchObject([
+      { type: 'tablet_print_claimed', detail: { deviceId: DEVICE, stage: 'claimed' } },
+      { type: 'tablet_cancel_print_claimed', detail: { deviceId: DEVICE, stage: 'claimed', message: 'Cancellation ticket reserved for printing.', messageFr: 'Ticket d’annulation réservé pour impression.' } },
+    ]);
   });
 
   it('own orders: claimed once, and a cancelled own order is not printed', async () => {
@@ -256,5 +402,167 @@ describe('kitchen print queue: never twice, cancelled never printed', () => {
     expect(await claimTabletPrint({ orderId: c.id, deviceId: DEVICE, location: 'NDG', by: 't' })).toMatchObject({ claimed: false, reason: 'cancelled' });
     const held = await addDirect({ status: 'awaiting_payment' });
     expect(await claimTabletPrint({ orderId: held.id, deviceId: DEVICE, location: 'NDG', by: 't' })).toMatchObject({ claimed: false, reason: 'not_for_kitchen' });
+  });
+});
+
+describe('kitchen print queue: current pending order claims', () => {
+  beforeEach(fresh);
+
+  it('rejects a receipt from a tablet enrolled at another kitchen and accepts a staff-only receipt', async () => {
+    const enrolledBy = { username: 'owner', name: 'Owner', source: 'dashboard' } as const;
+    const { cookie } = await enrollDevice({ name: 'NDG tablet', locationCode: 'NDG' }, enrolledBy);
+    const owner = await ownerCookie();
+    const tablet = cookie.split(';')[0];
+    const order = await addOrder({ locationCode: 'VERDUN' });
+    const input = { location: 'VERDUN', deviceId: DEVICE, source: 'platform' };
+    const ticketId = `platform:${order.id}:order`;
+    const pendingInput = { ...input, ids: [ticketId] };
+    const repo = getRepo();
+    const key = claimKey(DEVICE, 'order', 'platform', order.id);
+    const events = await repo.listEvents(order.id);
+
+    expect((await pending(pendingInput, `${owner}; ${tablet}`)).status).toBe(403);
+    expect((await claim(order.id, input, `${owner}; ${tablet}`)).status).toBe(403);
+    expect(await repo.getKv(key)).toBeNull();
+    expect(await repo.getKv(kitchenPrintKey('order', 'platform', order.id))).toBeNull();
+    expect(await repo.listEvents(order.id)).toEqual(events);
+
+    const accepted = await claim(order.id, input, owner);
+    expect(accepted.status).toBe(200);
+    expect(await accepted.json()).toMatchObject({ claimed: true });
+    expect(await repo.getKv(key)).toMatchObject({ location: 'VERDUN', deviceId: DEVICE });
+    expect(await repo.getKv(key)).not.toHaveProperty('enrollmentId');
+    expect(await (await pending(pendingInput, owner)).json()).toMatchObject({ results: { [ticketId]: 'clear' } });
+  });
+
+  it('requires a PIN staff session and tablet cookie to refer to the same enrollment', async () => {
+    const enrolledBy = { username: 'owner', name: 'Owner', source: 'dashboard' } as const;
+    const first = await enrollDevice({ name: 'First NDG tablet', locationCode: 'NDG' }, enrolledBy);
+    const second = await enrollDevice({ name: 'Second NDG tablet', locationCode: 'NDG' }, enrolledBy);
+    const repo = getRepo();
+    const cook = await repo.saveUser({ username: 'cook', name: 'Cook', role: 'operator', locations: ['NDG'], active: true, passwordHash: null });
+    const pin = (await sessionCookieFor(cook, 'pin', first.device.id)).split(';')[0];
+    const mismatched = `${pin}; ${second.cookie.split(';')[0]}`;
+    const matching = `${pin}; ${first.cookie.split(';')[0]}`;
+    const order = await addOrder();
+    const input = { location: 'NDG', deviceId: DEVICE, source: 'platform' };
+    const ticketId = `platform:${order.id}:order`;
+    const pendingInput = { ...input, ids: [ticketId] };
+    const key = claimKey(DEVICE, 'order', 'platform', order.id);
+    const events = await repo.listEvents(order.id);
+
+    expect((await pending(pendingInput, mismatched)).status).toBe(403);
+    expect((await claim(order.id, input, mismatched)).status).toBe(403);
+    expect(await repo.getKv(key)).toBeNull();
+    expect(await repo.getKv(kitchenPrintKey('order', 'platform', order.id))).toBeNull();
+    expect(await repo.listEvents(order.id)).toEqual(events);
+
+    const accepted = await claim(order.id, input, matching);
+    expect(accepted.status).toBe(200);
+    expect(await accepted.json()).toMatchObject({ claimed: true });
+    expect(await repo.getKv(key)).toMatchObject({ enrollmentId: first.device.id });
+    expect(await (await pending(pendingInput, matching)).json()).toMatchObject({ results: { [ticketId]: 'clear' } });
+  });
+
+  it('rechecks platform and direct cancellations after a fixed page horizon without writing claims or events', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const start = Date.parse('2026-11-28T08:00:00Z');
+      vi.setSystemTime(start);
+      const { cookie } = await enrollDevice({ name: 'Recovery tablet', locationCode: 'NDG' }, { username: 'owner', name: 'Owner', source: 'dashboard' });
+      const tablet = cookie.split(';')[0];
+      const platform = await addOrder({ createdAt: ago(4) });
+      const direct = await addDirect({ id: 'legacy:direct:order:42', createdAt: ago(3) });
+      const active = await addOrder({ createdAt: ago(5) });
+      await Promise.all(Array.from({ length: 50 }, () => addOrder()));
+      const ids = [`platform:${platform.id}:order`, `direct:${direct.id}:order`, `platform:${active.id}:order`];
+      const query = `?location=NDG&device=${DEVICE}&paged=1`;
+      const first = await (await get(query, tablet)).json();
+      expect(first.continuation).toEqual(expect.any(String));
+      expect(first.items.map((item: { id: string }) => item.id)).toEqual(expect.arrayContaining(ids));
+
+      for (const [orderId, source] of [[platform.id, 'platform'], [direct.id, 'direct'], [active.id, 'platform']]) {
+        expect(await (await claim(orderId, { location: 'NDG', deviceId: DEVICE, source }, tablet)).json()).toMatchObject({ claimed: true });
+      }
+      const input = { location: 'NDG', deviceId: DEVICE, ids };
+      const initially = await pending(input, tablet);
+      expect(initially.headers.get('Cache-Control')).toBe('no-store');
+      expect(await initially.json()).toEqual({ ok: true, location: 'NDG', deviceId: DEVICE, results: Object.fromEntries(ids.map((id) => [id, 'clear'])) });
+
+      vi.setSystemTime(start + 60_000);
+      await getRepo().patchOrder(platform.id, { cancelledAt: new Date().toISOString() }, { status: 'cancelled' });
+      await addDirectEvent(direct, 'cancelled', 'test cancellation', undefined, { status: 'cancelled' });
+      const tail = await (await get(`${query}&continuation=${encodeURIComponent(first.continuation)}`, tablet)).json();
+      expect(tail.serverTime).toBe(first.serverTime);
+      expect(tail.items.every((item: { kind: string }) => item.kind === 'order')).toBe(true);
+
+      const events = await getRepo().listEvents(platform.id);
+      const result = { ok: true, location: 'NDG', deviceId: DEVICE, results: { [ids[0]]: 'cancelled', [ids[1]]: 'cancelled', [ids[2]]: 'clear' } };
+      expect(await (await pending(input, tablet)).json()).toEqual(result);
+      expect(await (await pending(input, tablet)).json()).toEqual(result);
+      expect(await getRepo().listEvents(platform.id)).toEqual(events);
+      expect(await getRepo().getKv(claimKey(DEVICE, 'cancel', 'platform', platform.id))).toBeNull();
+      expect(await getRepo().getKv(claimKey(DEVICE, 'cancel', 'direct', direct.id))).toBeNull();
+
+      const legacy = await (await get(`?location=NDG&device=${DEVICE}&since=${encodeURIComponent(first.serverTime)}`, tablet)).json();
+      expect(legacy.items.map((item: { id: string }) => item.id)).toEqual(expect.arrayContaining([`platform:${platform.id}:cancel`, `direct:${direct.id}:cancel`]));
+      expect(legacy).not.toHaveProperty('paged');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('checks signed kitchen and print device scope without revealing foreign, missing or unclaimed order state', async () => {
+    const enrolledBy = { username: 'owner', name: 'Owner', source: 'dashboard' } as const;
+    const { device, cookie } = await enrollDevice({ name: 'First tablet', locationCode: 'NDG' }, enrolledBy);
+    const tablet = cookie.split(';')[0];
+    const second = (await enrollDevice({ name: 'Second tablet', locationCode: 'NDG' }, enrolledBy)).cookie.split(';')[0];
+    const owner = await ownerCookie();
+    const active = await addOrder();
+    const legacy = await addDirect();
+    const unclaimed = await addOrder();
+    const foreign = await addDirect({ locationCode: 'VERDUN' });
+    const missing = 'missing:direct:42';
+    const ids = [`platform:${active.id}:order`, `direct:${legacy.id}:order`, `platform:${unclaimed.id}:order`, `direct:${foreign.id}:order`, `direct:${missing}:order`, `direct:${active.id}:order`];
+    expect(await (await claim(active.id, { location: 'NDG', deviceId: DEVICE, source: 'platform' }, `${owner}; ${tablet}`)).json()).toMatchObject({ claimed: true });
+    await getRepo().claimKv(claimKey(DEVICE, 'order', 'direct', legacy.id), { deviceId: DEVICE, by: 'Legacy tablet' });
+    await getRepo().claimKv(claimKey(DEVICE, 'order', 'direct', foreign.id), { deviceId: DEVICE, by: 'Legacy tablet' });
+    await getRepo().claimKv(claimKey(DEVICE, 'order', 'direct', missing), { deviceId: DEVICE, by: 'Legacy tablet' });
+    await getRepo().claimKv(claimKey(DEVICE, 'order', 'direct', active.id), { deviceId: DEVICE, by: 'Legacy tablet' });
+    await addDirectEvent(foreign, 'cancelled', 'test cancellation', undefined, { status: 'cancelled' });
+    const input = { location: 'NDG', deviceId: DEVICE, ids };
+    expect((await pending(input)).status).toBe(401);
+    expect((await pending(input, 'takatak_device=forged.value')).status).toBe(401);
+    const response = await pending(input, tablet);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, location: 'NDG', deviceId: DEVICE, results: {
+      [ids[0]]: 'clear', [ids[1]]: 'clear', [ids[2]]: 'unverified', [ids[3]]: 'unverified', [ids[4]]: 'unverified', [ids[5]]: 'unverified',
+    } });
+    const wrongNativeId = await (await pending({ ...input, ids: [ids[0]], deviceId: 'wrong-print-device' }, tablet)).json();
+    expect(wrongNativeId.results).toEqual({ [ids[0]]: 'unverified' });
+    const wrongEnrollment = await (await pending({ ...input, ids: [ids[0]] }, second)).json();
+    expect(wrongEnrollment.results).toEqual({ [ids[0]]: 'unverified' });
+    expect((await pending({ ...input, location: 'VERDUN' }, `${owner}; ${tablet}`)).status).toBe(403);
+    await updateDevice(device.id, { locationCode: 'VERDUN' }, enrolledBy);
+    expect((await pending(input, `${owner}; ${tablet}`)).status).toBe(403);
+    const moved = await (await pending({ ...input, ids: [ids[0]], location: 'VERDUN' }, tablet)).json();
+    expect(moved.results).toEqual({ [ids[0]]: 'unverified' });
+  });
+
+  it('validates the whole bounded batch before looking up any print claim', async () => {
+    const cookie = await ownerCookie();
+    const input = { location: 'NDG', deviceId: DEVICE };
+    const id = 'direct:legacy:42:order';
+    const getKv = vi.spyOn(getRepo(), 'getKv');
+    try {
+      for (const ids of [[id, 'platform:order:cancel'], [id, id], [], Array.from({ length: 51 }, (_, i) => `direct:${i}:order`)]) {
+        expect((await pending({ ...input, ids }, cookie)).status).toBe(400);
+      }
+      expect((await pending({ ...input, deviceId: 'bad', ids: [id] }, cookie)).status).toBe(400);
+      expect((await pending({ ...input, ids: ['x'.repeat(49_500)] }, cookie)).status).toBe(413);
+      expect(getKv).not.toHaveBeenCalled();
+    } finally {
+      getKv.mockRestore();
+    }
   });
 });

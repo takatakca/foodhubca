@@ -1,3 +1,51 @@
+## 2026-11-28 — Signal du service Android de la file d’impression
+
+Le signalement de lecture de la file d’impression utilise le cookie signé de la tablette et la cuisine de son inscription actuelle. Il reste séparé du signal d’écran, du son, de la visibilité et des décisions de relève. Réglages → Tablettes affiche l’heure du signalement associé à la cuisine actuelle et laisse l’état d’écran lisible si ce relevé est indisponible. Après un déplacement, un signalement tardif de l’ancienne cuisine est écarté de l’affichage.
+
+Les essais ciblés couvrent l’accès, le déplacement, les dates invalides, les réessais et les pannes de stockage. Android signale une consultation réussie depuis un fil d’exécution distinct. Le cookie utilisé pour consulter la file doit correspondre à l’inscription courante. L’envoi est limité à une tentative par minute et tolère un ancien serveur. Les 32 tests JVM passent. Le parcours compilé et la CI se vérifient sur la branche de revue, après la PR #219. L’impression physique et la réception du numéro commun restent au contrôle marchand. [Checklist #46](https://github.com/takatakca/foodhubca/issues/46)
+
+— signé : Codex @ cloud · 2026-11-28 10:08 Montréal
+
+## 2026-11-28 — Historique des réservations d’impression de tablette
+
+La réservation d’un ticket de commande ou d’annulation enregistre un événement de réservation. L’historique de la commande présente aussi les anciens événements de tablette comme des réservations, en français et en anglais. Les lignes historiques en base restent intactes. Un événement d’impression Clover indique l’envoi de la demande à Clover. La sortie papier est vérifiée sur place. Les réponses de reprise de la tablette gardent leur forme.
+
+Les trois régressions échouaient sur la tête précédente de #219. Les 58 tests ciblés passent après la correction, y compris la portée de la cuisine et la déduplication des réessais. Le parcours compilé, la CI du SHA exact et l’observation de la sortie papier restent à vérifier. [PR #219](https://github.com/takatakca/foodhubca/pull/219) · [Checklist marchande #46](https://github.com/takatakca/foodhubca/issues/46)
+
+— signé : Codex @ cloud · 2026-11-28
+
+## 2026-11-28 — Reprise des tickets au retour dans une cuisine
+
+La tablette conserve les identifiants exacts des tickets traités dans les quinze dernières minutes du serveur. Elle les relit après confirmation de la cuisine par le serveur pour la même adresse et la même installation. Une nouvelle cuisine reprend sa propre file et un autre serveur efface cet historique récent. Le curseur actif et les tickets en attente gardent leur fonctionnement.
+
+L’essai JVM couvre 550 reçus hors du chevauchement du curseur, le changement de cuisine, le redémarrage et le retour. Après la correction, seul le ticket dont la réponse de réclamation a été perdue est repris. Les 27 essais JVM réussissent. Le paquet signé du SHA exact et l’impression sur une tablette autorisée restent à vérifier. [PR #219](https://github.com/takatakca/foodhubca/pull/219) · [Checklist marchande #46](https://github.com/takatakca/foodhubca/issues/46)
+
+— signé : Codex @ cloud · 2026-11-28
+
+## 2026-11-28 — Jumelage des réclamations d’impression de tablette
+
+La réclamation d’un ticket applique la même vérification de jumelage que la lecture de son état avant impression. Une tablette rattachée à une autre cuisine, ou un jumelage qui diffère de celui de la session NIP, reçoit un 403 avant toute écriture du reçu, de la marque de cuisine ou de l’événement d’impression. Une session du personnel seule ou un jumelage concordant permet toujours de réclamer le ticket et d’en relire l’état.
+
+Les deux cas de jumelage discordant renvoyaient 200 avant la correction. Les 25 essais locaux ciblés réussissent après la correction. La CI du SHA exact et l’impression sur une tablette autorisée restent à vérifier. [PR #219](https://github.com/takatakca/foodhubca/pull/219) · [Checklist marchande #46](https://github.com/takatakca/foodhubca/issues/46)
+
+— signé : Codex @ cloud · 2026-11-28
+
+## 2026-11-28 — Reprise des lots de tickets sur la tablette Android
+
+La tablette conserve les reçus du chevauchement au-delà de 500 tickets et recharge le curseur de la même cuisine après un redémarrage. Un ticket en attente exige une réponse de la cuisine active. Avant d’envoyer les octets d’un ticket de commande, la tablette vérifie auprès du serveur l’état courant de sa réclamation. Cette lecture voit les annulations reçues après la borne du lot. Un résultat incertain laisse le ticket en attente. Le nouveau paquet requiert ce serveur pour imprimer les tickets de commande.
+
+Les lectures paginées reprennent après la dernière date et le dernier identifiant lus. Une ligne terminée ou retirée du premier lot ne masque plus la commande suivante. Chaque page prolonge la validité de son jeton, tout en conservant la fenêtre de départ. Les essais comprennent une reprise au-delà de quinze minutes et deux lectures PostgreSQL avec retrait d’une ligne du premier lot.
+
+La tablette relit sa configuration entre les tickets et après une réponse de réclamation. Un ticket confirmé pendant un changement de cuisine reste en attente dans sa cuisine d’origine. Avant d’imprimer, la tablette vérifie ce rattachement et capture la destination d’impression. Les anciens tickets en attente sans liaison utilisent la configuration de démarrage du processus.
+
+Une reprise conserve tous les tickets déjà traités dans sa fenêtre active, y compris au-delà des 500 entrées de l’historique normal. La première page peut corriger une date de reprise sortie de la fenêtre serveur. Les lectures paginées appliquent le filtre de cuisine avant de lire les lots en base, ce qui évite qu’un grand volume masque des commandes admissibles. Les parcours d’impression physique restent à confirmer sur un appareil autorisé.
+
+Après une coupure, le flux peut contenir plus de 50 tickets. L’application parcourt chaque lot à partir d’une borne fixe et avance sa date de reprise après le dernier lot traité. Après un redémarrage en cours de traitement, elle reprend la fenêtre enregistrée et conserve les protections existantes contre les doublons. Chaque lot vérifie le périmètre de cuisine et de tablette.
+
+Les essais locaux couvrent 51 commandes à la même heure, la séparation des cuisines, un jeton invalide et la reprise du curseur. Les règles de la tablette passent les tests Kotlin sur la JVM. Publier le serveur d’abord et confirmer son SHA exact avec `/api/release` avant de distribuer le nouveau paquet Android. Si l’ancien serveur renvoie un lot de 50 sans signaler la pagination, la tablette conserve sa date de reprise. La confirmation sur l’appareil exige le paquet Android mis à jour et un essai autorisé avec l’imprimante. [Checklist marchande #46](https://github.com/takatakca/foodhubca/issues/46)
+
+— signé : Codex @ cloud · 2026-11-28
+
 ## 2026-11-26 — Paiement Clover après déplacement d’une liaison
 
 La réconciliation locale de #183 sur `86d190c` conserve les références par magasin de #178 pour la saisie, la reprise, l’import et le paiement Clover. Les 161 essais ciblés couvrent aussi le règlement et l’impression sur la caisse confirmée et le contrôle manuel d’une liaison Uber Eats. Les réponses des fournisseurs sont simulées. La CI du SHA réconcilié et la réception marchande restent à vérifier avant publication.

@@ -29,6 +29,7 @@ object EscPosPrinter {
 
     sealed class Outcome {
         object Ok : Outcome()
+        object Held : Outcome()
         data class Failed(val message: String) : Outcome()
     }
 
@@ -44,26 +45,38 @@ object EscPosPrinter {
         queue.execute { task(app) }
     }
 
+    private data class PrinterDestination(
+        val type: PrinterType, val host: String, val port: Int, val address: String, val codePage: CodePage,
+    )
+
     /** Blocking print (call it from a background thread only). */
-    fun printNow(context: Context, ticket: String): Outcome {
+    fun printNow(
+        context: Context, ticket: String, authorizeWrite: () -> Boolean = { true }, stillAllowed: () -> Boolean = { true },
+    ): Outcome {
         val prefs = Prefs(context)
-        val bytes = EscPos.render(ticket, prefs.codePage)
+        val destination = prefs.withSettings {
+            if (!stillAllowed()) null else PrinterDestination(prefs.printerType, prefs.printerHost, prefs.printerPort, prefs.bluetoothAddress, prefs.codePage)
+        } ?: return Outcome.Held
+        val bytes = EscPos.render(ticket, destination.codePage)
+        if (!stillAllowed()) return Outcome.Held
+        val canWrite = { stillAllowed() && authorizeWrite() && stillAllowed() }
         return try {
-            when (prefs.printerType) {
+            when (destination.type) {
                 PrinterType.NONE -> Outcome.Failed("no printer chosen")
-                PrinterType.NETWORK -> sendTcp(prefs.printerHost, prefs.printerPort, bytes)
-                PrinterType.BLUETOOTH -> sendBluetooth(context, prefs.bluetoothAddress, bytes)
+                PrinterType.NETWORK -> sendTcp(destination.host, destination.port, bytes, canWrite)
+                PrinterType.BLUETOOTH -> sendBluetooth(context, destination.address, bytes, canWrite)
             }
         } catch (e: Exception) {
             Outcome.Failed(e.message ?: e.javaClass.simpleName)
         }
     }
 
-    private fun sendTcp(host: String, port: Int, bytes: ByteArray): Outcome {
+    private fun sendTcp(host: String, port: Int, bytes: ByteArray, canWrite: () -> Boolean): Outcome {
         if (host.isBlank()) return Outcome.Failed("printer IP address missing")
         Socket().use { s ->
             s.connect(InetSocketAddress(host, if (port in 1..65535) port else 9100), 5_000)
             s.soTimeout = 10_000
+            if (!canWrite()) return Outcome.Held
             writeChunks(s.getOutputStream(), bytes)
             Thread.sleep(300) // let the printer take the last bytes before the socket closes
         }
@@ -74,7 +87,7 @@ object EscPosPrinter {
         Build.VERSION.SDK_INT < 31 || context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
 
     @SuppressLint("MissingPermission")
-    private fun sendBluetooth(context: Context, address: String, bytes: ByteArray): Outcome {
+    private fun sendBluetooth(context: Context, address: String, bytes: ByteArray, canWrite: () -> Boolean): Outcome {
         if (address.isBlank()) return Outcome.Failed("no Bluetooth printer chosen")
         if (!hasBluetoothPermission(context)) return Outcome.Failed("Bluetooth permission (Nearby devices) not granted")
         val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter ?: return Outcome.Failed("this tablet has no Bluetooth")
@@ -100,6 +113,7 @@ object EscPosPrinter {
             // Connected: from here a failure ends the job (the ticket stays waiting and is retried whole later). Sending
             // it again on another socket type now would print a cut slip plus a full one.
             return try {
+                if (!canWrite()) return Outcome.Held
                 writeChunks(socket.outputStream, bytes)
                 // RFCOMM buffers: closing at once can cut the end of the ticket on some printers.
                 Thread.sleep(500L + bytes.size / 8)

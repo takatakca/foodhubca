@@ -43,8 +43,10 @@ export async function findDirectOrderBySource(source: DirectSource, sourceRef: s
   return docs[0]?.data ?? null;
 }
 
-export async function listDirectOrders(opts: { since?: string; limit?: number; locationCodes?: string[] } = {}): Promise<DirectOrder[]> {
-  const docs = await getRepo().listDocs<DirectOrder>(DIRECT_ORDERS, { since: opts.since, limit: opts.limit ?? 500 });
+export async function listDirectOrders(opts: { since?: string; until?: string; limit?: number; locationCodes?: string[]; locationCode?: string } = {}): Promise<DirectOrder[]> {
+  const docs = await getRepo().listDocs<DirectOrder>(DIRECT_ORDERS, {
+    since: opts.since, until: opts.until, limit: opts.limit ?? 500, locationCode: opts.locationCode,
+  });
   const list = docs.map((d) => d.data);
   return opts.locationCodes?.length ? list.filter((o) => opts.locationCodes!.includes(o.locationCode)) : list;
 }

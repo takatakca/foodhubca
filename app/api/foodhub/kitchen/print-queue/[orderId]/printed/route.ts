@@ -1,6 +1,6 @@
 import { errorResponse } from '@/lib/foodhub/auth';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
-import { claimTabletPrint, resolvePrintCaller, validDeviceId } from '@/lib/foodhub/kitchen/print-queue';
+import { claimTabletPrint, resolvePrintCaller, resolvePrintEnrollment, validDeviceId } from '@/lib/foodhub/kitchen/print-queue';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,7 +21,12 @@ export async function POST(req: Request, ctx: Ctx) {
     if (!id || id.length > 120) return fail('Order id missing.', 400);
     const source = b.source === 'platform' || b.source === 'direct' ? b.source : null;
     const kind = b.kind === 'cancel' ? 'cancel' : 'order';
-    const result = await claimTabletPrint({ orderId: id, deviceId: b.deviceId, location: caller.location, by: caller.label, source, kind });
+    const enrollment = await resolvePrintEnrollment(req, caller);
+    if (enrollment instanceof Response) return enrollment;
+    const result = await claimTabletPrint({
+      orderId: id, deviceId: b.deviceId, location: caller.location, by: caller.label, source, kind,
+      enrollmentId: enrollment?.id,
+    });
     if (!result.claimed && (result.reason === 'not_found' || result.reason === 'other_kitchen')) return fail('Order not found in this kitchen.', 404, { claimed: false, reason: result.reason });
     return ok({ ...result });
   } catch (error) {

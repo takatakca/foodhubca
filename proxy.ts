@@ -70,6 +70,8 @@ async function gate(req: NextRequest) {
     res.headers.set('Cache-Control', PUBLIC_PAGE_CACHE); // same HTML for everyone: no cookie, no session is read
     return res;
   }
+  // The registered tablet's signed cookie is checked inside this dedicated reporting route.
+  if (pathname === '/api/foodhub/devices/print-listener' && req.method === 'POST') return NextResponse.next();
   if (PUBLIC_PATHS.has(pathname) || PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) return NextResponse.next();
 
   // The live lock depends on the password alone: SESSION_SECRET by itself gives nobody a way to sign in as owner.

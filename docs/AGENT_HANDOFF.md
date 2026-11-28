@@ -1,3 +1,9 @@
+## 2026-11-27 — Choix en double à l’activation Uber
+
+Un lot qui sélectionne deux fois le même magasin Uber reçoit HTTP 400 avant les appels fournisseur et les écritures de liaison. Les deux essais authentifiés couvrent un choix répété à l’identique et une autre destination Clover pour le même magasin. Ils conservent la session marchande et la liaison déjà enregistrée. La preuve de réception marchande reste suivie dans [la checklist #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé Codex @ cloud · 2026-11-27
+
 ## 2026-11-26 — Paiement Clover après déplacement d’une liaison
 
 La réconciliation locale de #183 sur `86d190c` conserve les références par magasin de #178 pour la saisie, la reprise, l’import et le paiement Clover. Les 161 essais ciblés couvrent aussi le règlement et l’impression sur la caisse confirmée et le contrôle manuel d’une liaison Uber Eats. Les réponses des fournisseurs sont simulées. La CI du SHA réconcilié et la réception marchande restent à vérifier avant publication.

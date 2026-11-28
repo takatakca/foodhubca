@@ -2,6 +2,7 @@
 // integration_enabled, order manager), menu body (one translation, tax_info, energy_interval), webhook inbox and
 // replay, documented event payloads, missed-order check, tokens, "Do not touch" and the publish-to-all-Uber dry run.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { POST as activateUberRoute } from '../app/api/foodhub/uber-connect/activate/route';
 import { forgetUberTokenMemory, invalidateUberToken, listUberStorePages, uberAccessToken, uberApiBase, uberOrderManager, uberTokenUrl } from '../lib/foodhub/adapters/uber-eats';
 import { activateUberStores, activationMessage, explainActivationError, suggestMapping, uberPosDataBody } from '../lib/foodhub/adapters/uber-provision';
 import { saveUberWebhook, UBER_INBOX, type UberInboxEntry } from '../lib/foodhub/adapters/uber-inbox';
@@ -64,7 +65,10 @@ beforeEach(async () => {
   forgetUberTokenMemory();
   await invalidateUberToken('orders'); await invalidateUberToken('poll');
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
 
 describe('store suggestions for the 17 Uber stores', () => {
   it('9 NDG stores at 6280 Somerled and 8 at 5839 Jean-Talon (5837 = the next unit, same kitchen) get a location; brands from Uber names', () => {
@@ -293,6 +297,38 @@ describe('missed-order check (created-orders)', () => {
     calls.length = 0;
     expect(await recoverMissedUberOrders()).toEqual({ recovered: 0 });
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe('duplicate stores in an activation batch', () => {
+  it.each(['identical', 'conflicting'])('rejects %s picks before activating any store', async (kind) => {
+    const id = 'c'.repeat(36);
+    const password = 'fixture-uber-batch-password';
+    vi.stubEnv('DASHBOARD_PASSWORD', password);
+    const repo = getRepo();
+    const pick = { storeId: 'fixture-uber-duplicate', brandName: 'Pi Pita', locationCode: 'SAINT_LEONARD', cloverMerchantId: 'TESTMERCH0002' };
+    const other = { ...pick, storeId: 'fixture-uber-other' };
+    const repeat = kind === 'identical' ? pick : { ...pick, locationCode: 'NDG_6284', cloverMerchantId: 'TESTMERCH0003' };
+    const saved = await repo.upsertStore(store({
+      channelStoreId: pick.storeId, brandName: pick.brandName, locationCode: pick.locationCode,
+      cloverMerchantId: pick.cloverMerchantId, autoAccept: false,
+    }));
+    const session = { createdAt: Date.now(), token: 'merchant-token', stores: [{ id: pick.storeId }, { id: other.storeId }] };
+    const sessionKey = `uber-connect:${id}`;
+    await repo.setKv(sessionKey, session);
+    mockFetch((c) => appToken(c) ?? { status: 204 });
+
+    const response = await activateUberRoute(new Request('https://hub.example.test/api/foodhub/uber-connect/activate', {
+      method: 'POST',
+      headers: { authorization: `Basic ${Buffer.from(`owner:${password}`).toString('base64')}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ id, stores: [other, pick, repeat] }),
+    }), undefined);
+
+    expect([response.status, calls.filter((c) => c.method === 'POST' && c.url.endsWith('/pos_data')).length]).toEqual([400, 0]);
+    expect(await response.json()).toEqual({ ok: false, error: 'Select each Uber Eats store only once.' });
+    expect(calls).toEqual([]);
+    expect(await repo.listStores('uber_eats')).toEqual([saved]);
+    expect(await repo.getKv(sessionKey)).toEqual(session);
   });
 });
 

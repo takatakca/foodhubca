@@ -39,6 +39,8 @@ create table if not exists fh_orders (
 );
 create index if not exists fh_orders_created_idx on fh_orders (created_at desc);
 create index if not exists fh_orders_status_idx on fh_orders (status);
+-- On an active database, build this index online with upgrade_fh_orders_pos_reference_idx.sql first.
+create index if not exists fh_orders_channel_pos_store_idx on fh_orders (channel, pos_order_id, channel_store_id);
 
 create table if not exists fh_order_events (
   id uuid primary key default gen_random_uuid(),

@@ -11,12 +11,15 @@ export interface Doc<T = Record<string, unknown>> { id: string; key?: string | n
 export interface DocFilter { since?: string; until?: string; keys?: string[]; limit?: number }
 
 type StoreSnapshot = Pick<ChannelStore, 'channel' | 'channelStoreId' | 'locationCode' | 'updatedAt' | 'meta'>;
+type PosOrderReference = Pick<StoredOrder, 'externalOrderId' | 'channelStoreId' | 'createdAt' | 'viaHub' | 'viaPos'>;
 
 export interface FoodHubRepo {
   mode: 'supabase' | 'memory';
   insertOrderIfNew(order: NormalizedOrder & { locationCode?: string; createdAt?: string }): Promise<{ order: StoredOrder; isNew: boolean }>;
   getOrder(id: string): Promise<StoredOrder | null>;
   findOrder(channel: ChannelKey, externalOrderId: string): Promise<StoredOrder | null>;
+  /** At most two exact matches are enough to detect an ambiguous POS reference without reading order contents. */
+  findPosOrderReferences(channel: ChannelKey, posOrderId: string, channelStoreId?: string): Promise<PosOrderReference[]>;
   updateOrder(id: string, patch: Partial<StoredOrder>): Promise<StoredOrder | null>;
   /**
    * Merges a timeline patch (plus optional top-level fields) into the order as stored NOW, so two writers
@@ -103,6 +106,15 @@ const memoryRepo: FoodHubRepo = {
   async findOrder(channel, externalOrderId) {
     for (const o of memState().orders.values()) if (o.channel === channel && o.externalOrderId === externalOrderId) return o;
     return null;
+  },
+  async findPosOrderReferences(channel, posOrderId, channelStoreId) {
+    const matches: PosOrderReference[] = [];
+    for (const order of memState().orders.values()) {
+      if (order.channel !== channel || order.posOrderId !== posOrderId || (channelStoreId !== undefined && order.channelStoreId !== channelStoreId)) continue;
+      matches.push({ externalOrderId: order.externalOrderId, channelStoreId: order.channelStoreId, createdAt: order.createdAt, viaHub: order.viaHub, viaPos: order.viaPos });
+      if (matches.length === 2) break;
+    }
+    return matches;
   },
   async updateOrder(id, patch) {
     const s = memState();
@@ -357,6 +369,16 @@ function supabaseRepo(): FoodHubRepo {
       const res = await db.from('fh_orders').select('*').eq('channel', channel).eq('external_order_id', externalOrderId).maybeSingle();
       const data = must(res);
       return data ? rowToOrder(data) : null;
+    },
+    async findPosOrderReferences(channel, posOrderId, channelStoreId) {
+      let query = db.from('fh_orders').select('external_order_id,channel_store_id,created_at,via_hub:data->>viaHub,via_pos:data->>viaPos')
+        .eq('channel', channel).eq('pos_order_id', posOrderId);
+      if (channelStoreId !== undefined) query = query.eq('channel_store_id', channelStoreId);
+      const rows = (must(await query.limit(2)) ?? []) as Row[];
+      return rows.map((row) => ({
+        externalOrderId: row.external_order_id, channelStoreId: row.channel_store_id, createdAt: row.created_at,
+        viaHub: row.via_hub ?? undefined, viaPos: row.via_pos ?? undefined,
+      }));
     },
     async updateOrder(id, patch) {
       const row: Row = { ...orderToRow(patch), updated_at: nowIso() };

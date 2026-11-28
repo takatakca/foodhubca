@@ -21,7 +21,7 @@ import { logActivity } from '../activity';
 import { parseDoorDashOrder } from '../adapters/doordash';
 import { nowIso } from '../config';
 import { applyCourierUpdate, doorDashCourierDetails, doorDashCourierStatus } from '../courier';
-import { isProtectedDoorDashId } from '../doordash/guard';
+import { guardDoorDashOrder, isProtectedDoorDashId } from '../doordash/guard';
 import { doorDashSandboxReason } from '../doordash/sandbox';
 import { mevOnOrderChange } from '../mev/hooks';
 import { menuCallbackOutcome } from '../ops';
@@ -94,14 +94,34 @@ export function classifyDoorDash(raw: any): DoorDashClassified {
   return { kind: 'unparsed', httpStatus: looksLikeOrder ? 202 : 200, reference, eventType };
 }
 
-/** client_order_id is what we sent as merchant_supplied_id on confirm: the Clover order id, else the Food Hub id. */
-async function idFromClientOrderId(clientOrderId: string): Promise<string> {
-  if (!clientOrderId) return '';
+const INTERNAL_ORDER_UUID = /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i;
+
+/** Older notices can carry only the merchant reference that we sent on confirmation. Clover IDs are register-local. */
+async function idFromClientOrderId(clientOrderId: string, ...merchantStoreRefs: unknown[]): Promise<string> {
+  const reference = clientOrderId.trim();
+  if (!reference) return '';
+  let merchantStoreId: string | undefined;
+  for (const merchantStoreRef of merchantStoreRefs) {
+    if (merchantStoreRef === undefined || merchantStoreRef === null) continue;
+    if (typeof merchantStoreRef !== 'string' && typeof merchantStoreRef !== 'number') return '';
+    const candidateStoreId = String(merchantStoreRef).trim();
+    if (!candidateStoreId || (merchantStoreId !== undefined && merchantStoreId !== candidateStoreId)) return '';
+    merchantStoreId = candidateStoreId;
+  }
+  if (isProtectedDoorDashId(merchantStoreId)) return '';
   const repo = getRepo();
-  const direct = await repo.getOrder(clientOrderId).catch(() => null);
-  if (direct?.channel === 'doordash') return direct.externalOrderId;
-  const recent = await repo.listOrders({ since: new Date(Date.now() - 3 * 86400_000).toISOString(), limit: 2000 }).catch(() => []);
-  return recent.find((o) => o.channel === 'doordash' && o.posOrderId === clientOrderId)?.externalOrderId ?? '';
+  const [internal, pos] = await Promise.all([
+    INTERNAL_ORDER_UUID.test(reference) ? repo.getOrder(reference) : null,
+    repo.findPosOrderReferences('doordash', reference, merchantStoreId),
+  ]);
+  const internalMatch = internal?.channel === 'doordash' && (merchantStoreId === undefined || internal.channelStoreId === merchantStoreId) ? internal : null;
+  if (pos.length > 1 || (internalMatch && pos[0] && internalMatch.externalOrderId !== pos[0].externalOrderId)) return '';
+  const candidate = internalMatch ?? pos[0];
+  if (!candidate || candidate.viaPos || candidate.viaHub) return '';
+  // Check age only after exact matches across the history, so an old collision also prevents guessing.
+  if (!internalMatch && !(Date.parse(candidate.createdAt) >= Date.now() - 3 * 86400_000)) return '';
+  if (await guardDoorDashOrder(candidate)) return '';
+  return candidate.externalOrderId;
 }
 
 const shortId = (o: Pick<StoredOrder, 'displayId' | 'externalOrderId'>) => o.displayId || o.externalOrderId.slice(0, 8);
@@ -163,10 +183,10 @@ async function handleAdjustment(body: any): Promise<HandlerOutcome> {
 
 // ---------------------------------------------------------------------------------------------- Order Release (AOR)
 
-async function handleRelease(body: any, doordashId: string, clientOrderId: string): Promise<HandlerOutcome> {
-  const id = doordashId || (await idFromClientOrderId(clientOrderId));
+async function handleRelease(body: any, doordashId: string, clientOrderId: string, raw: unknown): Promise<HandlerOutcome> {
+  const id = doordashId || (await idFromClientOrderId(clientOrderId, body?.store?.merchant_supplied_id));
   const order = id ? await getRepo().findOrder('doordash', id) : null;
-  if (!order) { await keepUnparsed('doordash', body, 'DoorDash order release for an order Food Hub does not know', clientOrderId || id || null); return { result: 'kept: unknown order' }; }
+  if (!order) { await keepUnparsed('doordash', raw, 'DoorDash order release for an order Food Hub does not know', clientOrderId || id || null); return { result: 'kept: unknown order' }; }
   const metres = Number(body?.distance_from_store);
   const d = body?.dasher ?? {};
   const vehicle = [d.vehicle?.color, d.vehicle?.make, d.vehicle?.model].filter(Boolean).join(' ');
@@ -241,7 +261,7 @@ export async function handleDoorDashWebhook(raw: any): Promise<HandlerOutcome> {
   if (c.kind === 'onboarding') return handleOnboarding(body);
   if (c.kind === 'adjustment') return handleAdjustment(body);
   if (c.kind === 'store_deactivated') return handleStoreDeactivated(body);
-  if (c.kind === 'release') return handleRelease(body, doordashId, clientOrderId);
+  if (c.kind === 'release') return handleRelease(body, doordashId, clientOrderId, raw);
 
   if (c.kind === 'menu_status') {
     const repo = getRepo();
@@ -270,13 +290,18 @@ export async function handleDoorDashWebhook(raw: any): Promise<HandlerOutcome> {
     return { result: 'menu status noted' };
   }
   if (c.kind === 'dasher') {
-    const id = doordashId || (await idFromClientOrderId(clientOrderId));
+    // DoorDash sends the merchant's store identifier in delivery.location_id. Older notices can be flat.
+    const id = doordashId || (await idFromClientOrderId(
+      clientOrderId, raw?.delivery?.location_id, raw?.location_id,
+      raw?.delivery?.store?.merchant_supplied_id, raw?.store?.merchant_supplied_id,
+    ));
+    if (!id) { await keepUnparsed('doordash', raw, 'DoorDash Dasher update without an order id Food Hub can verify', clientOrderId || null); return { result: 'kept: unknown order' }; }
     await applyCourierUpdate('doordash', id, { status: c.courierStatus!, ...doorDashCourierDetails(body) }, `doordash:${body.dasher_status || c.eventType}`);
     return { result: `dasher ${c.courierStatus}` };
   }
   if (c.kind === 'cancel') {
-    const id = doordashId || (await idFromClientOrderId(clientOrderId));
-    if (!id) { await keepUnparsed('doordash', body, 'DoorDash cancellation without an order id Food Hub knows — check the order on the DoorDash tablet', clientOrderId || null); return { result: 'kept: unknown order' }; }
+    const id = doordashId || (await idFromClientOrderId(clientOrderId, body?.store?.merchant_supplied_id));
+    if (!id) { await keepUnparsed('doordash', raw, 'DoorDash cancellation without an order id Food Hub knows — check the order on the DoorDash tablet', clientOrderId || null); return { result: 'kept: unknown order' }; }
     const o = await applyExternalStatus('doordash', id, 'cancelled', { event: c.eventType || 'order_cancel', reason: body.cancel_reason || body.cancellation_reason });
     return { result: o ? 'cancellation applied' : 'cancellation kept until the order arrives', orderId: o?.id ?? null };
   }

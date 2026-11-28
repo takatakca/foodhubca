@@ -19,6 +19,7 @@
 // Stored in fh_docs, collection "webhook_inbox"; the doc key is the status, so the runner only reads open entries.
 import crypto from 'node:crypto';
 import { logActivity, type Actor } from './activity';
+import { isViaClover } from './adapters/via-clover';
 import { CHANNEL_LABELS, nowIso } from './config';
 import { deadlineFor, ORDER_DEADLINE_MIN } from './deadline';
 import { e2eHookMs } from './e2e-hooks';
@@ -65,6 +66,8 @@ function stuckMs(): number {
   return e2eHookMs('FOODHUB_E2E_INBOX_STUCK_MS', { min: 1000, max: STUCK_MS }) ?? STUCK_MS;
 }
 const KEEP_DONE_DAYS = 14;
+const UBER_ORDER_NOTIFICATION = /^orders(?:\.scheduled)?\.notification$/;
+const UBER_CLOVER_INTAKE_HOLD = 'Uber Eats is linked through Clover. Check the order in Clover before replaying this notification.';
 /** Tries before an entry that keeps being interrupted (the server stops each time) is handed to a person. */
 export const MAX_RECOVERY_ATTEMPTS = 5;
 
@@ -78,7 +81,7 @@ export function noDeadlineMaxMs(): number {
 async function carriesOrder(e: InboxEntry): Promise<{ placedAt?: string | null; viaHub?: 'relay' } | null> {
   const body = (e.body ?? {}) as Record<string, any>;
   if (e.kind === 'order') return { placedAt: body.placedAt ?? null, viaHub: body.viaHub };
-  if (e.kind === 'uber') return /^orders(\.scheduled)?\.notification$/.test(String(body.event_type ?? '')) ? {} : null;
+  if (e.kind === 'uber') return UBER_ORDER_NOTIFICATION.test(String(body.event_type ?? '')) ? {} : null;
   // A DoorDash sandbox test has no kitchen deadline (the sandbox handler never cooks and never throws): never cut off.
   if (e.sandbox) return null;
   const { doorDashSandboxReason } = await import('./doordash/sandbox');
@@ -183,12 +186,26 @@ async function handToPerson(entry: InboxEntry, reason: string): Promise<InboxEnt
   return failed;
 }
 
+/** Evaluate the current intake mode when processing, including entries saved before the switch or replayed by staff. */
+function uberOrderIntakeUsesClover(entry: InboxEntry): boolean {
+  if (entry.channel !== 'uber_eats' || !isViaClover('uber_eats')) return false;
+  const body = (entry.body ?? {}) as Record<string, unknown>;
+  if (entry.kind === 'uber') return UBER_ORDER_NOTIFICATION.test(String(body.event_type ?? ''));
+  return entry.kind === 'order' && body.viaPos !== 'clover' && body.viaHub !== 'screen';
+}
+
 /** Processes one entry (live, retry or Replay). Never throws: the outcome is written on the entry. */
 export async function runInboxEntry(id: string, opts: { now?: number; replayBy?: string } = {}): Promise<InboxEntry | null> {
   const now = opts.now ?? Date.now();
   const entry = await getInboxEntry(id);
   if (!entry) return null;
-  if ((entry.status === 'done' || entry.status === 'refused') && !opts.replayBy) return entry;
+  const terminal = entry.status === 'done' || entry.status === 'refused';
+  if (terminal && !opts.replayBy) return entry;
+  if (uberOrderIntakeUsesClover(entry)) {
+    const alreadyHeld = entry.status === 'failed' && !entry.nextAt && entry.lastError === UBER_CLOVER_INTAKE_HOLD;
+    if (terminal || alreadyHeld) return entry;
+    return handToPerson(entry, UBER_CLOVER_INTAKE_HOLD);
+  }
   if (!opts.replayBy) {
     // Never a late kitchen ticket from an automatic run: past the answer window the platform has given up on the order.
     const cutoff = await inboxOrderCutoff(entry);

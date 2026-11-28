@@ -20,6 +20,7 @@ import { api, ApiError, money, timeOf } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import type { T } from '@/lib/i18n';
 import { orderSourceLabel, type OrderEvent, type StoredOrder } from '@/lib/foodhub/types';
+import { presentTabletPrintEvent } from '@/lib/foodhub/kitchen/tablet-print-events';
 import { cn } from '@/lib/ui/cn';
 
 export type FullOrder = StoredOrder & { actions?: string[] };
@@ -39,6 +40,7 @@ const EVENT: Record<string, [string, string]> = {
   accepted: ['Acceptée', 'Accepted'], accept: ['Acceptée', 'Accepted'], accept_failed: ['Acceptation échouée', 'Accept failed'], deny: ['Refusée', 'Rejected'], deny_failed: ['Refus échoué', 'Reject failed'],
   ready: ['Prête', 'Ready'], ready_failed: ['« Prête » non envoyé', 'Ready not sent'], dispatch: ['Remise au livreur', 'Picked up'], complete: ['Terminée', 'Completed'],
   cancel: ['Annulée', 'Cancelled'], cancel_failed: ['Annulation échouée', 'Cancel failed'], printed: ['Imprimée en cuisine', 'Printed in the kitchen'], print_failed: ['Impression échouée', 'Print failed'],
+  tablet_print_claimed: ['Réservation sur tablette', 'Tablet reservation'], tablet_cancel_print_claimed: ['Réservation sur tablette', 'Tablet reservation'],
   routed_to_skip_tablet: ['Relève vers la tablette Skip', 'Skip tablet fallback'], needs_attention: ['À vérifier', 'Needs attention'], platform_status: ['Mise à jour plateforme', 'Platform update'],
   pos_paid: ['Payée dans Clover', 'Paid in Clover'], pos_payment_failed: ['Paiement Clover non noté', 'Clover payment not recorded'], pos_cancelled: ['Retirée de Clover', 'Removed from Clover'],
   scheduled: ['Commande planifiée', 'Scheduled order'], fired: ['Lancée en cuisine', 'Sent to the kitchen'], courier: ['Livreur', 'Courier'], seen: ['Vue en cuisine', 'Seen in the kitchen'],
@@ -258,7 +260,8 @@ export function OrderDetail({ order, events, onChange, compact }: { order: FullO
       <div className="rounded-md border border-line bg-surface p-4 shadow-card">
         <div className="mb-2 flex items-center justify-between"><h3 className="text-body font-bold text-ink">{t('Historique', 'History')}</h3><button type="button" className="text-small -mr-2 min-h-11 rounded-sm px-2 font-semibold text-ink-3 hover:text-ink" onClick={() => setShowRaw(!showRaw)}>{showRaw ? t('Masquer les détails', 'Hide details') : t('Détails techniques', 'Technical details')}</button></div>
         <ol className="relative space-y-2.5 border-l border-line pl-4">
-          {events.map((e, i) => {
+          {events.map((storedEvent, i) => {
+            const e = presentTabletPrintEvent(storedEvent);
             const label = EVENT[e.type] ? (lang === 'fr' ? EVENT[e.type][0] : EVENT[e.type][1]) : e.type;
             const d = e.detail as Record<string, any>;
             const bad = /fail|refus/.test(e.type);

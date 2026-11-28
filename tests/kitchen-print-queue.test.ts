@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET } from '../app/api/foodhub/kitchen/print-queue/route';
 import { POST as POST_PENDING } from '../app/api/foodhub/kitchen/print-queue/pending/route';
 import { POST } from '../app/api/foodhub/kitchen/print-queue/[orderId]/printed/route';
+import { GET as GET_ORDER } from '../app/api/foodhub/orders/[id]/route';
 import { sessionCookieFor } from '../lib/foodhub/auth';
 import { addDirectEvent, getDirectOrder, saveDirectOrder } from '../lib/foodhub/delivery/store';
 import type { DirectOrder } from '../lib/foodhub/delivery/types';
@@ -49,6 +50,8 @@ const claim = (orderId: string, body: Record<string, unknown>, cookie?: string) 
   POST(new Request(`${BASE}/${encodeURIComponent(orderId)}/printed`, { method: 'POST', headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: JSON.stringify(body) }), { params: Promise.resolve({ orderId }) });
 const pending = (body: Record<string, unknown>, cookie?: string) =>
   POST_PENDING(new Request(`${BASE}/pending`, { method: 'POST', headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: JSON.stringify(body) }));
+const getOrder = (id: string, cookie: string) =>
+  GET_ORDER(new Request(`http://localhost/api/foodhub/orders/${id}`, { headers: { cookie } }), { params: Promise.resolve({ id }) });
 
 describe('kitchen print queue: who may call', () => {
   beforeEach(fresh);
@@ -289,13 +292,38 @@ describe('kitchen print queue: never twice, cancelled never printed', () => {
     expect(again).toMatchObject({ ok: true, claimed: false, reason: 'already_printed' });
     const q = await (await get(`?location=NDG&device=${DEVICE}`, cookie)).json();
     expect(q.items[0]).toMatchObject({ orderId: o.id, printed: true });
+    expect((await getRepo().listEvents(o.id)).filter((e) => e.type.startsWith('tablet_'))).toMatchObject([
+      { type: 'tablet_print_claimed', detail: { deviceId: DEVICE, stage: 'claimed', message: 'Order ticket reserved for printing.', messageFr: 'Ticket de commande réservé pour impression.' } },
+    ]);
     // Another tablet has its own claim.
     expect(await claimTabletPrint({ orderId: o.id, deviceId: 'tablet-test-0002', location: 'NDG', by: 'test' })).toMatchObject({ claimed: true });
     // Two claims racing for one device: exactly one wins.
     const o2 = await addOrder();
     const race = await Promise.all([1, 2, 3].map(() => claimTabletPrint({ orderId: o2.id, deviceId: DEVICE, location: 'NDG', by: 'test' })));
     expect(race.filter((r) => r.claimed)).toHaveLength(1);
-    expect((await getRepo().listEvents(o.id)).some((e) => e.type === 'tablet_printed')).toBe(true);
+    expect((await getRepo().listEvents(o2.id)).filter((e) => e.type === 'tablet_print_claimed')).toHaveLength(1);
+  });
+
+  it('projects historic tablet claims in the scoped order history and preserves unrelated evidence and stored rows', async () => {
+    const o = await addOrder();
+    const repo = getRepo();
+    await repo.addEvent(o.id, 'tablet_printed', { message: 'Ticket printed on the kitchen tablet app', deviceId: DEVICE, by: 'operator' });
+    await repo.addEvent(o.id, 'tablet_cancel_printed', { message: 'Cancel ticket printed on the kitchen tablet app', deviceId: DEVICE, by: 'operator' });
+    await repo.addEvent(o.id, 'printed', { message: 'Clover confirmation', by: 'Clover' });
+    const before = await repo.listEvents(o.id);
+    const r = await getOrder(o.id, await ownerCookie());
+    expect(r.status).toBe(200);
+    const { events } = await r.json();
+    const [legacyOrder, legacyCancel, clover] = before.slice(-3);
+    expect(events.slice(-3)).toEqual([
+      { ...legacyOrder, type: 'tablet_print_claimed', detail: { deviceId: DEVICE, by: 'operator', stage: 'claimed', message: 'Order ticket reserved for printing.', messageFr: 'Ticket de commande réservé pour impression.' } },
+      { ...legacyCancel, type: 'tablet_cancel_print_claimed', detail: { deviceId: DEVICE, by: 'operator', stage: 'claimed', message: 'Cancellation ticket reserved for printing.', messageFr: 'Ticket d’annulation réservé pour impression.' } },
+      clover,
+    ]);
+    expect(await repo.listEvents(o.id)).toEqual(before);
+    await repo.saveUser({ username: 'cook', name: 'Cook', role: 'operator', locations: ['VERDUN'], active: true, passwordHash: null });
+    const cook = (await sessionCookieFor((await repo.getUser('cook'))!, 'otp')).split(';')[0];
+    expect((await getOrder(o.id, cook)).status).toBe(404);
   });
 
   it('a reinstalled app (new device id) is told what this kitchen already printed, and a lost claim answer reads printed: true', async () => {
@@ -360,6 +388,10 @@ describe('kitchen print queue: never twice, cancelled never printed', () => {
     expect(await claimTabletPrint({ orderId: o.id, deviceId: DEVICE, location: 'NDG', by: 't', kind: 'cancel' })).toMatchObject({ claimed: true });
     expect(await claimTabletPrint({ orderId: o.id, deviceId: DEVICE, location: 'NDG', by: 't', kind: 'cancel' })).toMatchObject({ claimed: false, reason: 'already_printed' });
     expect((await buildPrintQueue({ location: 'NDG', deviceId: DEVICE })).items).toEqual([]);
+    expect((await getRepo().listEvents(o.id)).filter((e) => e.type.startsWith('tablet_'))).toMatchObject([
+      { type: 'tablet_print_claimed', detail: { deviceId: DEVICE, stage: 'claimed' } },
+      { type: 'tablet_cancel_print_claimed', detail: { deviceId: DEVICE, stage: 'claimed', message: 'Cancellation ticket reserved for printing.', messageFr: 'Ticket d’annulation réservé pour impression.' } },
+    ]);
   });
 
   it('own orders: claimed once, and a cancelled own order is not printed', async () => {

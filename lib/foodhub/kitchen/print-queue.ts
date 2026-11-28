@@ -9,7 +9,7 @@
 // key in Supabase) that is read back; only the caller whose nonce comes back prints. One claim per device, order and
 // kind ('order' = the ticket, 'cancel' = the short « ANNULÉE » ticket, only for an order this device printed).
 // A cancelled order is never printed. The first claim of a ticket in a kitchen also leaves a kitchen-wide mark: a
-// reinstalled app (new device id, empty memory) is told what the kitchen already printed (printedElsewhere) and does
+// reinstalled app (new device id, empty memory) is told what the kitchen already claimed (printedElsewhere) and does
 // not print it again.
 //
 // Who may call: a signed-in person who can see the kitchen ('view', location in scope), or an enrolled kitchen tablet
@@ -24,6 +24,7 @@ import { getRepo } from '../repo';
 import { isWaitingScheduled } from '../scheduling';
 import { can, signPrintQueueContinuation, verifyPrintQueueContinuation } from '../session';
 import type { StoredOrder } from '../types';
+import { TABLET_PRINT_CLAIM_EVENTS } from './tablet-print-events';
 import {
   directLabel, platformLabel, platformNumber, renderCancelTicket, renderKitchenTicket, ticketFromDirectOrder, ticketFromStoredOrder,
   type TicketLang, type TicketWidth,
@@ -49,7 +50,7 @@ export interface PrintQueueItem {
   /** Already claimed by this device (null when no device id was given). */
   printed: boolean | null;
   /**
-   * Not claimed by this device, but already printed by another tablet of this kitchen (null when no device id was
+   * Not claimed by this device, but already claimed by another tablet of this kitchen (null when no device id was
    * given). The app reads it on its first run after an install or a data wipe: no second ticket for what the previous
    * install printed. Afterwards each tablet prints its own copy, as before.
    */
@@ -91,7 +92,7 @@ export function claimKey(deviceId: string, kind: PrintKind, source: PrintSource,
   return `tablet_print:${deviceId}:${kind}:${source}:${orderId}`;
 }
 
-/** Kitchen-wide mark left by the first tablet that printed this ticket (any device). */
+/** Kitchen-wide mark left by the first tablet that claimed this ticket. */
 export function kitchenPrintKey(kind: PrintKind, source: PrintSource, orderId: string): string {
   return `tablet_print_any:${kind}:${source}:${orderId}`;
 }
@@ -372,7 +373,8 @@ export async function claimTabletPrint(opts: { orderId: string; deviceId: string
   // Kitchen-wide mark (the first tablet wins; never read by the claim itself): a reinstalled app skips it on its first run.
   await repo.claimKv(kitchenPrintKey(kind, source, order.id), { at: new Date(opts.now ?? Date.now()).toISOString(), deviceId: opts.deviceId }).catch(() => false);
   if (source === 'platform') {
-    await repo.addEvent(order.id, kind === 'cancel' ? 'tablet_cancel_printed' : 'tablet_printed', { message: `${kind === 'cancel' ? 'Cancel ticket' : 'Ticket'} printed on the kitchen tablet app`, deviceId: opts.deviceId, by: opts.by }).catch(() => undefined);
+    const event = TABLET_PRINT_CLAIM_EVENTS[kind];
+    await repo.addEvent(order.id, event.type, { ...event.detail, deviceId: opts.deviceId, by: opts.by }).catch(() => undefined);
   }
   return { claimed: true, id };
 }

@@ -48,8 +48,8 @@ Actions.
 
 **Mises à jour.** Sans clé de signature, chaque version est signée par une clé différente (celle de la machine de
 GitHub qui la compile) : il faut **désinstaller l’ancienne version avant d’installer la nouvelle** (et refaire les
-réglages). Après une réinstallation, la tablette **ne réimprime pas** ce que la cuisine a déjà imprimé et ne resonne
-pas pour ces commandes ; elle imprime seulement celles arrivées pendant la réinstallation. Avec les quatre secrets
+réglages). Après une réinstallation, la tablette ignore les tickets déjà réservés dans la cuisine et reprend ceux qui
+sont arrivés pendant la réinstallation. Avec les quatre secrets
 ci-dessous, les mises à jour s’installent par-dessus.
 
 **À faire par le propriétaire :** fusionner la PR ; publier une version (Actions → « Android kitchen tablet » → *Run
@@ -93,9 +93,9 @@ see the Android project, and the Android workflow does not run Food Hub's.
   (platform) / 12 h (own orders, as the kitchen screen) and filtered on that time.
 - **Which orders:** platform orders `new` / `accepted` not waiting for their fire time; own orders from the kitchen
   screen's sources (`phone_ai`, `phone`, `website`, `manual`) in `new` / `in_kitchen` (not `awaiting_payment`; Clover
-  Online Ordering orders print through Clover). With `device`, each item carries `printed` (this device already
-  claimed it) and `printedElsewhere` (not this device, but another tablet of the kitchen printed it — the app reads it
-  only on its first run after an install or a data wipe), and cancelled orders this device printed come back as
+  Online Ordering orders print through Clover). With `device`, the compatibility fields `printed` and `printedElsewhere`
+  represent a claim held by this device or by another tablet in the kitchen, respectively. The app reads the second field
+  on its first run after an install or a data wipe. Cancelled orders with a claim on this device come back as
   `kind: 'cancel'` items with an « ANNULÉE » ticket.
 - **Answer:** `{ location, since, serverTime, width, lang, items: [{ id, orderId, source, kind, channel, number,
   brandName, locationCode, createdAt, at, printed, printedElsewhere, ticket }] }`, oldest first, at most 50.
@@ -108,10 +108,11 @@ see the Android project, and the Android workflow does not run Food Hub's.
   `not_printed_here` (cancel tickets), `not_for_kitchen`, `conflict`. Unknown order or another kitchen → 404.
 - A won claim also inserts the kitchen-wide mark `tablet_print_any:<kind>:<source>:<orderId>` (first tablet wins;
   never read by the claim itself) — the source of `printedElsewhere`.
-- A retry after a lost answer gets `already_printed`; the queue then says `printed: true` for this device, and the app
-  prints a ticket it claimed but never wrote down as handled (step `RECOVER` below).
-- Platform orders get an order event `tablet_printed` / `tablet_cancel_printed`. `timeline.printedAt` (Clover's print
-  status) is untouched.
+- A retry after a lost answer gets the legacy result `already_printed`, meaning this device already claimed the ticket.
+  The queue reports `printed: true` for this claim and the app can recover the ticket (step `RECOVER` below).
+- Platform order reservations log `tablet_print_claimed` or `tablet_cancel_print_claimed`. Order history interprets
+  legacy `tablet_printed` and `tablet_cancel_printed` events as reservations too. Observe the output at the printer to
+  verify physical printing. Clover keeps its own print status in `timeline.printedAt`.
 - One claim row per order per device (plus one kitchen-wide mark per order) stays in `fh_kv` (small; a cleanup can
   come later).
 

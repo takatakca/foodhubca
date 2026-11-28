@@ -13,6 +13,7 @@ import { listUberCanceledOrders } from './uber-api';
 import { uberPosForStore } from './uber-link';
 import { keepUnparsed, uberDeliveryStatus } from '../webhook-utils';
 import { enableUberIntegration, fetchUberOrder, fetchUberPosData, listUberCreatedOrders, parseUberOrder, uberApiBase, uberEatsAdapter } from './uber-eats';
+import { isViaClover } from './via-clover';
 
 /** Routine Uber events with nothing to do in Food Hub: noted in the activity log, never an alert. */
 const NOTED = /^orders\.release$|^orders\.scheduled\.reminder/;
@@ -188,16 +189,18 @@ export async function runUberWebhook(id: string): Promise<boolean> {
  * Missed-order check (every sync): orders still waiting for an accept on Uber (created-orders) that never reached Food
  * Hub by webhook are fetched and run through the normal pipeline (Clover first, accept only after). Only for stores
  * where Uber confirmed Food Hub is the order manager (meta.uberPos.orderManager = 'foodhub') and only while Uber Eats
- * is live — an order UrbanPiper still handles is never put in Clover a second time. The webhook gets a 60-second head
+ * is live and direct — Clover and other integrations already take their own orders. The webhook gets a 60-second head
  * start, and orders past Uber's 11.5-minute window are left alone (Uber cancels them).
  */
 export async function recoverMissedUberOrders(now = Date.now()): Promise<{ recovered: number; cancelled?: number; error?: string }> {
   if (!uberEatsAdapter.readiness().canSend) return { recovered: 0 };
   const repo = getRepo();
   const stores = (await repo.listStores('uber_eats')).filter((s) => uberPosForStore(s)?.orderManager === 'foodhub');
+  // No new intake via Uber in Clover mode; a previously imported direct order may still need cancellation reconciliation.
+  const intakeStores = isViaClover('uber_eats') ? [] : stores;
   let recovered = 0;
   let error: string | undefined;
-  for (const s of stores) {
+  for (const s of intakeStores) {
     let waiting: Array<{ id: string; placedAt: string | null }>;
     try { waiting = await listUberCreatedOrders(s.channelStoreId); } catch (e) {
       error = e instanceof Error ? e.message : String(e);

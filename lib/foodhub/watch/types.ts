@@ -35,12 +35,30 @@ export type IncidentKind =
 export type Severity = 'critical' | 'warning' | 'info';
 export type IncidentStatus = 'open' | 'acknowledged' | 'snoozed' | 'resolved';
 
+export type DeviceOfflineResolution = 'monitoring-hours-ended' | 'heartbeat-restored' | 'unconfirmed';
+
+export const DEVICE_OFFLINE_RESOLUTIONS = {
+  'monitoring-hours-ended': {
+    label: ['Fin de la surveillance', 'Monitoring hours ended'],
+    message: ['La plage de surveillance est terminée. Le retour de la tablette n’est pas confirmé.', 'Monitoring hours ended. The tablet’s recovery is unconfirmed.'],
+  },
+  'heartbeat-restored': {
+    label: ['Signal de la tablette reçu', 'Tablet heartbeat received'],
+    message: ['Watchtower a reçu un nouveau signal de cette tablette.', 'Watchtower received a fresh heartbeat from this tablet.'],
+  },
+  unconfirmed: {
+    label: ['Fermeture sans retour confirmé', 'Closed without confirmed recovery'],
+    message: ['L’alerte a été fermée automatiquement. Le retour de la tablette n’est pas confirmé.', 'The alert was closed automatically. The tablet’s recovery is unconfirmed.'],
+  },
+} as const;
+
 export interface IncidentStep {
   at: string;
   kind: 'opened' | 'screen' | 'sms' | 'call' | 'chat' | 'email' | 'owner' | 'ack' | 'snooze' | 'resolved' | 'reopened' | 'note' | 'customer_sms' | 'ai';
   to?: string;
   ok?: boolean;
   uncertain?: boolean;
+  deviceOfflineResolution?: DeviceOfflineResolution;
   by?: string;
   message?: string;
 }

@@ -21,7 +21,7 @@ import { foodhubTimeZone, localParts } from '../time';
 import type { ChannelKey, ChannelStore, FoodHubUser, HoursConfig, PlatformStatus, StoredOrder } from '../types';
 import { explainIncident, PLAYBOOK } from './ai';
 import { customerContact, lateMessage } from './customer';
-import { DEFAULT_RULES, DEFAULT_WATCH, INCIDENT_KINDS, KIND_LABEL, WATCH_BACKGROUND_COMPLETION_KEY, type Incident, type IncidentKind, type IncidentStatus, type Severity, type WatchBackgroundCompletion, type WatchSettings } from './types';
+import { DEFAULT_RULES, DEFAULT_WATCH, DEVICE_OFFLINE_RESOLUTIONS, INCIDENT_KINDS, KIND_LABEL, WATCH_BACKGROUND_COMPLETION_KEY, type DeviceOfflineResolution, type Incident, type IncidentKind, type IncidentStatus, type Severity, type WatchBackgroundCompletion, type WatchSettings } from './types';
 
 export const INCIDENTS = 'incidents';
 const SETTINGS_KEY = 'watch:settings';
@@ -154,13 +154,21 @@ function coveredMinutes(spans: Array<[number, number]>): number {
   return total / 60000;
 }
 
-async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
+interface NativeTabletObservation {
+  locationCode: string;
+  heartbeatAt: number;
+  outsideKnownHours: boolean;
+}
+
+async function detect(s: WatchSettings, now: number) {
   const repo = getRepo();
   const tz = foodhubTimeZone();
-  const [catalog, hours, orders, stores, devices, jobs, sync, screens] = await Promise.all([
-    getCatalog(), getHours(), repo.listOrders({ since: new Date(now - 24 * 3600_000).toISOString(), limit: 3000 }),
+  const [catalog, savedHours, orders, stores, devices, jobs, sync, screens] = await Promise.all([
+    getCatalog(), getHours({ strict: true }).catch(() => null), repo.listOrders({ since: new Date(now - 24 * 3600_000).toISOString(), limit: 3000 }),
     repo.listStores(), listDevices(), repo.listJobs(200), repo.getKv<{ at: string }>('sync:last').catch(() => null), listScreens().catch(() => []),
   ]);
+  const hours = savedHours ?? { locations: {}, brands: {}, holidays: [] };
+  const nativeTablets = new Map<string, NativeTabletObservation>();
   const loc = (code?: string | null) => (code ? catalog.locations.find((l) => l.code === code)?.name ?? code : 'magasin non relié');
   const brandsAt = (code: string) => [...new Set(stores.filter((x) => x.locationCode === code).map((x) => x.brandName))];
   const out: Detection[] = [];
@@ -276,8 +284,10 @@ async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
 
   for (const d of devices.filter((x) => !x.revoked)) {
     const open = locationOpen(hours, d.locationCode, brandsAt(d.locationCode), now, tz);
+    const heartbeatAt = Date.parse(d.lastSeenAt ?? '');
+    nativeTablets.set(d.id, { locationCode: d.locationCode, heartbeatAt, outsideKnownHours: savedHours !== null && !open });
     if (!open) continue;
-    const seenAgo = d.lastSeenAt ? now - Date.parse(d.lastSeenAt) : Infinity;
+    const seenAgo = d.lastSeenAt ? now - heartbeatAt : Infinity;
     const base = { locationCode: d.locationCode, deviceId: d.id };
     if (on('device_offline') && seenAgo > DEVICE_OFFLINE_AFTER_MS) {
       const min = Number.isFinite(seenAgo) ? Math.round(seenAgo / 60000) : null;
@@ -401,7 +411,14 @@ async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
         detail: `${j.lastError ?? j.wait ?? ''}`.slice(0, 200) || undefined, detailEn: `${j.lastError ?? j.wait ?? ''}`.slice(0, 200) || undefined });
     }
   }
-  return out;
+  return { detections: out, nativeTablets };
+}
+
+function nativeTabletResolution(i: Incident, observed: NativeTabletObservation | undefined, now: number): DeviceOfflineResolution {
+  if (!observed || observed.locationCode !== i.locationCode) return 'unconfirmed';
+  const heartbeatAge = now - observed.heartbeatAt;
+  if (heartbeatAge >= 0 && heartbeatAge <= DEVICE_OFFLINE_AFTER_MS && observed.heartbeatAt > Date.parse(i.lastSeenAt)) return 'heartbeat-restored';
+  return observed.outsideKnownHours ? 'monitoring-hours-ended' : 'unconfirmed';
 }
 
 // ---------- escalation ----------
@@ -542,7 +559,7 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
   try {
     await repo.setKv(LAST_KEY, { at: new Date(now).toISOString() });
     const report = empty(true);
-    const detections = await detect(s, now);
+    const { detections, nativeTablets } = await detect(s, now);
     report.detections = detections.length;
     const all = (await repo.listDocs<Incident>(INCIDENTS, { since: new Date(now - 3 * 86400_000).toISOString(), limit: 2000 })).map((d) => d.data);
     const live = new Map(all.filter((i) => i.status !== 'resolved').map((i) => [i.key, i]));
@@ -593,7 +610,14 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
     for (const i of live.values()) {
       if (seen.has(i.key)) continue;
       Object.assign(i, { status: 'resolved', resolvedAt: iso, resolvedBy: 'auto', updatedAt: iso });
-      i.steps.push({ at: iso, kind: 'resolved', by: 'auto', message: 'Réglé / Fixed' });
+      const deviceOfflineResolution = i.kind === 'device_offline'
+        ? nativeTabletResolution(i, i.deviceId ? nativeTablets.get(i.deviceId) : undefined, now)
+        : undefined;
+      i.steps.push({
+        at: iso, kind: 'resolved', by: 'auto',
+        message: deviceOfflineResolution ? DEVICE_OFFLINE_RESOLUTIONS[deviceOfflineResolution].message.join(' / ') : 'Réglé / Fixed',
+        ...(deviceOfflineResolution ? { deviceOfflineResolution } : {}),
+      });
       dirty.set(i.id, i);
       report.resolved++;
     }

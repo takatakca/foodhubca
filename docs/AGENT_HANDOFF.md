@@ -1,3 +1,11 @@
+## 2026-11-28 — Reprise des webhooks arrivés à échéance
+
+Après un arrêt, la reprise choisit les reçus interrompus et les relances arrivées à échéance, par ordre de réception. Les reçus qui attendent une vérification manuelle, une échéance future ou dont la date est invalide ne prennent plus de place dans ce lot. Sur le SHA de production `7764c7e`, un essai local avec 500 reçus plus récents renvoyait zéro reprise. Après la correction, le même essai reprend les deux plus anciens reçus admissibles, puis le suivant au passage suivant. Les 124 essais ciblés incluent une vérification simulée des requêtes PostgREST, des délais de réponse des plateformes et des protections de reprise.
+
+La validation sur PostgreSQL, la CI et la preuve de livraison de commandes réelles restent à vérifier. [Suivi de la branche](https://github.com/takatakca/foodhubca/issues/105#issuecomment-7240026418) · [Preuves marchandes](https://github.com/takatakca/foodhubca/issues/46)
+
+— signé : Codex @ cloud · 2026-11-28
+
 ## 2026-11-26 — Paiement Clover après déplacement d’une liaison
 
 La réconciliation locale de #183 sur `86d190c` conserve les références par magasin de #178 pour la saisie, la reprise, l’import et le paiement Clover. Les 161 essais ciblés couvrent aussi le règlement et l’impression sur la caisse confirmée et le contrôle manuel d’une liaison Uber Eats. Les réponses des fournisseurs sont simulées. La CI du SHA réconcilié et la réception marchande restent à vérifier avant publication.

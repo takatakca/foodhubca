@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { createServiceClient, hasSupabaseEnv } from '../supabase/server';
 import { nowIso } from './config';
+import type { InboxEntry } from './inbox';
 import type { ActivityEntry, ActivityKind, ChannelKey, ChannelStore, FoodHubJob, FoodHubUser, MasterMenu, NormalizedOrder, OrderEvent, OrderStatus, OrderTimeline, StoredOrder } from './types';
 
 export interface OrderFilter { limit?: number; statuses?: OrderStatus[]; since?: string; until?: string; locationCodes?: string[] }
@@ -9,6 +10,28 @@ export interface ActivityFilter { limit?: number; since?: string; until?: string
 /** Generic document store (payout lines, statement imports, reconciliation cases, ledger approvals…). */
 export interface Doc<T = Record<string, unknown>> { id: string; key?: string | null; at?: string | null; data: T }
 export interface DocFilter { since?: string; until?: string; keys?: string[]; limit?: number }
+type InboxDueFilter = { interruptedAt: string; retryAt: string; limit: number };
+
+const INBOX_INTERRUPTED = ['received', 'processing'];
+const INBOX_ISO_DATE = '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z$';
+
+function isIsoDate(value?: string | null): value is string {
+  if (typeof value !== 'string') return false;
+  const time = Date.parse(value);
+  return Number.isFinite(time) && new Date(time).toISOString() === value;
+}
+
+function isDueInboxDoc(doc: Doc<InboxEntry>, filter: InboxDueFilter): boolean {
+  const entry = doc.data;
+  if (!entry || doc.key !== entry.status || !doc.at || !isIsoDate(entry.receivedAt)) return false;
+  if (entry.status === 'failed') return isIsoDate(entry.nextAt) && entry.nextAt <= filter.retryAt;
+  return INBOX_INTERRUPTED.includes(entry.status) && isIsoDate(entry.updatedAt) && entry.updatedAt <= filter.interruptedAt;
+}
+
+function oldestInboxEntries(docs: Doc<InboxEntry>[], limit: number): InboxEntry[] {
+  return docs.sort((a, b) => a.data.receivedAt.localeCompare(b.data.receivedAt) || a.id.localeCompare(b.id))
+    .slice(0, limit).map(({ data }) => data);
+}
 
 type StoreSnapshot = Pick<ChannelStore, 'channel' | 'channelStoreId' | 'locationCode' | 'updatedAt' | 'meta'>;
 
@@ -59,6 +82,7 @@ export interface FoodHubRepo {
   saveUser(user: Omit<FoodHubUser, 'id' | 'createdAt'> & { id?: string; createdAt?: string }): Promise<FoodHubUser>;
   putDocs<T>(collection: string, docs: Doc<T>[]): Promise<void>;
   listDocs<T>(collection: string, filter?: DocFilter): Promise<Doc<T>[]>;
+  listDueInboxEntries(collection: string, filter: InboxDueFilter): Promise<InboxEntry[]>;
   getDoc<T>(collection: string, id: string): Promise<Doc<T> | null>;
   deleteDocs(collection: string, ids: string[]): Promise<void>;
 }
@@ -214,6 +238,10 @@ const memoryRepo: FoodHubRepo = {
     if (filter.keys?.length) list = list.filter((d) => d.key && filter.keys!.includes(d.key));
     list.sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''));
     return list.slice(0, filter.limit ?? 100_000);
+  },
+  async listDueInboxEntries(collection, filter) {
+    const docs = [...(memState().docs?.get(collection)?.values() ?? [])] as Doc<InboxEntry>[];
+    return oldestInboxEntries(docs.filter((doc) => isDueInboxDoc(doc, filter)), filter.limit);
   },
   async getDoc<T>(collection: string, id: string) { return (memState().docs?.get(collection)?.get(id) as Doc<T> | undefined) ?? null; },
   async deleteDocs(collection, ids) { const col = memState().docs?.get(collection); for (const id of ids) col?.delete(id); },
@@ -536,6 +564,31 @@ function supabaseRepo(): FoodHubRepo {
         if (rows.length < to - from + 1) break;
       }
       return out;
+    },
+    async listDueInboxEntries(collection, filter) {
+      if (filter.limit <= 0) return [];
+      // Each cohort contributes at most the sweep limit. Save mirrors receivedAt into the indexed at column.
+      async function listCohort(statuses: string[], field: 'updatedAt' | 'nextAt', cutoff: string) {
+        const date = `data->>${field}`;
+        const pageSize = Math.min(filter.limit, 1000);
+        const due: Doc<InboxEntry>[] = [];
+        for (let from = 0; due.length < filter.limit; from += pageSize) {
+          const rows = must(await db.from('fh_docs').select('id,key,at,data')
+            .eq('collection', collection).in('key', statuses).in('data->>status', statuses)
+            .filter(date, 'match', INBOX_ISO_DATE).lte(date, cutoff).not('at', 'is', null)
+            .order('at', { ascending: true }).order('id').range(from, from + pageSize - 1)) as Doc<InboxEntry>[] | null;
+          if (!rows?.length) break;
+          // Skip any malformed stored documents that survived the SQL shape filter.
+          due.push(...rows.filter((doc) => isDueInboxDoc(doc, filter)));
+          if (rows.length < pageSize) break;
+        }
+        return due.slice(0, filter.limit);
+      }
+      const [interrupted, retries] = await Promise.all([
+        listCohort(INBOX_INTERRUPTED, 'updatedAt', filter.interruptedAt),
+        listCohort(['failed'], 'nextAt', filter.retryAt),
+      ]);
+      return oldestInboxEntries([...interrupted, ...retries], filter.limit);
     },
     async getDoc<T>(collection: string, id: string) {
       const r = must(await db.from('fh_docs').select('id,key,at,data').eq('collection', collection).eq('id', id).maybeSingle());

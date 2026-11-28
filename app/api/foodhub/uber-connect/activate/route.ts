@@ -53,7 +53,10 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
   const okCount = results.filter((x) => x.result.ok).length;
   const elsewhere = results.filter((x) => x.pos?.orderManager === 'other').length;
   await logActivity({ actor: actor.name, source: actor.source, kind: 'settings', action: 'uber_activate', status: okCount === results.length ? (elsewhere ? 'info' : 'success') : 'failed', channel: 'uber_eats',
-    summary: `Uber Eats store activation: ${okCount}/${results.length} activated${elsewhere ? `, ${elsewhere} still taking orders through another integration (UrbanPiper)` : ''} (${picks.map((p) => `${p.brandName} · ${p.locationCode}`).join(', ')})`,
+    summary: `Uber Eats store activation: ${okCount}/${results.length} requests accepted${elsewhere ? `, Uber reports another order manager for ${elsewhere}` : ''} (${picks.map((p) => `${p.brandName} · ${p.locationCode}`).join(', ')})`,
     detail: { results: results.map((x) => ({ storeId: x.storeId, ok: x.result.ok, orderManager: x.pos?.orderManager ?? null, message: x.message })) } });
-  return ok({ results: results.map((x) => ({ storeId: x.storeId, ok: x.result.ok, orderManager: x.pos?.orderManager ?? null, message: x.message })) });
+  return ok({ results: results.map((x) => ({
+    storeId: x.storeId, ok: x.result.ok, orderManager: x.pos?.orderManager ?? null,
+    integrationEnabled: x.pos?.integrationEnabled ?? null, message: x.message,
+  })) });
 });

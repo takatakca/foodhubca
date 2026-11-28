@@ -2,6 +2,7 @@
 // integration_enabled, order manager), menu body (one translation, tax_info, energy_interval), webhook inbox and
 // replay, documented event payloads, missed-order check, tokens, "Do not touch" and the publish-to-all-Uber dry run.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { POST as activateUberRoute } from '../app/api/foodhub/uber-connect/activate/route';
 import { forgetUberTokenMemory, invalidateUberToken, listUberStorePages, uberAccessToken, uberApiBase, uberOrderManager, uberTokenUrl } from '../lib/foodhub/adapters/uber-eats';
 import { activateUberStores, activationMessage, explainActivationError, suggestMapping, uberPosDataBody } from '../lib/foodhub/adapters/uber-provision';
 import { saveUberWebhook, UBER_INBOX, type UberInboxEntry } from '../lib/foodhub/adapters/uber-inbox';
@@ -64,7 +65,10 @@ beforeEach(async () => {
   forgetUberTokenMemory();
   await invalidateUberToken('orders'); await invalidateUberToken('poll');
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
 
 describe('store suggestions for the 17 Uber stores', () => {
   it('9 NDG stores at 6280 Somerled and 8 at 5839 Jean-Talon (5837 = the next unit, same kitchen) get a location; brands from Uber names', () => {
@@ -146,6 +150,38 @@ describe('activation (integration activation flow)', () => {
     expect(a.pos?.orderManager).toBe('other');
     expect(a.message).toMatch(/UrbanPiper/);
     expect((await getRepo().getKv<{ token: string | null }>(`uber-connect:${id}`))?.token).toBeNull(); // merchant token discarded
+  });
+});
+
+describe('Uber activation routing evidence', () => {
+  it.each([
+    { label: 'off', enabled: false, pending: false, orderManager: 'foodhub', message: /order webhooks are off/i },
+    { label: 'unknown', enabled: undefined, pending: false, orderManager: 'foodhub', message: /has not confirmed.*order webhooks/i },
+    { label: 'on', enabled: true, pending: false, orderManager: 'foodhub', message: /order webhooks are on.*test order/i },
+    { label: 'pending', enabled: true, pending: true, orderManager: 'pending', message: /move to Food Hub is pending/i },
+  ])('reports $label from POS readback after accepting the activation', async ({ enabled, pending, orderManager, message }) => {
+    const id = 'd'.repeat(36);
+    const storeId = 'fixture-uber-readback';
+    const password = 'fixture-uber-readback-password';
+    vi.stubEnv('DASHBOARD_PASSWORD', password);
+    await getRepo().setKv(`uber-connect:${id}`, {
+      createdAt: Date.now(), token: 'merchant-token', stores: [{ id: storeId }],
+    });
+    mockFetch((c) => appToken(c) ?? (c.method === 'GET' && c.url.endsWith('/pos_data')
+      ? { status: 200, body: { order_manager_client_id: 'uber-id', integration_enabled: enabled, is_order_manager_pending: pending } }
+      : { status: 204 }));
+    const response = await activateUberRoute(new Request('https://hub.example.test/api/foodhub/uber-connect/activate', {
+      method: 'POST',
+      headers: { authorization: `Basic ${Buffer.from(`owner:${password}`).toString('base64')}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ id, stores: [{ storeId, brandName: 'Pi Pita', locationCode: 'SAINT_LEONARD' }] }),
+    }), undefined);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ results: [{
+      storeId, ok: true, orderManager, integrationEnabled: enabled ?? null, message: expect.stringMatching(message),
+    }] });
+    expect(calls.filter((c) => c.url.endsWith('/pos_data')).map((c) => c.method)).toEqual(['POST', 'PATCH', 'GET']);
+    await expect(getRepo().getKv(`uber-connect:${id}`)).resolves.toMatchObject({ token: null });
   });
 });
 

@@ -15,7 +15,7 @@ import { DEVICE_OFFLINE_AFTER_MS, listDevices } from '../identity/devices';
 import { listScreens, SCREEN_PLATFORM_LABEL, screenStatus } from '../screens';
 import { aiConfigured, callConfigured, maskContact, normalizePhone, placeCall, postToChat, sendSms } from '../notify';
 import { listCases, RECOVERABLE } from '../recon/engine';
-import { getRepo } from '../repo';
+import { getRepo, KvReadError } from '../repo';
 import { isWaitingScheduled } from '../scheduling';
 import { foodhubTimeZone, localParts } from '../time';
 import type { ChannelKey, ChannelStore, FoodHubUser, HoursConfig, PlatformStatus, StoredOrder } from '../types';
@@ -33,7 +33,11 @@ const OPEN_ORDER: StoredOrder['status'][] = ['new', 'accepted', 'ready', 'dispat
 
 export async function getWatchSettings(opts: { strict?: boolean } = {}): Promise<WatchSettings> {
   const read = getRepo().getKv<Partial<WatchSettings>>(SETTINGS_KEY);
-  const stored = (await (opts.strict ? read : read.catch(() => null))) ?? {};
+  return effectiveWatchSettings(await (opts.strict ? read : read.catch(() => null)));
+}
+
+function effectiveWatchSettings(stored: Partial<WatchSettings> | null): WatchSettings {
+  stored ??= {};
   const rules = { ...DEFAULT_RULES };
   for (const k of INCIDENT_KINDS) if (stored.rules?.[k]) rules[k] = { ...DEFAULT_RULES[k], ...stored.rules[k] };
   return {
@@ -48,10 +52,7 @@ const hhmm = (v: unknown, def: string) => (typeof v === 'string' && /^([01]\d|2[
 
 export class WatchSettingsReadError extends Error {}
 
-export async function saveWatchSettings(patch: Partial<WatchSettings>, actor: Actor): Promise<WatchSettings> {
-  const cur = await getWatchSettings({ strict: true }).catch((cause) => {
-    throw new WatchSettingsReadError('Saved alert settings unavailable.', { cause });
-  });
+function applyWatchSettingsPatch(cur: WatchSettings, patch: Partial<WatchSettings>, actor: Actor): WatchSettings {
   const rules = { ...cur.rules };
   for (const k of INCIDENT_KINDS) {
     const r = patch.rules?.[k];
@@ -87,7 +88,15 @@ export async function saveWatchSettings(patch: Partial<WatchSettings>, actor: Ac
   };
   if (next.callAfterMin < next.smsAfterMin) next.callAfterMin = next.smsAfterMin;
   if (next.ownerAfterMin < next.callAfterMin) next.ownerAfterMin = next.callAfterMin;
-  await getRepo().setKv(SETTINGS_KEY, next);
+  return next;
+}
+
+export async function saveWatchSettings(patch: Partial<WatchSettings>, actor: Actor): Promise<WatchSettings> {
+  const next = await getRepo().updateKv<WatchSettings>(SETTINGS_KEY,
+    (stored) => applyWatchSettingsPatch(effectiveWatchSettings(stored), patch, actor)).catch((cause) => {
+    if (cause instanceof KvReadError) throw new WatchSettingsReadError('Saved alert settings unavailable.', { cause });
+    throw cause;
+  });
   await logActivity({ actor: actor.name, source: actor.source, kind: 'settings', action: 'watch_settings', status: 'success', summary: `Watchtower rules saved (SMS after ${next.smsAfterMin} min, call after ${next.callAfterMin} min, owner after ${next.ownerAfterMin} min)` });
   return next;
 }

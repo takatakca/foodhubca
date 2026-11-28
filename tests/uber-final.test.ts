@@ -390,6 +390,7 @@ describe('missed-order check (created-orders)', () => {
   it('keeps one notice for repeated contradictory polled details and recovers once Uber corrects them', async () => {
     const repo = getRepo();
     const orderId = 'fixture-repeated-identity-mismatch';
+    const secondStoreId = 'fixture-second-managed-store';
     const reason = 'Uber polled order details do not match the listed order and store';
     await repo.upsertStore(store({ autoAccept: false, meta: { uberPos: { orderManager: 'foodhub' } } }));
     await repo.addJob({ kind: 'webhook_unparsed', channel: 'doordash', reference: orderId, status: 'error', request: {}, result: { reason } });
@@ -406,7 +407,7 @@ describe('missed-order check (created-orders)', () => {
       throw new Error('Unexpected provider fixture request');
     });
     const notices = async () => (await repo.listJobs()).filter((job) => (
-      job.kind === 'webhook_unparsed' && job.channel === 'uber_eats' && job.reference === orderId
+      job.kind === 'webhook_unparsed' && job.channel === 'uber_eats' && job.reference === orderId && job.result?.reason === reason
     ));
 
     expect(await recoverMissedUberOrders(now)).toEqual({ recovered: 0 });
@@ -431,14 +432,36 @@ describe('missed-order check (created-orders)', () => {
     } finally {
       vi.unstubAllEnvs();
     }
+    const edit = await handleUberEvent({ event_type: 'orders.customer_order_edit', meta: { resource_id: orderId, user_id: 'uber-ndg' } });
+    const current = await repo.findJobByReference(orderId);
+    expect(edit.result).toBe('kept: Uber customer order edit for an order Food Hub does not have');
+    expect(current?.id).not.toBe(retained.id);
+    expect(current).toMatchObject({
+      kind: 'webhook_unparsed', channel: 'uber_eats', reference: orderId,
+      request: { body: { event_type: 'orders.customer_order_edit' } },
+      result: { reason: 'Uber customer order edit for an order Food Hub does not have' },
+    });
+
     expect(await recoverMissedUberOrders(now + 60_000)).toEqual({ recovered: 0 });
     expect(await notices()).toEqual([retained]);
+    expect(await repo.findJobByReference(orderId)).toEqual(current);
     expect(await repo.findOrder('uber_eats', orderId)).toBeNull();
 
+    await repo.upsertStore(store({
+      channelStoreId: secondStoreId, locationCode: 'SAINT_LEONARD', autoAccept: false, meta: { uberPos: { orderManager: 'foodhub' } },
+    }));
+    expect(await recoverMissedUberOrders(now + 120_000)).toEqual({ recovered: 0 });
+    const scopedNotices = await notices();
+    expect(scopedNotices).toHaveLength(2);
+    expect(scopedNotices).toContainEqual(retained);
+    expect(scopedNotices.find((job) => job.id !== retained.id)?.request).toEqual({
+      replayable: false, body: { meta: { resource_id: orderId, user_id: secondStoreId } },
+    });
+
     details = uberOrder(orderId);
-    expect(await recoverMissedUberOrders(now + 120_000)).toEqual({ recovered: 1 });
+    expect(await recoverMissedUberOrders(now + 180_000)).toEqual({ recovered: 1 });
     expect(await repo.findOrder('uber_eats', orderId)).toMatchObject({ channelStoreId: 'uber-ndg', locationCode: 'NDG_MAIN' });
-    expect(await notices()).toEqual([retained]);
+    expect(await notices()).toEqual(scopedNotices);
   });
 
   it('only stores Uber confirmed as Food Hub’s; 60 s head start; nothing past the 11.5-minute window', async () => {

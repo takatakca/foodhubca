@@ -1,3 +1,11 @@
+## 2026-11-28 — Préférences avant l’appel de relève Watchtower
+
+Le deuxième palier relit le compte de chaque destinataire juste avant l’appel. Il vérifie l’identité, le rôle, la cuisine, l’état de garde et la préférence d’appel. Si la lecture échoue avant le premier envoi du palier, le prochain passage retente le palier. Après un envoi, Watchtower conserve son résultat et passe au palier suivant sans rejouer cet appel.
+
+Les scénarios simulés couvrent deux changements de préférence depuis un profil signé pendant un appel déjà en cours, ainsi qu’une lecture indisponible avant le premier envoi et après un appel accepté. La vérification marchande sur le téléphone reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-28
+
 ## 2026-11-26 — Paiement Clover après déplacement d’une liaison
 
 La réconciliation locale de #183 sur `86d190c` conserve les références par magasin de #178 pour la saisie, la reprise, l’import et le paiement Clover. Les 161 essais ciblés couvrent aussi le règlement et l’impression sur la caisse confirmée et le contrôle manuel d’une liaison Uber Eats. Les réponses des fournisseurs sont simulées. La CI du SHA réconcilié et la réception marchande restent à vérifier avant publication.

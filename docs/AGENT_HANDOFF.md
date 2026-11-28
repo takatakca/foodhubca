@@ -1,5 +1,9 @@
 ## 2026-11-28 — Reprise des lots de tickets sur la tablette Android
 
+La tablette relit sa configuration entre les tickets et après une réponse de réclamation. Un ticket confirmé pendant un changement de cuisine reste en attente dans sa cuisine d’origine. Avant d’imprimer, la tablette vérifie ce rattachement et capture la destination d’impression. Les anciens tickets en attente sans liaison utilisent la configuration de démarrage du processus.
+
+Une reprise conserve tous les tickets déjà traités dans sa fenêtre active, y compris au-delà des 500 entrées de l’historique normal. La première page peut corriger une date de reprise sortie de la fenêtre serveur. Les lectures paginées appliquent le filtre de cuisine avant de lire les lots en base, ce qui évite qu’un grand volume masque des commandes admissibles. Les parcours d’impression physique restent à confirmer sur un appareil autorisé.
+
 Après une coupure, le flux peut contenir plus de 50 tickets. L’application parcourt chaque lot à partir d’une borne fixe et avance sa date de reprise après le dernier lot traité. Après un redémarrage en cours de traitement, elle reprend la fenêtre enregistrée et conserve les protections existantes contre les doublons. Chaque lot vérifie le périmètre de cuisine et de tablette.
 
 Les essais locaux couvrent 51 commandes à la même heure, la séparation des cuisines, un jeton invalide et la reprise du curseur. Les règles de la tablette passent les tests Kotlin sur la JVM. Publier le serveur d’abord et confirmer son SHA exact avec `/api/release` avant de distribuer le nouveau paquet Android. Si l’ancien serveur renvoie un lot de 50 sans signaler la pagination, la tablette conserve sa date de reprise. La confirmation sur l’appareil exige le paquet Android mis à jour et un essai autorisé avec l’imprimante. [Checklist marchande #46](https://github.com/takatakca/foodhubca/issues/46)

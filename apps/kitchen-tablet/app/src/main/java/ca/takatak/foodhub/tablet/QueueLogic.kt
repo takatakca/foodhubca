@@ -37,7 +37,7 @@ enum class Step {
 data class Planned(val item: QueueItem, val step: Step)
 
 data class QueueScope(val origin: String, val location: String, val deviceId: String)
-data class QueueDrain(val scope: QueueScope, val location: String, val since: String)
+data class QueueDrain(val scope: QueueScope, val location: String, val since: String, val handledIds: Set<String> = emptySet())
 
 /** Decisions of the watch loop, kept pure so they are tested on the JVM (QueueLogicTest). */
 object QueueLogic {
@@ -87,6 +87,20 @@ object QueueLogic {
     }
 
     fun drainForScope(drain: QueueDrain?, scope: QueueScope): QueueDrain? = drain?.takeIf { it.scope == scope }
+
+    /** Only the selected queue can send a pending ticket. Old local rows keep their startup queue within this process. */
+    fun pendingMatches(ticket: QueueScope?, location: String?, startup: QueueScope?, current: QueueScope?, activeLocation: String?): Boolean =
+        current != null && (ticket ?: startup) == current && (location == null || activeLocation == null || location == activeLocation)
+
+    /** A fresh window may clamp an old checkpoint. Keep handled IDs for the same queue, even after a restart. */
+    fun reanchorDrain(current: QueueDrain?, returned: QueueDrain, continuation: String?): QueueDrain? {
+        if (continuation != null) return current
+        val sameQueue = current?.takeIf { it.scope == returned.scope && it.location == returned.location }
+        return returned.copy(handledIds = sameQueue?.handledIds.orEmpty())
+    }
+
+    fun seenDuringDrain(recent: Collection<String>, drain: QueueDrain?): Set<String> =
+        recent.toSet() + drain?.handledIds.orEmpty()
 
     /** Older servers cap the queue at 50 without telling the tablet whether more tickets are waiting. */
     fun queueMayHaveMore(paged: Boolean, itemCount: Int, continuation: String?): Boolean =

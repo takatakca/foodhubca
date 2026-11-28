@@ -123,6 +123,42 @@ describe('kitchen print queue: since cursor', () => {
     expect((await get(cursorQuery, tablet)).status).toBe(400);
   });
 
+  it('drains 501 platform orders and a direct ticket behind 1,000 newer documents from another kitchen', async () => {
+    const own = await addDirect({ createdAt: ago(5), sourceRef: 'fixture-direct-own-source' });
+    const foreignAt = ago(1);
+    await getRepo().putDocs<DirectOrder>('direct_orders', Array.from({ length: 1000 }, (_, i) => {
+      const id = `fixture-foreign-${i}`;
+      return {
+        id, key: `phone:${id}`, at: foreignAt,
+        data: { ...own, id, sourceRef: id, locationCode: 'VERDUN', createdAt: foreignAt, placedAt: foreignAt },
+      };
+    }));
+    const platformAt = ago(4);
+    const ids = await Promise.all(Array.from({ length: 501 }, () => addOrder({ createdAt: platformAt }).then((order) => order.id)));
+    const { cookie } = await enrollDevice({
+      name: 'Large queue tablet', locationCode: 'NDG',
+    }, { username: 'owner', name: 'Owner', source: 'dashboard' });
+    const tablet = cookie.split(';')[0];
+    const query = `?device=${DEVICE}`;
+    const legacy = await (await get(query, tablet)).json();
+    expect(legacy.items).toHaveLength(50);
+    expect(legacy.items.every((item: { source: string }) => item.source === 'platform')).toBe(true);
+    expect(legacy).not.toHaveProperty('paged');
+
+    const orderIds: string[] = [];
+    let continuation: string | undefined;
+    for (let i = 0; i < 11; i++) {
+      const response = await get(`${query}&paged=1${continuation ? `&continuation=${encodeURIComponent(continuation)}` : ''}`, tablet);
+      expect(response.status).toBe(200);
+      const page = await response.json();
+      orderIds.push(...page.items.map((item: { orderId: string }) => item.orderId));
+      continuation = page.continuation;
+      if (!continuation) break;
+    }
+    expect(continuation).toBeUndefined();
+    expect(orderIds).toEqual([own.id, ...ids.sort()]);
+  });
+
   it('returns no continuation when the only remaining draft is an unprinted cancellation', async () => {
     const createdAt = ago(4);
     await Promise.all(Array.from({ length: 50 }, () => addOrder({ createdAt })));

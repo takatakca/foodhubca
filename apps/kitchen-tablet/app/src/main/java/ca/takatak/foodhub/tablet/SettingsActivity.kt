@@ -116,19 +116,21 @@ class SettingsActivity : Activity() {
             url.error = getString(R.string.bad_url)
             return false
         }
-        prefs.kitchenUrl = u
-        prefs.location = location.text.toString()
-        prefs.printerType = when (printer.checkedRadioButtonId) { R.id.printer_bt -> PrinterType.BLUETOOTH; R.id.printer_net -> PrinterType.NETWORK; else -> PrinterType.NONE }
-        devices.getOrNull(btSpinner.selectedItemPosition)?.let { (name, address) -> prefs.bluetoothName = name; prefs.bluetoothAddress = address }
-        prefs.printerHost = host.text.toString()
-        prefs.printerPort = port.text.toString().toIntOrNull()?.takeIf { it in 1..65535 } ?: 9100
-        prefs.paper = if (paper.checkedRadioButtonId == R.id.paper_58) 58 else 80
-        prefs.codePage = CodePage.values().getOrElse(codePage.selectedItemPosition) { CodePage.CP858 }
-        prefs.ticketLang = if (lang.checkedRadioButtonId == R.id.lang_en) "en" else "fr"
-        prefs.autoPrint = autoPrint.isChecked
-        prefs.sound = sound.isChecked
-        prefs.maxVolume = maxVolume.isChecked
-        prefs.startOnBoot = boot.isChecked
+        prefs.withSettings {
+            prefs.kitchenUrl = u
+            prefs.location = location.text.toString()
+            prefs.printerType = when (printer.checkedRadioButtonId) { R.id.printer_bt -> PrinterType.BLUETOOTH; R.id.printer_net -> PrinterType.NETWORK; else -> PrinterType.NONE }
+            devices.getOrNull(btSpinner.selectedItemPosition)?.let { (name, address) -> prefs.bluetoothName = name; prefs.bluetoothAddress = address }
+            prefs.printerHost = host.text.toString()
+            prefs.printerPort = port.text.toString().toIntOrNull()?.takeIf { it in 1..65535 } ?: 9100
+            prefs.paper = if (paper.checkedRadioButtonId == R.id.paper_58) 58 else 80
+            prefs.codePage = CodePage.values().getOrElse(codePage.selectedItemPosition) { CodePage.CP858 }
+            prefs.ticketLang = if (lang.checkedRadioButtonId == R.id.lang_en) "en" else "fr"
+            prefs.autoPrint = autoPrint.isChecked
+            prefs.sound = sound.isChecked
+            prefs.maxVolume = maxVolume.isChecked
+            prefs.startOnBoot = boot.isChecked
+        }
         OrderWatchService.send(this, OrderWatchService.ACTION_POLL_NOW)
         return true
     }

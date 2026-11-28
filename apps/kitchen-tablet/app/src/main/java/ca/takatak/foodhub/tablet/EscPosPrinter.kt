@@ -29,6 +29,7 @@ object EscPosPrinter {
 
     sealed class Outcome {
         object Ok : Outcome()
+        object Held : Outcome()
         data class Failed(val message: String) : Outcome()
     }
 
@@ -44,15 +45,23 @@ object EscPosPrinter {
         queue.execute { task(app) }
     }
 
+    private data class PrinterDestination(
+        val type: PrinterType, val host: String, val port: Int, val address: String, val codePage: CodePage,
+    )
+
     /** Blocking print (call it from a background thread only). */
-    fun printNow(context: Context, ticket: String): Outcome {
+    fun printNow(context: Context, ticket: String, stillAllowed: () -> Boolean = { true }): Outcome {
         val prefs = Prefs(context)
-        val bytes = EscPos.render(ticket, prefs.codePage)
+        val destination = prefs.withSettings {
+            if (!stillAllowed()) null else PrinterDestination(prefs.printerType, prefs.printerHost, prefs.printerPort, prefs.bluetoothAddress, prefs.codePage)
+        } ?: return Outcome.Held
+        val bytes = EscPos.render(ticket, destination.codePage)
+        if (!stillAllowed()) return Outcome.Held
         return try {
-            when (prefs.printerType) {
+            when (destination.type) {
                 PrinterType.NONE -> Outcome.Failed("no printer chosen")
-                PrinterType.NETWORK -> sendTcp(prefs.printerHost, prefs.printerPort, bytes)
-                PrinterType.BLUETOOTH -> sendBluetooth(context, prefs.bluetoothAddress, bytes)
+                PrinterType.NETWORK -> sendTcp(destination.host, destination.port, bytes)
+                PrinterType.BLUETOOTH -> sendBluetooth(context, destination.address, bytes)
             }
         } catch (e: Exception) {
             Outcome.Failed(e.message ?: e.javaClass.simpleName)

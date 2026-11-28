@@ -54,16 +54,16 @@ class FoodHubApi(private val origin: String, private val cookie: () -> String?, 
         return Queue(items, field("since"), field("serverTime"), field("location"), next, json.opt("paged") == true)
     }
 
-    fun claim(item: QueueItem, deviceId: String, location: String): Claim {
+    fun claim(item: QueueItem, deviceId: String, location: String, stillAllowed: () -> Boolean): Claim {
         val body = JSONObject().put("deviceId", deviceId).put("source", item.source).put("kind", item.kind)
         if (location.isNotBlank()) body.put("location", location)
-        val json = call("POST", "$origin/api/foodhub/kitchen/print-queue/${enc(item.orderId)}/printed", body.toString())
+        val json = call("POST", "$origin/api/foodhub/kitchen/print-queue/${enc(item.orderId)}/printed", body.toString(), stillAllowed)
         return Claim(json.optBoolean("claimed", false), json.optString("reason").ifBlank { null })
     }
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
-    private fun call(method: String, url: String, body: String?): JSONObject {
+    private fun call(method: String, url: String, body: String?, stillAllowed: () -> Boolean = { true }): JSONObject {
         val conn = (URL(url).openConnection() as HttpURLConnection)
         try {
             conn.requestMethod = method
@@ -74,6 +74,7 @@ class FoodHubApi(private val origin: String, private val cookie: () -> String?, 
             conn.setRequestProperty("Accept", "application/json")
             conn.setRequestProperty("User-Agent", userAgent)
             cookie()?.takeIf { it.isNotBlank() }?.let { conn.setRequestProperty("Cookie", it) }
+            if (!stillAllowed()) throw ApiError(0, "Print queue scope changed")
             if (body != null) {
                 conn.doOutput = true
                 conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")

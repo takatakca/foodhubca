@@ -8,7 +8,7 @@ export interface OrderFilter { limit?: number; statuses?: OrderStatus[]; since?:
 export interface ActivityFilter { limit?: number; since?: string; until?: string; kinds?: ActivityKind[]; locationCodes?: string[] }
 /** Generic document store (payout lines, statement imports, reconciliation cases, ledger approvals…). */
 export interface Doc<T = Record<string, unknown>> { id: string; key?: string | null; at?: string | null; data: T }
-export interface DocFilter { since?: string; until?: string; keys?: string[]; limit?: number }
+export interface DocFilter { since?: string; until?: string; keys?: string[]; limit?: number; locationCode?: string }
 
 type StoreSnapshot = Pick<ChannelStore, 'channel' | 'channelStoreId' | 'locationCode' | 'updatedAt' | 'meta'>;
 
@@ -212,6 +212,7 @@ const memoryRepo: FoodHubRepo = {
     if (filter.since) list = list.filter((d) => (d.at ?? '') >= filter.since!);
     if (filter.until) list = list.filter((d) => (d.at ?? '') < filter.until!);
     if (filter.keys?.length) list = list.filter((d) => d.key && filter.keys!.includes(d.key));
+    if (filter.locationCode !== undefined) list = list.filter((d) => (d.data as { locationCode?: string } | null)?.locationCode === filter.locationCode);
     list.sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''));
     return list.slice(0, filter.limit ?? 100_000);
   },
@@ -531,6 +532,7 @@ function supabaseRepo(): FoodHubRepo {
         if (filter.since) q = q.gte('at', filter.since);
         if (filter.until) q = q.lt('at', filter.until);
         if (keys) q = q.in('key', keys.slice(0, 500));
+        if (filter.locationCode !== undefined) q = q.eq('data->>locationCode', filter.locationCode);
         const rows = (must(await q) ?? []) as Row[];
         out.push(...rows.map((r) => ({ id: r.id, key: r.key, at: r.at, data: r.data as T })));
         if (rows.length < to - from + 1) break;

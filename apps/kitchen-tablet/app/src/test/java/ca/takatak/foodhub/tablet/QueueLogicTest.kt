@@ -14,6 +14,28 @@ class QueueLogicTest {
     private fun steps(plan: List<Planned>) = plan.map { it.item.orderId + "/" + it.item.kind + "=" + it.step }
 
     @Test
+    fun claimedTicketWaitsForItsOriginalQueueAndResolvedKitchen() {
+        val original = QueueScope("https://hub.example", "", "tablet-test")
+        val changed = original.copy(location = "B")
+        val otherOrigin = original.copy(origin = "https://second.example")
+        assertTrue(QueueLogic.pendingMatches(original, "A", original, original, "A"))
+        assertFalse(QueueLogic.pendingMatches(original, "A", original, changed, "B"))
+        assertFalse(QueueLogic.pendingMatches(original, "A", original, otherOrigin, "A"))
+        assertFalse(QueueLogic.pendingMatches(original, "A", original, original, "B"))
+        assertFalse(QueueLogic.pendingMatches(null, null, original, changed, "B"))
+        assertTrue(QueueLogic.pendingMatches(original, "A", original, original, null))
+    }
+
+    @Test
+    fun claimStopsBeforeSendingIfTheKitchenChangesWhileReadingTheSession() {
+        var current = "A"
+        val api = FoodHubApi("http://127.0.0.1:1", { current = "B"; null }, "fixture")
+        val error = runCatching { api.claim(item("a"), "fixture-tablet", "A") { current == "A" } }.exceptionOrNull()
+        assertTrue(error is FoodHubApi.ApiError)
+        assertEquals("Print queue scope changed", error?.message)
+    }
+
+    @Test
     fun planClaimsNewTicketsAndSkipsSeenAndWaiting() {
         val items = listOf(item("a"), item("b"), item("c", printed = null))
         val plan = QueueLogic.plan(items, seen = setOf("platform:b:order"), pendingIds = setOf("platform:c:order"), print = true, firstRun = false)
@@ -100,6 +122,36 @@ class QueueLogicTest {
         assertFalse(QueueLogic.queueMayHaveMore(false, 49, null))
         assertFalse(QueueLogic.queueMayHaveMore(true, 50, null))
         assertTrue(QueueLogic.queueMayHaveMore(true, 50, "next-page"))
+    }
+
+    @Test
+    fun aFreshPageReanchorsAnExpiredDrainToTheServersClampedWindow() {
+        val scope = QueueScope("https://foodhub.on2go.ca", "", "tablet-test")
+        val expired = QueueDrain(scope, "KITCHEN1", "2026-10-29T15:00:00Z")
+        val clamped = expired.copy(since = "2026-10-29T16:00:00Z")
+
+        assertEquals(clamped, QueueLogic.reanchorDrain(expired, clamped, null))
+        assertEquals(clamped, QueueLogic.reanchorDrain(null, clamped, null))
+        assertEquals(expired, QueueLogic.reanchorDrain(expired, clamped, "continuation"))
+    }
+
+    @Test
+    fun anUnfinishedDrainReplaysMoreThanFiveHundredTicketsWithoutReprintingEarlyClaims() {
+        val scope = QueueScope("https://foodhub.on2go.ca", "", "tablet-test")
+        val ticks = (1..550).map { item("old-$it", printed = true) }
+        val allHandled = ticks.map { it.id }.toSet()
+        val recent = QueueLogic.remember(emptyList(), allHandled)
+        assertEquals(500, recent.size)
+        assertFalse(ticks.first().id in recent)
+
+        val original = QueueDrain(scope, "KITCHEN1", "2026-10-29T15:00:00Z", allHandled)
+        val returned = QueueDrain(scope, "KITCHEN1", "2026-10-29T16:00:00Z")
+        val replay = QueueLogic.reanchorDrain(QueueLogic.drainForScope(original, scope), returned, null)
+        val seen = QueueLogic.seenDuringDrain(recent, replay)
+        val firstPage = ticks.take(50) + item("new", printed = true)
+        assertEquals(listOf("new/order=RECOVER"), steps(QueueLogic.plan(firstPage, seen, emptySet(), print = true, firstRun = false)))
+        assertEquals(listOf("new/order=RING"), steps(QueueLogic.plan(firstPage, seen, emptySet(), print = false, firstRun = false)))
+        assertEquals(emptySet<String>(), QueueLogic.reanchorDrain(original, returned.copy(location = "KITCHEN2"), null)?.handledIds)
     }
 
     @Test

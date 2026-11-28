@@ -207,9 +207,16 @@ export async function buildPrintQueue(opts: QueueOptions): Promise<{ items: Prin
   const timeZone = process.env.FOODHUB_TIMEZONE || 'America/Toronto';
   const repo = getRepo();
 
+  // The paged response is terminal only after both bounded-by-time source queries are exhausted.
   const [platform, direct] = await Promise.all([
-    repo.listOrders({ since: new Date(snapshot - PLATFORM_WINDOW_MS).toISOString(), until, statuses: ['new', 'accepted', 'cancelled'], locationCodes: [opts.location], limit: 500 }),
-    listDirectOrders({ since: new Date(snapshot - DIRECT_WINDOW_MS).toISOString(), until, limit: 1000, locationCodes: [opts.location] }),
+    repo.listOrders({
+      since: new Date(snapshot - PLATFORM_WINDOW_MS).toISOString(), until, statuses: ['new', 'accepted', 'cancelled'],
+      locationCodes: [opts.location], limit: opts.page ? Number.POSITIVE_INFINITY : 500,
+    }),
+    listDirectOrders({
+      since: new Date(snapshot - DIRECT_WINDOW_MS).toISOString(), until, limit: opts.page ? Number.POSITIVE_INFINITY : 1000,
+      ...(opts.page ? { locationCode: opts.location } : { locationCodes: [opts.location] }),
+    }),
   ]);
 
   type Draft = Omit<PrintQueueItem, 'printed' | 'printedElsewhere' | 'ticket'> & { render: () => string };

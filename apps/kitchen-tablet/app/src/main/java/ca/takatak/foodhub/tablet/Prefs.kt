@@ -9,7 +9,12 @@ import java.util.UUID
 enum class PrinterType { NONE, BLUETOOTH, NETWORK }
 
 /** A ticket this tablet claimed but could not print yet (printer off, paper out): retried at every poll. */
-data class PendingTicket(val id: String, val number: String, val ticket: String, val since: Long, val attempts: Int)
+data class PendingTicket(
+    val id: String, val number: String, val ticket: String, val since: Long, val attempts: Int,
+    val scope: QueueScope? = null, val resolvedLocation: String? = null,
+) {
+    fun sameTicket(other: PendingTicket) = id == other.id && scope == other.scope && resolvedLocation == other.resolvedLocation
+}
 
 /** The tablet's settings (Settings screen) and its small local state. App-private storage only. */
 class Prefs(context: Context) {
@@ -109,26 +114,41 @@ class Prefs(context: Context) {
                 QueueDrain(
                     QueueScope(data.getString("origin"), data.getString("requestedLocation"), data.getString("deviceId")),
                     data.getString("location"), data.getString("since"),
+                    data.optJSONArray("handledIds")?.let { ids ->
+                        (0 until ids.length()).mapTo(mutableSetOf()) { ids.getString(it) }
+                    }.orEmpty(),
                 )
             }.getOrNull()
         }
         set(value) {
-            val data = value?.let { JSONObject().put("origin", it.scope.origin).put("requestedLocation", it.scope.location)
-                .put("deviceId", it.scope.deviceId).put("location", it.location).put("since", it.since).toString() }
-            sp.edit().putString("queue_drain", data).commit()
+            synchronized(LOCK) {
+                sp.edit().putString("queue_drain", value?.let(::encodeQueueDrain)).commit()
+            }
         }
 
+    private fun encodeQueueDrain(drain: QueueDrain): String =
+        JSONObject().put("origin", drain.scope.origin).put("requestedLocation", drain.scope.location)
+            .put("deviceId", drain.scope.deviceId).put("location", drain.location).put("since", drain.since)
+            .put("handledIds", JSONArray(drain.handledIds)).toString()
+
     fun finishQueueDrain(since: String?) {
-        sp.edit().putString("since", since).remove("queue_drain").putBoolean("first_run", false).commit()
+        synchronized(LOCK) {
+            sp.edit().putString("since", since).remove("queue_drain").putBoolean("first_run", false).commit()
+        }
     }
 
-    var seen: List<String>
+    val seen: List<String>
         get() = (sp.getString("seen", "") ?: "").split('\n').filter { it.isNotBlank() }
-        set(v) { sp.edit().putString("seen", v.joinToString("\n")).commit() }
 
-    /** Adds ids to the seen list, kept bounded (QueueLogic.remember). */
+    /** Retain every handled ID in an unfinished drain as well as the usual bounded history. */
     fun markSeen(vararg ids: String) {
-        synchronized(LOCK) { seen = QueueLogic.remember(seen, ids.toList()) }
+        synchronized(LOCK) {
+            val editor = sp.edit().putString("seen", QueueLogic.remember(seen, ids.toList()).joinToString("\n"))
+            queueDrain?.let { drain ->
+                editor.putString("queue_drain", encodeQueueDrain(drain.copy(handledIds = drain.handledIds + ids)))
+            }
+            editor.commit()
+        }
     }
 
     val pending: List<PendingTicket>
@@ -136,7 +156,9 @@ class Prefs(context: Context) {
             val arr = JSONArray(sp.getString("pending", "[]") ?: "[]")
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                PendingTicket(o.getString("id"), o.optString("number"), o.getString("ticket"), o.optLong("since"), o.optInt("attempts"))
+                val scope = o.optJSONObject("scope")?.let { QueueScope(it.getString("origin"), it.getString("location"), it.getString("deviceId")) }
+                PendingTicket(o.getString("id"), o.optString("number"), o.getString("ticket"), o.optLong("since"), o.optInt("attempts"), scope,
+                    o.optString("resolvedLocation").takeIf { it.isNotEmpty() })
             }
         } catch (e: Exception) { emptyList() }
 
@@ -144,7 +166,12 @@ class Prefs(context: Context) {
     fun updatePending(change: (List<PendingTicket>) -> List<PendingTicket>) {
         synchronized(LOCK) {
             val arr = JSONArray()
-            change(pending).forEach { arr.put(JSONObject().put("id", it.id).put("number", it.number).put("ticket", it.ticket).put("since", it.since).put("attempts", it.attempts)) }
+            change(pending).forEach {
+                val data = JSONObject().put("id", it.id).put("number", it.number).put("ticket", it.ticket).put("since", it.since).put("attempts", it.attempts)
+                it.scope?.let { scope -> data.put("scope", JSONObject().put("origin", scope.origin).put("location", scope.location).put("deviceId", scope.deviceId)) }
+                it.resolvedLocation?.let { location -> data.put("resolvedLocation", location) }
+                arr.put(data)
+            }
             sp.edit().putString("pending", arr.toString()).commit()
         }
     }
@@ -156,4 +183,5 @@ class Prefs(context: Context) {
 
     fun origin(): String? = QueueLogic.originOf(kitchenUrl)
     fun width(): Int = if (paper == 58) 32 else 42
+    fun <T> withSettings(action: () -> T): T = synchronized(LOCK, action)
 }

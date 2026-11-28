@@ -54,8 +54,13 @@ export async function handleUberEvent(
     const detailStoreId = details?.store?.id;
     if (polled && (String(details?.id ?? '') !== polled.orderId
       || (detailStoreId != null && String(detailStoreId) !== polled.storeId))) {
-      // The reviewed evidence is the synthetic notice from the scoped listing. Never keep another order's details.
-      return kept(body, 'Uber polled order details do not match the listed order and store', polled.orderId);
+      const reason = 'Uber polled order details do not match the listed order and store';
+      const previous = await getRepo().findJobByReference(polled.orderId);
+      if (previous?.kind === 'webhook_unparsed' && previous.channel === 'uber_eats' && previous.result?.reason === reason) {
+        return { result: `kept: ${reason}` };
+      }
+      // Retain the scoped listing notice. Another order's details are not needed for review.
+      return kept(body, reason, polled.orderId);
     }
     const order = parseUberOrder(details, polled?.storeId ?? body.meta?.user_id);
     if (!order) return kept(details, 'Uber order details could not be parsed', orderId || null);

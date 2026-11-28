@@ -1,6 +1,6 @@
 ## 2026-11-28 — Identité des commandes Uber reprises
 
-La reprise vérifie que les détails concernent la commande et le magasin de la liste Uber avant d’enregistrer, d’annuler ou d’envoyer une commande en cuisine. Quand Uber omet le magasin des détails, la commande doit correspondre à l’identifiant exact de la liste pour conserver ce magasin. Un désaccord conserve seulement l’avis de recherche et laisse les autres commandes de la liste avancer. Les deux essais fictifs reproduisent un envoi vers une autre cuisine et une annulation de la mauvaise commande avant correction. La vérification marchande reste dans [la checklist #46](https://github.com/takatakca/foodhubca/issues/46).
+La reprise vérifie que les détails concernent la commande et le magasin de la liste Uber avant d’enregistrer, d’annuler ou d’envoyer une commande en cuisine. Quand Uber omet le magasin des détails, la commande doit correspondre à l’identifiant exact de la liste pour conserver ce magasin. Un désaccord conserve seulement l’avis de recherche et laisse les autres commandes de la liste avancer. Si le même désaccord revient, la reprise conserve l’avis existant. Une réponse corrigée permet ensuite de traiter la commande. Les deux essais fictifs reproduisent un envoi vers une autre cuisine et une annulation de la mauvaise commande avant correction. La vérification marchande reste dans [la checklist #46](https://github.com/takatakca/foodhubca/issues/46).
 
 — signé : Codex @ cloud · 2026-11-28
 

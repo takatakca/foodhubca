@@ -21,6 +21,7 @@ import { api, ApiError } from '@/lib/ui/api';
 import { formDraftId, useFormDraft } from '@/lib/ui/use-form-draft';
 import { useI18n } from '@/lib/i18n/client';
 import { countEn, countFr, enWord, frWord } from '@/lib/ui/count-label';
+import { uberCloverChoice } from '@/lib/foodhub/uber-clover-choice';
 import type { ChannelStore } from '@/lib/foodhub/types';
 
 type Form = { id?: string; channel: string; channelStoreId: string; brandName: string; locationCode: string; cloverMerchantId: string; destinationCloverLocation?: string; autoAccept: boolean; doNotTouch: boolean; platformStoreId?: string; menuLocked?: boolean; menuLockedReason?: string };
@@ -30,10 +31,10 @@ type StoreRow = ChannelStore & { menuLock?: MenuLock };
 /** The link form being shown: its draft id (one per store, per discovered Uber store, or 'new') and starting values. */
 type OpenForm = { draftId: string; initial: Form; sourceLocation?: string; lock?: MenuLock };
 type OrderManager = 'foodhub' | 'pending' | 'other' | 'unknown';
-type Pick = { storeId: string; name: string; address?: string; brandName: string; locationCode: string; cloverMerchantId: string; orderManager?: OrderManager; include: boolean };
+type Pick = { storeId: string; name: string; address?: string; brandName: string; locationCode: string; cloverMerchantId: string; cloverSuggested: boolean; orderManager?: OrderManager; include: boolean };
 type CloverMerchant = { id: string; name: string | null; isDefault: boolean };
-type UberResult = { ok: boolean; message: string; orderManager?: OrderManager | null };
-type Known = { channel: string; storeId: string; name: string; address: string | null; suggestedBrand: string | null; suggestedLocation: string | null; confirmedByPlatform: boolean; mapped: { id: string; brandName: string; locationCode: string } | null; expectedLocation: string | null; locationMismatch: boolean };
+type UberResult = { ok: boolean; message: string; orderManager?: OrderManager | null; mappingConflict?: boolean };
+type Known = import('@/lib/foodhub/known-stores').KnownStore;
 
 export function MappingView() {
   const { t } = useI18n();
@@ -66,11 +67,12 @@ export function MappingView() {
     const id = params.get('uber_connect');
     if (!id) return;
     setConnectId(id);
-    api<{ stores: Array<{ id: string; name: string; address?: string; suggestedBrand?: string; suggestedLocation?: string; suggestedClover?: string; orderManager?: OrderManager }>; error: string | null; active: boolean; cloverMerchants?: CloverMerchant[] }>(`/api/foodhub/uber-connect/session?id=${id}`)
+    setResults({});
+    api<{ stores: Array<{ id: string; name: string; address?: string; suggestedBrand?: string; suggestedLocation?: string; suggestedClover?: string; requiresCloverChoice?: boolean; orderManager?: OrderManager }>; error: string | null; active: boolean; cloverMerchants?: CloverMerchant[] }>(`/api/foodhub/uber-connect/session?id=${id}`)
       .then((d) => {
         if (d.error) toast.error(d.error);
         setCloverMerchants(d.cloverMerchants ?? []);
-        setPicks(d.stores.map((x) => ({ storeId: x.id, name: x.name, address: x.address, brandName: x.suggestedBrand || '', locationCode: x.suggestedLocation || '', cloverMerchantId: x.suggestedClover || '', orderManager: x.orderManager, include: Boolean(x.suggestedBrand && x.suggestedLocation) })));
+        setPicks(d.stores.map((x) => ({ storeId: x.id, name: x.name, address: x.address, brandName: x.suggestedBrand || '', locationCode: x.suggestedLocation || '', cloverMerchantId: x.suggestedClover || '', cloverSuggested: Boolean(x.suggestedClover), orderManager: x.orderManager, include: Boolean(x.suggestedBrand && x.suggestedLocation && !x.requiresCloverChoice) })));
       })
       .catch((e) => toast.error(e.message));
   }, [params, toast]);
@@ -102,25 +104,28 @@ export function MappingView() {
     catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(''); }
   }
 
-  function activationMovesKitchen(pick: Pick) {
-    return stores?.some((store) => store.channel === 'uber_eats' && store.channelStoreId === pick.storeId && store.locationCode !== pick.locationCode) ?? false;
+  function needsRegister(pick: Pick) {
+    const defaultMerchantId = cloverMerchants.find((merchant) => merchant.isDefault)?.id ?? null;
+    return uberCloverChoice(pick.storeId, pick.locationCode, stores ?? [], defaultMerchantId).required;
   }
 
+  const chosen = picks.filter((p) => p.include && !results[p.storeId]?.mappingConflict);
+
   async function activate() {
-    const chosen = picks.filter((p) => p.include);
     if (chosen.some((p) => !p.brandName || !p.locationCode)) { toast.warn(t('Choisissez une marque et une cuisine pour chaque magasin coché.', 'Pick a brand and a kitchen for every selected store.')); return; }
-    if (chosen.some((p) => activationMovesKitchen(p) && !p.cloverMerchantId)) {
-      toast.warn(t('Choisissez le marchand Clover de destination pour chaque magasin qui change de cuisine.', 'Choose the destination Clover merchant for each store moving to another kitchen.'));
+    if (chosen.some((p) => needsRegister(p) && (!p.cloverMerchantId || p.cloverSuggested))) {
+      toast.warn(t('Choisissez la caisse Clover de destination pour chaque magasin sélectionné qui en a besoin.', 'Choose the destination Clover register for each selected store that requires one.'));
       return;
     }
     if (!(await checkPrice(chosen.map((p) => ({ brandName: p.brandName, channel: 'uber_eats', merchantId: p.cloverMerchantId }))))) return;
     setBusy('activate');
     try {
-      const d = await api<{ results: Array<{ storeId: string } & UberResult> }>('/api/foodhub/uber-connect/activate', { method: 'POST', json: { id: connectId, stores: chosen.map((p) => ({ storeId: p.storeId, brandName: p.brandName, locationCode: p.locationCode, cloverMerchantId: p.cloverMerchantId || undefined })) } });
-      setResults(Object.fromEntries(d.results.map((r) => [r.storeId, r])));
+      const d = await api<{ results: Array<{ storeId: string } & UberResult> }>('/api/foodhub/uber-connect/activate', { method: 'POST', json: { id: connectId, stores: chosen.map((p) => ({ storeId: p.storeId, brandName: p.brandName, locationCode: p.locationCode, cloverMerchantId: p.cloverMerchantId || undefined, cloverSuggested: p.cloverSuggested || undefined })) } });
+      setResults((previous) => ({ ...previous, ...Object.fromEntries(d.results.map((r) => [r.storeId, r])) }));
       const okN = d.results.filter((r) => r.ok).length;
       const elsewhere = d.results.filter((r) => r.orderManager === 'other').length;
-      if (okN === d.results.length && !elsewhere) toast.success(t(`${okN}/${d.results.length} ${frWord(d.results.length, 'magasin Uber activé', 'magasins Uber activés')}`, `${okN}/${d.results.length} Uber ${enWord(d.results.length, 'store')} activated`));
+      if (d.results.some((r) => r.mappingConflict)) toast.warn(t('Vérifiez les liaisons modifiées pendant l’activation.', 'Review links changed during activation.'));
+      else if (okN === d.results.length && !elsewhere) toast.success(t(`${okN}/${d.results.length} ${frWord(d.results.length, 'magasin Uber activé', 'magasins Uber activés')}`, `${okN}/${d.results.length} Uber ${enWord(d.results.length, 'store')} activated`));
       else toast.warn(t(`${okN}/${d.results.length} ${frWord(okN, 'activé', 'activés')}${elsewhere ? ` — ${elsewhere} encore chez UrbanPiper` : ''}`, `${okN}/${d.results.length} activated${elsewhere ? ` — ${elsewhere} still on UrbanPiper` : ''}`), t('Le détail est sous chaque magasin.', 'Details are under each store.'));
       window.history.replaceState(null, '', '/stores/mapping');
       load();
@@ -196,12 +201,22 @@ export function MappingView() {
     });
   }
 
+  function openDiscoveredStore(storeId: string) {
+    const linked = stores?.find((store) => store.channel === 'uber_eats' && store.channelStoreId === storeId);
+    if (linked) return editStore(linked);
+    setForm({
+      draftId: formDraftId('store-link', `uber-${storeId}`),
+      initial: { ...blank(), channel: 'uber_eats', channelStoreId: storeId, brandName: '', locationCode: '' },
+    });
+  }
+
   function moveKnown(k: Known) {
     const store = stores?.find((s) => s.id === k.mapped?.id);
-    if (store && k.expectedLocation) editStore(store, k.expectedLocation);
+    if (store) editStore(store, k.confirmedByPlatform && k.expectedLocation ? k.expectedLocation : store.locationCode);
   }
   const unlinked = known.filter((k) => !k.mapped);
   const misplaced = known.filter((k) => k.locationMismatch);
+  const unresolved = known.filter((k) => k.mapped && k.address && !k.confirmedByPlatform);
   const shown = (stores ?? []).filter((s) => !leaving.includes(s.id));
 
   return (
@@ -212,40 +227,49 @@ export function MappingView() {
       {connectId && picks.length > 0 && (
         <Card className="mb-5 border-uber/40">
           <CardHeader icon={<PlatformMark channel="uber_eats" size="sm" />} title={t(`Magasins de votre compte Uber Eats (${picks.length})`, `Stores on your Uber Eats account (${picks.length})`)} subtitle={t('Marque, cuisine et caisse Clover pré-remplies d’après le nom et l’adresse Uber — vérifiez, puis activez. Un magasin encore chez UrbanPiper peut être activé : ses commandes passent à Food Hub quand UrbanPiper le libère.', 'Brand, location and Clover register pre-filled from the Uber name and address — check, then activate. A store still on UrbanPiper can be activated: its orders move to Food Hub once UrbanPiper lets it go.')}
-            right={<Hint id="mapping.activate"><Button variant="brand" loading={busy === 'activate'} disabled={!picks.some((p) => p.include)} onClick={activate}>{t('Activer et relier', 'Activate & link')}</Button></Hint>} />
+            right={<Hint id="mapping.activate"><Button variant="brand" loading={busy === 'activate'} disabled={!stores || !chosen.length} onClick={activate}>{t('Activer et relier', 'Activate & link')}</Button></Hint>} />
           <Table cards>
             <thead><tr><Th><span className="sr-only">{t('Choisir', 'Pick')}</span></Th><Th>{t('Magasin Uber', 'Uber store')}</Th><Th>{t('Marque', 'Brand')}</Th><Th>{t('Cuisine', 'Kitchen')}</Th><Th>Clover</Th><Th>{t('Commandes vont à', 'Orders go to')}</Th><Th><span className="sr-only">{t('Résultat', 'Result')}</span></Th></tr></thead>
             <tbody>{picks.map((p, i) => {
               const upd = (patch: Partial<Pick>) => setPicks((all) => all.map((x, j) => (j === i ? { ...x, ...patch } : x)));
               const r = results[p.storeId];
+              const message = r?.mappingConflict ? t('Uber a accepté l’activation. Vérifiez la cuisine et la caisse enregistrées dans Liaisons.', 'Uber accepted activation. Review the saved kitchen and register in Mapping.') : r?.message;
               return (<Fragment key={p.storeId}>
                 <Tr>
-                  <Td label={t('Activer', 'Activate')}><input type="checkbox" className="size-5" aria-label={t(`Activer ${p.name}`, `Activate ${p.name}`)} checked={p.include} onChange={(e) => upd({ include: e.target.checked })} /></Td>
+                  <Td label={t('Activer', 'Activate')}><input type="checkbox" className="size-5" aria-label={t(`Activer ${p.name}`, `Activate ${p.name}`)} checked={p.include && !r?.mappingConflict} disabled={r?.mappingConflict} onChange={(e) => upd({ include: e.target.checked })} /></Td>
                   <Td primary><div className="font-semibold">{p.name}</div><div className="text-small text-ink-3">{p.address}</div></Td>
                   <Td label={t('Marque', 'Brand')}><Select selectSize="sm" aria-label={t(`Marque de ${p.name}`, `${p.name} brand`)} value={p.brandName} onChange={(e) => upd({ brandName: e.target.value })}><option value="">—</option>{brands.map((b) => <option key={b}>{b}</option>)}</Select></Td>
-                  <Td label={t('Cuisine', 'Kitchen')}><Select selectSize="sm" aria-label={t(`Cuisine de ${p.name}`, `${p.name} kitchen`)} value={p.locationCode} onChange={(e) => upd({ locationCode: e.target.value, cloverMerchantId: '' })}><option value="">—</option>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)}</option>)}</Select></Td>
-                  <Td label="Clover"><Select selectSize="sm" value={p.cloverMerchantId} onChange={(e) => upd({ cloverMerchantId: e.target.value })} aria-label="Clover"><option value="">{activationMovesKitchen(p) ? t('Choisir la caisse de destination', 'Choose the destination register') : t('par défaut', 'default')}</option>{cloverMerchants.map((m) => <option key={m.id} value={m.id}>{m.name ? `${m.name} · ${m.id}` : m.id}{m.isDefault ? t(' (défaut)', ' (default)') : ''}</option>)}</Select></Td>
+                  <Td label={t('Cuisine', 'Kitchen')}><Select selectSize="sm" aria-label={t(`Cuisine de ${p.name}`, `${p.name} kitchen`)} value={p.locationCode} onChange={(e) => upd({ locationCode: e.target.value, cloverMerchantId: '', cloverSuggested: false })}><option value="">—</option>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)}</option>)}</Select></Td>
+                  <Td label="Clover"><Select selectSize="sm" value={p.cloverMerchantId} onChange={(e) => upd({ cloverMerchantId: e.target.value, cloverSuggested: false })} aria-label="Clover"><option value="">{needsRegister(p) ? t('Choisir la caisse de destination', 'Choose the destination register') : t('par défaut', 'default')}</option>{cloverMerchants.map((m) => <option key={m.id} value={m.id}>{m.name ? `${m.name} · ${m.id}` : m.id}{m.isDefault ? t(' (défaut)', ' (default)') : ''}</option>)}</Select></Td>
                   <Td label={t('Commandes vont à', 'Orders go to')}><ManagerBadge value={r?.orderManager ?? p.orderManager} /></Td>
-                  <Td>{r && <Badge tone={r.ok ? (r.orderManager === 'other' ? 'wait' : 'go') : 'stop'} title={r.message}>{r.ok ? t('activé', 'activated') : t('échec', 'failed')}</Badge>}
+                  <Td>{r && <Badge tone={r.mappingConflict || (r.ok && r.orderManager === 'other') ? 'wait' : r.ok ? 'go' : 'stop'} title={message}>{r.mappingConflict ? t('Liaison à vérifier', 'Review link') : r.ok ? t('activé', 'activated') : t('échec', 'failed')}</Badge>}
                     {((r?.orderManager ?? p.orderManager) === 'foodhub' || (r?.orderManager ?? p.orderManager) === 'pending') && (
                       <Button variant="ghost" size="sm" className="text-stop" loading={busy === `disconnect:${p.storeId}`} onClick={() => disconnect(p)}>{t('Débrancher d’Uber', 'Disconnect from Uber')}</Button>
                     )}</Td>
                 </Tr>
-                {r && <tr><td colSpan={7} className={`px-4 pb-3 text-small ${r.ok ? 'text-ink-2' : 'text-stop-2'}`}>{r.message}</td></tr>}
+                {r && <tr><td colSpan={7} className={`px-4 pb-3 text-small ${r.mappingConflict ? 'text-wait-2' : r.ok ? 'text-ink-2' : 'text-stop-2'}`}>{message}</td></tr>}
               </Fragment>);
             })}</tbody>
           </Table>
         </Card>
       )}
 
+      {unresolved.length > 0 && (
+        <Banner tone="warn" className="mb-5">
+          <strong>{t('Adresses Uber à rapprocher', 'Uber addresses to match')}</strong>
+          <ul>{unresolved.map((store) => <li key={store.storeId}>{store.name} · {store.address}</li>)}</ul>
+        </Banner>
+      )}
+
       {misplaced.length > 0 && (
         <Banner tone="warn" className="mb-5">
-          <strong>{t(`${countFr(misplaced.length, 'magasin Uber relié', 'magasins Uber reliés')} à la mauvaise cuisine`, `${countEn(misplaced.length, 'Uber store')} linked to the wrong kitchen`)}</strong> — {t('Uber les place dans une autre cuisine (même quand leur nom Uber dit « Hochelaga »).', 'Uber puts them in another kitchen (even when their Uber name says “Hochelaga”).')}
+          <strong>{t(`Cuisine à vérifier pour ${countFr(misplaced.length, 'magasin Uber', 'magasins Uber')}`, `Check the kitchen for ${countEn(misplaced.length, 'Uber store')}`)}</strong>
           <ul className="mt-2 space-y-1.5">{misplaced.map((k) => (
             <li key={k.storeId} className="flex flex-wrap items-center gap-2">
               <span className="font-semibold text-ink">{k.name}</span><span className="font-mono text-micro text-ink-3">{k.storeId}</span>
-              <span>{shortLoc(locName(k.mapped?.locationCode))} → <strong>{shortLoc(locName(k.expectedLocation))}</strong></span>
-              <Button size="sm" variant="outline" disabled={!stores?.some((s) => s.id === k.mapped?.id)} onClick={() => moveKnown(k)}>{t('Déplacer', 'Move')}</Button>
+              <span>{t('Cuisine actuelle', 'Mapped kitchen')} · {shortLoc(locName(k.mapped?.locationCode))}</span>
+              <span>{k.confirmedByPlatform ? t('Selon l’adresse Uber', 'From the Uber address') : t('Selon le registre historique', 'From the historical register')} · <strong>{shortLoc(locName(k.expectedLocation))}</strong></span>
+              <Button size="sm" variant="outline" disabled={!stores?.some((s) => s.id === k.mapped?.id)} onClick={() => moveKnown(k)}>{k.confirmedByPlatform ? t('Déplacer', 'Move') : t('Vérifier la liaison', 'Review mapping')}</Button>
             </li>
           ))}</ul>
         </Banner>
@@ -262,7 +286,7 @@ export function MappingView() {
               const upd = (patch: Partial<Known & { brandName: string; locationCode: string }>) => setKnown((all) => all.map((x) => (x.storeId === k.storeId ? { ...x, ...patch } : x)));
               return (
                 <Tr key={k.storeId}>
-                  <Td primary><div className="font-semibold">{k.name}</div><div className="font-mono text-micro text-ink-3">{k.storeId}</div>{k.address ? <div className="text-small text-go-2">✓ {k.address}</div> : <div className="text-small text-ink-3">{t('adresse confirmée par Uber quand les clés seront en place', 'address confirmed by Uber once the keys are in')}</div>}</Td>
+                  <Td primary><div className="font-semibold">{k.name}</div><div className="font-mono text-micro text-ink-3">{k.storeId}</div>{k.address ? <div className={k.confirmedByPlatform ? "text-small text-go-2" : "text-small text-ink-3"}>{k.confirmedByPlatform ? "✓ " : ""}{k.address}{!k.confirmedByPlatform && t(' · cuisine à vérifier', ' · verify kitchen')}</div> : <div className="text-small text-ink-3">{t('Adresse Uber à vérifier', 'Uber address awaiting verification')}</div>}</Td>
                   <Td label={t('Marque', 'Brand')}><Select selectSize="sm" aria-label={t(`Marque de ${k.name}`, `${k.name} brand`)} value={k.brandName} onChange={(e) => upd({ brandName: e.target.value })}><option value="">—</option>{brands.map((b) => <option key={b}>{b}</option>)}</Select></Td>
                   <Td label={t('Cuisine', 'Kitchen')}><Select selectSize="sm" aria-label={t(`Cuisine de ${k.name}`, `${k.name} kitchen`)} value={k.locationCode} onChange={(e) => upd({ locationCode: e.target.value })}><option value="">{t('— choisir —', '— choose —')}</option>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)}</option>)}</Select></Td>
                   <Td align="right"><Button size="sm" variant="outline" loading={busy === `known-${k.storeId}`} disabled={!k.brandName || !k.locationCode} onClick={() => linkKnown(k)}>{t('Relier', 'Link')}</Button></Td>
@@ -283,8 +307,8 @@ export function MappingView() {
           <div className="mx-5 mb-4 rounded-lg border border-line bg-raised">
             {discovered.map((d) => (
               <div key={d.id} className="flex items-center gap-3 border-b border-line px-4 py-2 last:border-0">
-                <div className="min-w-0 flex-1"><div className="text-body font-semibold">{d.name}</div><div className="truncate font-mono text-small text-ink-3">{d.id}</div></div>
-                <Button size="sm" variant="outline" onClick={() => setForm({ draftId: formDraftId('store-link', `uber-${d.id}`), initial: { ...blank(), channel: 'uber_eats', channelStoreId: d.id } })}>{t('Utiliser', 'Use')}</Button>
+                <div className="min-w-0 flex-1"><div className="text-body font-semibold">{d.name}</div><div className="truncate font-mono text-small text-ink-3">{d.id}</div>{d.address && <div className="text-small text-ink-3">{d.address}</div>}</div>
+                <Button size="sm" variant="outline" disabled={!stores} onClick={() => openDiscoveredStore(d.id)}>{t('Utiliser', 'Use')}</Button>
               </div>
             ))}
           </div>
@@ -401,8 +425,8 @@ function StoreLinkForm({ draftId, initial, sourceLocation, lock, onClose, onSave
         <Field label={t('Plateforme', 'Platform')}><Select value={form.channel} onChange={(e) => setForm({ ...form, channel: e.target.value })} disabled={Boolean(form.id)}>{[['uber_eats', 'Uber Eats'], ['doordash', 'DoorDash'], ['skip', 'SkipTheDishes'], ['tgtg', 'Too Good To Go']].map(([k, l]) => <option key={k} value={k}>{l}</option>)}</Select></Field>
         <Field label={t('Identifiant du magasin', 'Store id')} hint={ID_HINT[form.channel]}><Input value={form.channelStoreId} onChange={(e) => setForm({ ...form, channelStoreId: e.target.value })} className="font-mono" /></Field>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label={t('Marque', 'Brand')}><Select value={form.brandName} onChange={(e) => setForm({ ...form, brandName: e.target.value })}>{brands.map((b) => <option key={b}>{b}</option>)}</Select></Field>
-          <Field label={t('Cuisine', 'Kitchen')}><Select value={form.locationCode} onChange={(e) => changeKitchen(e.target.value)}>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)}</option>)}</Select></Field>
+          <Field label={t('Marque', 'Brand')}><Select value={form.brandName} onChange={(e) => setForm({ ...form, brandName: e.target.value })}><option value="">{t('— choisir —', '— choose —')}</option>{brands.map((b) => <option key={b}>{b}</option>)}</Select></Field>
+          <Field label={t('Cuisine', 'Kitchen')}><Select value={form.locationCode} onChange={(e) => changeKitchen(e.target.value)}><option value="">{t('— choisir —', '— choose —')}</option>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)}</option>)}</Select></Field>
         </div>
         <Field label={movingUber ? t('Marchand Clover de destination (requis)', 'Destination Clover merchant (required)') : t('Marchand Clover (optionnel)', 'Clover merchant (optional)')}
           hint={movingUber ? t('Vérifiez la caisse de cette cuisine dans le tableau de bord Clover et saisissez son identifiant marchand.', 'Check this kitchen’s register in the Clover dashboard and enter its merchant ID.') : t('Vide = la caisse Clover par défaut. Les ruptures venues de Clover suivent ce marchand ; une cuisine n’en reçoit que si tous ses magasins suivent le même marchand. Sinon le code de lettres et de chiffres dans l’adresse du tableau de bord Clover (clover.com/home/m/…), pas le numéro de marchand du terminal de paiement.', 'Empty = the default Clover register. 86s coming from Clover follow this merchant; a location only gets them when all its stores follow the same merchant. Otherwise the code of letters and digits in the Clover dashboard address (clover.com/home/m/…), not the payment terminal’s merchant number.')}>

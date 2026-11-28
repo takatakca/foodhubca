@@ -86,19 +86,23 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
     const next = menuLockOf({ channel, channelStoreId, meta });
     if (!next.locked || next.source === 'store') return fail(`This store's menu stays locked: ${standing.reason}`, 409);
   }
-  const store = await repo.upsertStore({
-    id: existing?.id,
+  const mapping = {
     channel,
     channelStoreId,
     brandName,
     locationCode,
-    cloverMerchantId: b.cloverMerchantId ? String(b.cloverMerchantId).trim() : existing?.cloverMerchantId ?? null,
+    // The editor sends an empty string for the default register. Older partial updates omit the field.
+    cloverMerchantId: b.cloverMerchantId == null ? existing?.cloverMerchantId ?? null : String(b.cloverMerchantId).trim() || null,
     autoAccept: b.autoAccept === undefined ? existing?.autoAccept ?? true : Boolean(b.autoAccept),
     online: existing?.online ?? true,
     pausedUntil: existing?.pausedUntil ?? null,
     lastStatusSource: existing?.lastStatusSource ?? null,
     meta,
-  });
+  };
+  const store = existing
+    ? await repo.updateStore(existing.id, mapping, existing)
+    : await repo.upsertStore(mapping);
+  if (!store) return fail('This store mapping changed while saving. Reload it and review the destination register.', 409);
   const touchChanged = typeof b.doNotTouch === 'boolean' && b.doNotTouch !== (existing?.meta?.doNotTouch === true);
   await logActivity({ actor: actor.name, source: actor.source, kind: 'settings', action: existing ? 'store_mapping_updated' : 'store_mapped', status: 'success', channel: store.channel, brandName: store.brandName, locationCode: store.locationCode, storeId: store.id,
     summary: `${existing ? 'Updated' : 'Mapped'} ${store.channel} store ${store.channelStoreId} → ${store.brandName} · ${store.locationCode}${menuLockOf(store).locked ? ' (menu locked — never changed by Food Hub)' : ''}${touchChanged ? (b.doNotTouch ? ' — marked “Do not touch” (no menu or 86 sent)' : ' — “Do not touch” removed') : ''}` });

@@ -4,6 +4,8 @@ import rawUber from '../../data/actual/platform-stores-uber.json';
 import { fetchUberStoreDetails, uberEatsAdapter } from './adapters/uber-eats';
 import { suggestMapping } from './adapters/uber-provision';
 import { inScope, type AuthUser } from './auth';
+import { kitchenAtAddress } from './brand-match';
+import { getCatalog } from './catalog';
 import { getRepo } from './repo';
 
 export interface KnownStore {
@@ -13,10 +15,10 @@ export interface KnownStore {
   address: string | null;
   suggestedBrand: string | null;
   suggestedLocation: string | null;
-  /** Read from Uber (address confirmed) or only from the name the owner gave. */
+  /** The current Uber address yielded the suggested kitchen. */
   confirmedByPlatform: boolean;
   mapped: { id: string; brandName: string; locationCode: string } | null;
-  /** The store's kitchen: Uber's live address when it matches a location, else the kitchen recorded in data/actual. */
+  /** The store's kitchen: Matching live address, or the active recorded kitchen when Uber supplied no address. */
   expectedLocation: string | null;
   /** Mapped to another location than its kitchen (e.g. the Saint-Léonard stores Uber names "(Hochelaga)" put on NDG). */
   locationMismatch: boolean;
@@ -38,21 +40,22 @@ export function uberStoreInScope(actor: AuthUser, storeId: string, mappedLocatio
 }
 
 export async function knownStores(): Promise<KnownStore[]> {
-  const mapped = new Map((await getRepo().listStores('uber_eats')).map((s) => [s.channelStoreId, s]));
+  const [rows, catalog] = await Promise.all([getRepo().listStores('uber_eats'), getCatalog({ strict: true })]);
+  const mapped = new Map(rows.map((store) => [store.channelStoreId, store]));
+  const locations = catalog.locations.filter((place) => place.active);
   const live = uberEatsAdapter.readiness().configured;
   return Promise.all((rawUber.stores as Array<{ store_id: string; uber_name: string }>).map(async (k) => {
     const details = live ? await fetchUberStoreDetails(k.store_id) : null;
     const name = details?.ok && details.name ? details.name : k.uber_name;
-    const address = details?.ok ? details.address ?? null : null;
+    const address = details?.ok ? details.address?.trim() || null : null;
     const s = suggestMapping(name, address ?? '');
-    // Uber's live address wins; without it, the recorded kitchen — never a guess from the name, since Uber calls the
-    // Saint-Léonard stores "(Hochelaga)".
-    const fromAddress = address ? suggestMapping('', address).suggestedLocation : undefined;
-    const expectedLocation = fromAddress ?? KNOWN_UBER_KITCHENS.get(k.store_id) ?? null;
+    const fromAddress = kitchenAtAddress(address ?? undefined, locations);
+    const recorded = KNOWN_UBER_KITCHENS.get(k.store_id);
+    const expectedLocation = address ? fromAddress ?? null : locations.find((place) => place.code === recorded)?.code ?? null;
     const m = mapped.get(k.store_id);
     return {
       channel: 'uber_eats' as const, storeId: k.store_id, name, address,
-      suggestedBrand: s.suggestedBrand ?? null, suggestedLocation: expectedLocation ?? s.suggestedLocation ?? null, confirmedByPlatform: Boolean(details?.ok),
+      suggestedBrand: s.suggestedBrand ?? null, suggestedLocation: expectedLocation, confirmedByPlatform: Boolean(fromAddress),
       mapped: m ? { id: m.id, brandName: m.brandName, locationCode: m.locationCode } : null,
       expectedLocation, locationMismatch: Boolean(m && expectedLocation && m.locationCode !== expectedLocation),
     };

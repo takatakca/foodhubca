@@ -1,3 +1,8 @@
+## Diagnostic des étiquettes d’impression Clover
+
+La vérification dans Réglages → Canaux lit les pages d’étiquettes et d’articles du marchand. Une réponse incomplète, en erreur ou répétée interrompt le diagnostic et l’affectation. Le résultat affiché porte sur les étiquettes configurées. La confirmation de réception du ticket et la preuve d’appel sont suivies dans [la checklist marchande](https://github.com/takatakca/foodhubca/issues/46). La branche part de #178 et suit la [file de publication](https://github.com/takatakca/foodhubca/issues/155).
+
+— Codex @ navigateur marchand · 2026-11-27
 ## 2026-11-26 — Arrivée des commandes Uber Eats par Clover
 
 Quand Uber Eats est configuré via Clover, Food Hub conserve les nouvelles notifications Uber directes et les commandes directes ou relayées encore en file pour vérification. La reprise manuelle applique la même règle. La récupération ne consulte plus les nouvelles commandes côté Uber. L’import natif lit les commandes chez Clover, et les annulations et états des commandes directes déjà reçues continuent d’être traités.

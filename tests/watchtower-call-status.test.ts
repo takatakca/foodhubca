@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET } from '../app/api/foodhub/messages/call-status/route';
+import { incidentStepText } from '../components/live/words';
 import { hashPassword } from '../lib/foodhub/auth';
 import { runDry, type DryRun } from '../lib/foodhub/dry-run';
 import { listOutbox, OUTBOX, placeCall, type OutboxEntry } from '../lib/foodhub/notify';
@@ -57,6 +58,63 @@ describe('Watchtower call confirmation', () => {
     fetchMock.mockResolvedValueOnce(Response.json({ sid: SID, status: 'no-answer' }));
     expect(await (await request(`?id=${entry.id}`)).json()).toEqual({ ok: true, status: 'no-answer' });
     expect(fetchMock.mock.calls.map(([, init]) => init?.method)).toEqual(['POST', 'GET']);
+  });
+
+  it.each(['before commit', 'after commit'] as const)('keeps one verifiable receipt when the outbox write fails %s', async (failure) => {
+    const repo = getRepo();
+    const put = repo.putDocs.bind(repo);
+    const ids: string[] = [];
+    const write = vi.spyOn(repo, 'putDocs').mockImplementation(async (collection, docs) => {
+      if (collection !== OUTBOX) return put(collection, docs);
+      ids.push(docs[0].id);
+      if (ids.length === 1) {
+        if (failure === 'after commit') await put(collection, docs);
+        throw new Error('Synthetic lost outbox write response');
+      }
+      return put(collection, docs);
+    });
+    try {
+      fetchMock.mockResolvedValueOnce(Response.json({ sid: SID, status: 'queued' }, { status: 201 }));
+      expect(await alertCall()).toMatchObject({ ok: true, ref: SID });
+      const entries = await listOutbox();
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({ id: ids[0], ref: SID, to: '+1••••••0124' });
+      expect(ids).toEqual([entries[0].id, entries[0].id]);
+      fetchMock.mockResolvedValueOnce(Response.json({ sid: SID, status: 'no-answer' }));
+      expect(await (await request(`?id=${entries[0].id}`)).json()).toEqual({ ok: true, status: 'no-answer' });
+      expect(fetchMock.mock.calls.map(([, init]) => init?.method)).toEqual(['POST', 'GET']);
+    } finally {
+      write.mockRestore();
+    }
+  });
+
+  it('keeps the provider acceptance honest if neither outbox write confirms the receipt', async () => {
+    const repo = getRepo();
+    const put = repo.putDocs.bind(repo);
+    const ids: string[] = [];
+    const write = vi.spyOn(repo, 'putDocs').mockImplementation(async (collection, docs) => {
+      if (collection !== OUTBOX) return put(collection, docs);
+      ids.push(docs[0].id);
+      throw new Error('Synthetic unavailable outbox');
+    });
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      fetchMock.mockResolvedValueOnce(Response.json({ sid: SID, status: 'queued' }, { status: 201 }));
+      const result = await alertCall();
+      expect(result).toMatchObject({ ok: true, ref: SID });
+      expect(result).not.toHaveProperty('uncertain');
+      expect(incidentStepText('fr', result.message)).toBe('Demande d’appel acceptée. Enregistrement du reçu non confirmé dans le journal des messages.');
+      expect(incidentStepText('en', result.message)).toBe('Call request accepted. Receipt storage in the message log is unconfirmed.');
+      expect(JSON.stringify(result)).not.toContain('+15145550124');
+      expect(ids).toEqual([ids[0], ids[0]]);
+      expect(await listOutbox()).toEqual([]);
+      expect((await request(`?id=${ids[0]}`)).status).toBe(404);
+      expect(fetchMock.mock.calls.map(([, init]) => init?.method)).toEqual(['POST']);
+      expect(errorLog).toHaveBeenCalledTimes(1);
+    } finally {
+      errorLog.mockRestore();
+      write.mockRestore();
+    }
   });
 
   it.each([

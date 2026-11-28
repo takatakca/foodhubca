@@ -68,6 +68,8 @@ export interface FoodHubRepo {
   insertDocIfAbsent<T>(collection: string, doc: Doc<T>): Promise<boolean>;
   /** Replace only the requested revision. An absent revision matches historical documents. */
   replaceDocIfRevision<T extends { revision?: string }>(collection: string, doc: Doc<T>, expected?: string): Promise<boolean>;
+  /** Delete the captured revision, comparing its key and creation time for historical documents. */
+  deleteDocIfRevision<T extends { revision?: string }>(collection: string, expected: Doc<T>): Promise<boolean>;
   listDocs<T>(collection: string, filter?: DocFilter): Promise<Doc<T>[]>;
   getDoc<T>(collection: string, id: string): Promise<Doc<T> | null>;
   deleteDocs(collection: string, ids: string[]): Promise<void>;
@@ -240,6 +242,15 @@ const memoryRepo: FoodHubRepo = {
     if (!current || (current.data.revision ?? undefined) !== expected) return false;
     await memoryRepo.putDocs(collection, [doc]);
     return true;
+  },
+  async deleteDocIfRevision(collection, expected) {
+    const docs = memState().docs?.get(collection);
+    if (!docs) return false;
+    const current = docs.get(expected.id);
+    const revision = expected.data.revision ?? undefined;
+    if (!current || (current.data.revision ?? undefined) !== revision) return false;
+    if (revision === undefined && ((current.key ?? null) !== (expected.key ?? null) || (current.at ?? null) !== (expected.at ?? null))) return false;
+    return docs.delete(expected.id);
   },
   async listDocs<T>(collection: string, filter: DocFilter = {}) {
     const col = memState().docs?.get(collection);
@@ -591,6 +602,18 @@ function supabaseRepo(): FoodHubRepo {
       let update = db.from('fh_docs').update({ key: doc.key ?? null, at: doc.at ?? null, data: doc.data, updated_at: nowIso() }).eq('collection', collection).eq('id', doc.id);
       update = expected === undefined ? update.is('data->>revision', null) : update.eq('data->>revision', expected);
       return Boolean(must(await update.select('id').maybeSingle()));
+    },
+    async deleteDocIfRevision(collection, expected) {
+      let remove = db.from('fh_docs').delete().eq('collection', collection).eq('id', expected.id);
+      const revision = expected.data.revision ?? undefined;
+      if (revision === undefined) {
+        remove = remove.is('data->>revision', null);
+        remove = expected.key == null ? remove.is('key', null) : remove.eq('key', expected.key);
+        remove = expected.at == null ? remove.is('at', null) : remove.eq('at', expected.at);
+      } else {
+        remove = remove.eq('data->>revision', revision);
+      }
+      return Boolean(must(await remove.select('id').maybeSingle()));
     },
     async listDocs<T>(collection: string, filter: DocFilter = {}) {
       const limit = filter.limit ?? 100_000;

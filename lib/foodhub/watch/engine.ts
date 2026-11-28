@@ -107,8 +107,15 @@ function visibleIncident({ successorDetection: _reserved, ...incident }: Inciden
   return incident;
 }
 
-export async function listIncidents(filter: { status?: IncidentStatus[]; since?: string; limit?: number; locationCodes?: string[] } = {}): Promise<Incident[]> {
-  let list = (await getRepo().listDocs<Incident>(INCIDENTS, { since: filter.since, limit: filter.limit ?? 500 })).map((d) => d.data);
+export async function listIncidents(filter: { id?: string; status?: IncidentStatus[]; since?: string; limit?: number; locationCodes?: string[] } = {}): Promise<Incident[]> {
+  const repo = getRepo();
+  let list: Incident[];
+  if (filter.id) {
+    const doc = await repo.getDoc<Incident>(INCIDENTS, filter.id);
+    list = doc && doc.data.id === filter.id && (!filter.since || Date.parse(doc.at ?? '') >= Date.parse(filter.since)) ? [doc.data] : [];
+  } else {
+    list = (await repo.listDocs<Incident>(INCIDENTS, { since: filter.since, limit: filter.limit ?? 500 })).map((d) => d.data);
+  }
   if (filter.status?.length) list = list.filter((i) => filter.status!.includes(i.status));
   if (filter.locationCodes?.length) list = list.filter((i) => !i.locationCode || filter.locationCodes!.includes(i.locationCode));
   return list.map(visibleIncident).sort((a, b) => SEV[b.severity] - SEV[a.severity] || b.openedAt.localeCompare(a.openedAt));
@@ -436,11 +443,11 @@ async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
 
 // ---------- escalation ----------
 
-function recipients(users: FoodHubUser[], i: Incident, roles: Array<FoodHubUser['role']>, kind: 'sms' | 'call') {
+function recipients(users: FoodHubUser[], i: Incident, roles: Array<FoodHubUser['role']>, kind?: 'sms' | 'call') {
   return users.filter((u) => u.active && u.phone && roles.includes(u.role)
     && (!i.locationCode || !u.locations?.length || u.locations.includes(i.locationCode))
     && u.prefs?.onDuty !== false
-    && (kind === 'sms' ? u.prefs?.alertSms !== false : u.prefs?.alertCall !== false));
+    && (!kind || (kind === 'sms' ? u.prefs?.alertSms !== false : u.prefs?.alertCall !== false)));
 }
 
 function smsText(i: Incident, lang: 'fr' | 'en') {
@@ -645,11 +652,14 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
       if (permission === 'defer') return changed;
       advance(3, permission);
       if (permission !== 'dispatch') return changed;
-      for (const u of recipients(users, i, ['owner'], 'sms')) {
-        if (!(await mayNotify())) return changed;
-        const r = await sendSms({ to: u.phone!, body: `${smsText(i, u.prefs?.lang ?? 'fr')}\n(${Math.round(elapsed)} min sans réponse / no answer)` }, { purpose: 'alert_owner', incidentId: i.id });
-        step('owner', `${u.name} (${maskContact(u.phone!)})`, r.ok, r.message);
-        if (u.prefs?.alertCall !== false && !(await call(u.phone!, u.name, u.prefs?.lang ?? 'fr', 'alert_owner'))) return changed;
+      for (const u of recipients(users, i, ['owner'])) {
+        const lang = u.prefs?.lang ?? 'fr';
+        if (u.prefs?.alertSms !== false) {
+          if (!(await mayNotify())) return changed;
+          const r = await sendSms({ to: u.phone!, body: `${smsText(i, lang)}\n(${Math.round(elapsed)} min sans réponse / no answer)` }, { purpose: 'alert_owner', incidentId: i.id });
+          step('owner', `${u.name} (${maskContact(u.phone!)})`, r.ok, r.message);
+        }
+        if (u.prefs?.alertCall !== false && !(await call(u.phone!, u.name, lang, 'alert_owner'))) return changed;
       }
       for (const p of s.supportPhones) {
         if (!(await call(p, 'support', 'fr', 'alert_support'))) return changed;

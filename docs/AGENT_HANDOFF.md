@@ -1,3 +1,9 @@
+## 2026-11-28 — Préparation de #188 sur la tête de #184
+
+Le rapprochement local part de `d46b3d3` après l’intégration de #183 et #194. Les préférences de relève, les reçus du fournisseur et les protections du relais et des tablettes de #190 sont conservés. Le rejeu PostgreSQL vérifie la caisse Clover et les appels concurrents. Suivre la publication exacte de #184 avant la reprise de #188. La réception sur le téléphone marchand reste suivie dans [#46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-28
+
 ## 2026-11-28 — Préparation de #184 après la fusion de #183
 
 Le rapprochement sur `8c2f858` conserve les protections Watchtower, la checklist de mise en service et le rejeu PostgreSQL. Le scénario de reprise vérifie aussi que la caisse Clover confirmée reste enregistrée avec la commande récupérée. La preuve sur le téléphone marchand reste suivie dans [#46](https://github.com/takatakca/foodhubca/issues/46).
@@ -42,6 +48,38 @@ La vérification dans Réglages → Canaux lit les pages d’étiquettes et d’
 Quand Uber Eats est configuré via Clover, Food Hub conserve les nouvelles notifications Uber directes et les commandes directes ou relayées encore en file pour vérification. La reprise manuelle applique la même règle. La récupération ne consulte plus les nouvelles commandes côté Uber. L’import natif lit les commandes chez Clover, et les annulations et états des commandes directes déjà reçues continuent d’être traités.
 
 Les essais signés couvrent les notifications ordinaires et planifiées, les entrées déjà normalisées, la reprise, l’import natif Clover et les annulations antérieures. Les preuves de réception réelle restent suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+## 2026-11-26 — Compteurs de la tablette après un déplacement
+
+Le signal natif vérifie de nouveau la cuisine et le jumelage juste avant de renvoyer les compteurs. Une tablette déplacée relit sa nouvelle affectation au signal suivant. Une tablette révoquée ou absente reçoit une demande de reconnexion. Les réponses d’erreur ne contiennent ni compteur ni identifiant. Un signal normal conserve ses compteurs courants.
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — Signal natif concurrent d’un déplacement ou d’une révocation
+
+Une révision interne empêche un signal de tablette déjà en cours de restaurer une ancienne cuisine ou un jumelage révoqué. Un signal qui croise un déplacement demande une nouvelle lecture. Un signal dont le jumelage est révoqué est refusé. Le signal signé suivant peut lire la nouvelle cuisine. Les anciennes fiches de tablette continuent d’être utilisables et la révision reste interne.
+
+Les essais signés vérifient les courses avec les actions d’administration et le périmètre des compteurs. Les preuves sur les postes réels restent suivies dans [la checklist #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — Signaux concurrents du relais et lien d’alerte
+
+Les écritures concurrentes d’un écran vérifient la révision enregistrée. Un signal qui a déjà lu l’ancienne affectation et la voit changer pendant l’écriture est écarté. Un nouveau signal valide remet l’instruction en attente une seule fois et alimente la relève de la cuisine actuelle. L’ancien format d’écran reste compatible. Les scénarios simulés utilisent les requêtes d’administration et de relais ainsi que le passage Watchtower signé.
+
+Lors d’un signal groupé, si la sauvegarde d’un écran reste en conflit, ses instructions attendent le passage suivant. Le relais reçoit les instructions déjà récupérées pour les autres écrans. La suppression vérifie la portée de la cuisine et la version de la fiche cible afin de protéger un écran réaffecté ou recréé.
+
+Si une erreur de stockage survient après le retrait confirmé d’une instruction pour un autre écran, la réponse remet les instructions déjà confirmées et indique qu’elle est partielle. Le relais renverra ses prochains signaux selon son rythme habituel. Une écriture dont le résultat est inconnu n’entraîne pas de seconde remise. Les essais simulent une lecture interrompue et une réponse perdue après écriture PostgreSQL.
+
+Le lien d’alerte recherche l’incident autorisé directement par son identifiant dans la fenêtre de recherche prévue. Quand l’incident est déjà résolu, le lien ouvre l’onglet Réglées. Les vérifications d’accès, les filtres et les choix d’onglet restent appliqués. La preuve sur un écran et un téléphone réels est suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — Préférences du propriétaire et preuve d’appel
+
+Au palier urgent, le profil du propriétaire choisit l’appel et le SMS indépendamment. Les personnes en garde et autorisées pour la cuisine gardent leur périmètre. La réservation du palier et l’acquittement continuent de limiter les envois.
+
+Un appel accepté peut perdre la confirmation d’écriture de son reçu. La relève retente l’écriture du même reçu une fois avec le même identifiant. Si les deux écritures restent non confirmées, l’historique signale que la demande a été acceptée et que le reçu peut manquer. Une vérification d’état ne crée aucun nouvel appel. Les appels effectivement reçus restent suivis dans [la checklist marchande](https://github.com/takatakca/foodhubca/issues/46).
 
 — signé : Codex @ cloud · 2026-11-26
 

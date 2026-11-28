@@ -57,13 +57,22 @@ export function maskEmail(e: string): string {
 export function maskPhone(p: string): string { return p.length <= 6 ? p : `${p.slice(0, 2)}${'•'.repeat(p.length - 6)}${p.slice(-4)}`; }
 export function maskContact(c: string): string { return c.includes('@') ? maskEmail(c) : maskPhone(c); }
 
-async function record(e: Omit<OutboxEntry, 'id' | 'at'>): Promise<void> {
+async function record(e: Omit<OutboxEntry, 'id' | 'at'>): Promise<'call-receipt-unconfirmed' | void> {
+  const id = crypto.randomUUID();
+  const at = new Date().toISOString();
+  const data: OutboxEntry = { ...e, id, at };
+  const hasWatchtowerReceipt = watchtowerCallSid(data) !== null;
+  const doc = { id, at, key: e.incidentId ?? e.orderId ?? e.purpose, data };
+  const save = async () => getRepo().putDocs<OutboxEntry>(OUTBOX, [doc]);
   try {
-    const id = crypto.randomUUID();
-    const at = new Date().toISOString();
-    await getRepo().putDocs<OutboxEntry>(OUTBOX, [{ id, at, key: e.incidentId ?? e.orderId ?? e.purpose, data: { ...e, id, at } }]);
+    await save().catch((error) => {
+      if (!hasWatchtowerReceipt) throw error;
+      // Retrying this upsert preserves the same row even if the original write committed.
+      return save();
+    });
   } catch (err) {
     console.error('[foodhub] outbox write failed', err);
+    if (hasWatchtowerReceipt) return 'call-receipt-unconfirmed';
   }
 }
 
@@ -175,7 +184,10 @@ export async function placeCall(input: { to: string; say: string; lang?: 'fr' | 
       r = networkFailure('call', e);
     }
   }
-  await record({ channel: 'call', to: to ? maskPhone(to) : '?', purpose: meta.purpose, ok: r.ok, skipped: r.skipped, uncertain: r.uncertain, message: r.message, ref: r.ref, incidentId: meta.incidentId, orderId: meta.orderId, by: meta.by, preview: input.say.slice(0, 160) });
+  const outcome = await record({ channel: 'call', to: to ? maskPhone(to) : '?', purpose: meta.purpose, ok: r.ok, skipped: r.skipped, uncertain: r.uncertain, message: r.message, ref: r.ref, incidentId: meta.incidentId, orderId: meta.orderId, by: meta.by, preview: input.say.slice(0, 160) });
+  if (outcome === 'call-receipt-unconfirmed') {
+    return { ...r, message: 'Demande d’appel acceptée. Enregistrement du reçu non confirmé dans le journal des messages. / Call request accepted. Receipt storage in the message log is unconfirmed.' };
+  }
   return r;
 }
 

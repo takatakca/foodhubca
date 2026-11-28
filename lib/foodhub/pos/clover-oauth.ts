@@ -248,7 +248,7 @@ export async function patchCloverConnection(merchantId: string, patch: Partial<C
 
 const isoFromUnix = (s?: number | null) => (typeof s === 'number' && s > 0 ? new Date(s * 1000).toISOString() : null);
 
-function info(c: CloverConnection, nowS = Math.floor(Date.now() / 1000)): CloverConnectionInfo {
+function info(c: CloverConnection, canRefresh: boolean, nowS: number): CloverConnectionInfo {
   const refreshDead = Boolean(c.refreshTokenExpiration && c.refreshTokenExpiration <= nowS);
   const accessDead = Boolean(c.accessTokenExpiration && c.accessTokenExpiration <= nowS);
   return {
@@ -258,7 +258,7 @@ function info(c: CloverConnection, nowS = Math.floor(Date.now() / 1000)): Clover
     refreshedAt: c.refreshedAt ?? null,
     accessExpiresAt: isoFromUnix(c.accessTokenExpiration),
     refreshExpiresAt: isoFromUnix(c.refreshTokenExpiration),
-    needsReconnect: accessDead && (!c.refreshToken || refreshDead),
+    needsReconnect: accessDead && (!canRefresh || !c.refreshToken || refreshDead),
     status: c.status === 'pending' ? 'pending' : 'active',
     profile: c.profile ?? null,
     billing: c.billing ?? null,
@@ -272,7 +272,9 @@ async function shownBilling(c: CloverConnection, app: CloverAppKey): Promise<Clo
 }
 
 export async function listCloverConnections(app: CloverAppKey = 'foodhub'): Promise<CloverConnectionInfo[]> {
-  const list = await Promise.all(Object.values(await readAll(app)).map(async (c) => ({ ...info(c), billing: await shownBilling(c, app) })));
+  const canRefresh = cloverAppConfigured(app);
+  const nowS = Math.floor(Date.now() / 1000);
+  const list = await Promise.all(Object.values(await readAll(app)).map(async (c) => ({ ...info(c, canRefresh, nowS), billing: await shownBilling(c, app) })));
   return list.sort((a, b) => a.merchantId.localeCompare(b.merchantId));
 }
 

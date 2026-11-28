@@ -40,7 +40,10 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
   if (!r.canSend) return fail(`Disconnecting changes your Uber store, so it needs the live switch: ${r.note}`, 409);
   let res;
   try { res = await disconnectUberStore(id, storeId); } catch (e) { return fail(e instanceof Error ? e.message : String(e), 409); }
-  const mappingConflict = Boolean(res.ok && existing && !(await saveDisconnect(repo, existing).catch(() => false)));
+  const mappingConflict = res.ok && (existing
+    ? !(await saveDisconnect(repo, existing).catch(() => false))
+    // An account-wide disconnect can begin unmapped. Never change a mapping that appeared during the request.
+    : Boolean(await repo.findStore('uber_eats', storeId).catch(() => true)));
   const reviewMessage = 'Uber accepted the disconnect. The Food Hub link could not be confirmed locally. Review the saved link in Stores → Mapping.';
   const where = existing ? `${existing.brandName} · ${existing.locationCode}` : storeId;
   await logActivity({ actor: actor.name, source: actor.source, kind: 'settings', action: 'uber_disconnect',

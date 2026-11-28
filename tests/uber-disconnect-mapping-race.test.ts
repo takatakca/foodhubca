@@ -139,6 +139,44 @@ describe('Uber disconnect while a mapping changes', () => {
     }
   });
 
+  it('reports review if a mapping first appears while the account-wide disconnect is in flight', async () => {
+    const repo = getRepo();
+    expect(await repo.findStore('uber_eats', originalId)).toBeNull();
+    const operation = suspendedDelete();
+    try {
+      await operation.ready;
+      const newlyMapped = await mappedStore();
+      operation.release();
+      const response = await operation.result;
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ ok: true, mappingConflict: true });
+      expect(await repo.getStore(newlyMapped.id)).toEqual(newlyMapped);
+      expect(operation.fetch).toHaveBeenCalledTimes(1);
+    } finally {
+      operation.release();
+    }
+  });
+
+  it('reports review when an account-wide disconnect cannot check for a new mapping', async () => {
+    const repo = getRepo();
+    const operation = suspendedDelete();
+    try {
+      await operation.ready;
+      const reread = vi.spyOn(repo, 'findStore').mockRejectedValueOnce(new Error('Fixture storage read failed'));
+      try {
+        operation.release();
+        const response = await operation.result;
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject({ ok: true, mappingConflict: true });
+        expect(operation.fetch).toHaveBeenCalledTimes(1);
+      } finally {
+        reread.mockRestore();
+      }
+    } finally {
+      operation.release();
+    }
+  });
+
   it('refuses a scoped manager with no mapped kitchen while preserving the account-wide path', async () => {
     await getRepo().saveUser({
       username: 'fixture-manager', name: 'Fixture manager', active: true, role: 'manager', locations: ['NDG_MAIN'],

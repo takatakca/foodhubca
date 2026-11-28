@@ -17,6 +17,8 @@ export interface Device {
   enrolledBy: string;
   enrolledAt: string;
   lastSeenAt?: string | null;
+  /** Provenance of the most recent signed heartbeat, separate from enrollment. */
+  lastHeartbeat?: { at: string; locationCode: string };
   /** Last heartbeat details */
   soundOn?: boolean | null;
   visible?: boolean | null;
@@ -95,8 +97,10 @@ export function forgetDeviceCookie(): string {
 export async function heartbeat(d: Device, info: { soundOn?: unknown; visible?: unknown; battery?: unknown; charging?: unknown; screen?: unknown; signedIn?: string | null }, userAgent?: string | null): Promise<Device> {
   const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : null);
   const bool = (v: unknown) => (typeof v === 'boolean' ? v : null);
+  const at = new Date().toISOString();
   const next: Device = {
-    ...d, lastSeenAt: new Date().toISOString(), soundOn: bool(info.soundOn), visible: bool(info.visible), battery: num(info.battery), charging: bool(info.charging),
+    ...d, lastSeenAt: at, lastHeartbeat: { at, locationCode: d.locationCode },
+    soundOn: bool(info.soundOn), visible: bool(info.visible), battery: num(info.battery), charging: bool(info.charging),
     screen: typeof info.screen === 'string' ? info.screen.slice(0, 40) : d.screen ?? null, signedIn: info.signedIn ?? null, userAgent: userAgent?.slice(0, 160) ?? d.userAgent ?? null,
   };
   await save(next);

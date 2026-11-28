@@ -20,7 +20,7 @@ import { useScopeLabel } from '@/components/shell/scope-switcher';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { api, ApiError, ago, timeOf } from '@/lib/ui/api';
 import { useI18n, useProduct } from '@/lib/i18n/client';
-import type { Incident } from '@/lib/foodhub/watch/types';
+import { DEVICE_OFFLINE_RESOLUTIONS, type Incident } from '@/lib/foodhub/watch/types';
 import type { OutboxEntry } from '@/lib/foodhub/notify';
 import { watchtowerCallSid, type CallStatus } from '@/lib/foodhub/notify/call-status';
 import { cn } from '@/lib/ui/cn';
@@ -67,7 +67,7 @@ export function AlertsView() {
 
       {channels && <ChannelLine channels={channels} />}
 
-      <Tabs className="mb-4" value={tab} onChange={setTab} tabs={[{ key: 'open', label: t('Ouvertes', 'Open'), count: open.length }, { key: 'resolved', label: t('Réglées (3 jours)', 'Fixed (3 days)'), count: resolved.length }, ...(can('stores:map') ? [{ key: 'messages' as const, label: t('Messages envoyés', 'Messages sent') }] : [])]} />
+      <Tabs className="mb-4" value={tab} onChange={setTab} tabs={[{ key: 'open', label: t('Ouvertes', 'Open'), count: open.length }, { key: 'resolved', label: t('Fermées (3 jours)', 'Closed (3 days)'), count: resolved.length }, ...(can('stores:map') ? [{ key: 'messages' as const, label: t('Messages envoyés', 'Messages sent') }] : [])]} />
 
       {tab !== 'messages' && filtered && (
         <div className="text-small mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-ink-3">{t(`Filtré : ${label.words}`, `Filtered: ${label.words}`)}<span aria-hidden>·</span><button type="button" onClick={seeAll} className="min-h-11 font-semibold text-brand hover:underline">{t('Voir toutes les alertes', 'See every alert')}</button></div>
@@ -76,7 +76,7 @@ export function AlertsView() {
         list === null ? <SkeletonList count={3} />
           : shown.length === 0 ? <Card>{filtered && tab === 'open'
             ? <EmptyState icon={<ShieldCheck className="size-6 text-go" />} title={t(`Aucune alerte pour ${label.words}.`, `No alert for ${label.words}.`)} action={<Button variant="outline" size="lg" onClick={seeAll}>{t('Voir toutes les alertes', 'See every alert')}</Button>} />
-            : <EmptyState icon={<ShieldCheck className="size-6 text-go" />} title={tab === 'open' ? t('Tout roule. Rien à faire.', 'All good. Nothing to do.') : t('Rien de réglé récemment', 'Nothing fixed recently')} body={tab === 'open' ? t(`${product.name} continue de surveiller.`, `${product.name} keeps watching.`) : undefined} />}</Card>
+            : <EmptyState icon={<ShieldCheck className="size-6 text-go" />} title={tab === 'open' ? t('Tout roule. Rien à faire.', 'All good. Nothing to do.') : t('Aucune alerte fermée récemment', 'No alerts closed recently')} body={tab === 'open' ? t(`${product.name} continue de surveiller.`, `${product.name} keeps watching.`) : undefined} />}</Card>
             : <div className="space-y-3">{shown.map((i, k) => <IncidentCard key={i.id} i={i} focus={focus === i.id} defaultOpen={focus ? focus === i.id : k === 0} onChanged={load} />)}</div>
       )}
 
@@ -168,6 +168,9 @@ function IncidentCard({ i, focus, defaultOpen, onChanged }: { i: Incident; focus
     i.kind === 'payout_gap' ? { href: '/money/disputes', label: t('Voir les litiges', 'See disputes') } : null,
   ].filter((l): l is { href: string; label: string } => l !== null);
   const text = lang === 'fr' ? explanation[0] : explanation[1] ?? explanation[0];
+  const tabletClosure = i.kind === 'device_offline' && i.status === 'resolved' && i.resolvedBy === 'auto'
+    ? i.steps.filter((step) => step.kind === 'resolved' && step.by === 'auto' && step.at === i.resolvedAt).at(-1)?.deviceOfflineResolution ?? 'unconfirmed'
+    : undefined;
   return (
     <Card className={cn('overflow-hidden', focus && 'ring-2 ring-brand', i.status === 'resolved' && 'opacity-75')}>
       <div className="flex">
@@ -179,7 +182,9 @@ function IncidentCard({ i, focus, defaultOpen, onChanged }: { i: Incident; focus
                 <span className="text-body font-bold text-ink">{lang === 'fr' ? i.title : i.titleEn}</span>
                 {i.status === 'acknowledged' && <Badge tone="info" icon={<Hand className="size-3" />}>{t('pris en charge par', 'on it:')} {i.ackBy}</Badge>}
                 {i.status === 'snoozed' && <Badge tone="neutral" icon={<BellOff className="size-3" />}>{t('sourdine jusqu’à', 'snoozed until')} {timeOf(i.snoozedUntil, loc)}</Badge>}
-                {i.status === 'resolved' && <Badge tone="go" icon={<CheckCheck className="size-3" />}>{i.resolvedBy === 'auto' ? t('réglé tout seul', 'fixed itself') : `${t('réglé par', 'fixed by')} ${i.resolvedBy}`}</Badge>}
+                {i.status === 'resolved' && (tabletClosure
+                  ? <Badge tone={tabletClosure === 'heartbeat-restored' ? 'go' : 'neutral'}>{t(DEVICE_OFFLINE_RESOLUTIONS[tabletClosure].label[0], DEVICE_OFFLINE_RESOLUTIONS[tabletClosure].label[1])}</Badge>
+                  : <Badge tone="go" icon={<CheckCheck className="size-3" />}>{i.resolvedBy === 'auto' ? t('réglé tout seul', 'fixed itself') : `${t('réglé par', 'fixed by')} ${i.resolvedBy}`}</Badge>)}
               </div>
               <div className="text-small mt-0.5 text-ink-3">{[lang === 'fr' ? i.detail : i.detailEn ?? i.detail, i.locationCode ? shortLoc(locName(i.locationCode)) : null, ago(i.openedAt, lang)].filter(Boolean).join(' · ')}</div>
             </div>
@@ -205,13 +210,19 @@ function IncidentCard({ i, focus, defaultOpen, onChanged }: { i: Incident; focus
                   {i.status === 'resolved' && can('orders:act') && <Button variant="ghost" className="mt-3" onClick={() => act('reopen')}>{t('Rouvrir', 'Reopen')}</Button>}
                 </div>
                 <ol className="text-small space-y-2 border-l border-line pl-4">
-                  {i.steps.slice(-10).map((s, k) => (
-                    <li key={k} className="relative">
-                      <span className={cn('absolute top-1.5 -left-[21px] size-2.5 rounded-full border-2 border-surface', s.uncertain ? 'bg-wait' : s.ok === false ? 'bg-stop' : s.kind === 'resolved' ? 'bg-go' : 'bg-ink-4')} />
-                      <span className="num text-ink-3">{timeOf(s.at, loc)}</span> <span className="font-semibold">{stepLabel(t, s.kind)}</span>{s.to ? ` → ${s.to}` : ''}{s.by ? ` · ${s.by}` : ''}
-                      {(s.uncertain || s.message) && <div className="text-ink-3">{s.uncertain ? t(...CALL_OUTCOME_UNCONFIRMED) : incidentStepText(lang, s.message ?? '')}</div>}
-                    </li>
-                  ))}
+                  {i.steps.slice(-10).map((s, k) => {
+                    const tabletResolution = i.kind === 'device_offline' && s.kind === 'resolved' && s.by === 'auto'
+                      ? s.deviceOfflineResolution ?? 'unconfirmed' : undefined;
+                    const closure = tabletResolution && DEVICE_OFFLINE_RESOLUTIONS[tabletResolution];
+                    const resolutionDot = tabletResolution && tabletResolution !== 'heartbeat-restored' ? 'bg-ink-4' : 'bg-go';
+                    return (
+                      <li key={k} className="relative">
+                        <span className={cn('absolute top-1.5 -left-[21px] size-2.5 rounded-full border-2 border-surface', s.uncertain ? 'bg-wait' : s.ok === false ? 'bg-stop' : s.kind === 'resolved' ? resolutionDot : 'bg-ink-4')} />
+                        <span className="num text-ink-3">{timeOf(s.at, loc)}</span> <span className="font-semibold">{closure ? t(closure.label[0], closure.label[1]) : stepLabel(t, s.kind)}</span>{s.to ? ` → ${s.to}` : ''}{s.by ? ` · ${s.by}` : ''}
+                        {(closure || s.uncertain || s.message) && <div className="text-ink-3">{closure ? t(closure.message[0], closure.message[1]) : s.uncertain ? t(...CALL_OUTCOME_UNCONFIRMED) : incidentStepText(lang, s.message ?? '')}</div>}
+                      </li>
+                    );
+                  })}
                 </ol>
               </div>
             </div>
@@ -246,10 +257,10 @@ function TextDialog({ i, onClose, onSent }: { i: Incident; onClose: () => void; 
   );
 }
 
-/** "2 nouvelles · 1 réglée · 3 ouvertes" after a manual check. */
+/** "2 nouvelles · 1 fermée · 3 ouvertes" after a manual check. */
 function checkSummary(t: (fr: string, en: string) => string, r: { opened: number; resolved: number; open: number }) {
   const a = plurals(r.opened, ['nouvelle'], ['new', 'new']);
-  const b = plurals(r.resolved, ['réglée'], ['fixed', 'fixed']);
+  const b = plurals(r.resolved, ['fermée'], ['closed', 'closed']);
   const c = plurals(r.open, ['ouverte'], ['open', 'open']);
   return t(`${a[0]} · ${b[0]} · ${c[0]}`, `${a[1]} · ${b[1]} · ${c[1]}`);
 }

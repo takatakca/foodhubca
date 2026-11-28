@@ -77,8 +77,9 @@ export function weekMinutes(week: WeeklyHours): number {
 
 // ---------- storage ----------
 
-export async function getHours(): Promise<HoursConfig> {
-  const stored = await getRepo().getKv<HoursConfig>(KEY).catch(() => null);
+export async function getHours(opts: { strict?: boolean } = {}): Promise<HoursConfig> {
+  const read = getRepo().getKv<HoursConfig>(KEY);
+  const stored = await (opts.strict ? read : read.catch(() => null));
   return { locations: stored?.locations ?? {}, brands: stored?.brands ?? {}, holidays: stored?.holidays ?? [], updatedAt: stored?.updatedAt };
 }
 

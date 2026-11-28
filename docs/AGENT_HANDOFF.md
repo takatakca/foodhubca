@@ -1,3 +1,11 @@
+## 2026-11-28 — Fermeture des alertes de tablette
+
+Une alerte native fermée automatiquement indique la fin des heures de surveillance, la réception d’un nouveau signal de la même tablette dans sa cuisine ou une fermeture avec retour à confirmer. La preuve de retour associe un signal signé à la cuisine enregistrée lors du signal et vérifie sa fraîcheur à la lecture des appareils. Les horaires de décision, les paliers d’appel et les conditions de fermeture restent ceux du moteur en place.
+
+Les essais isolés couvrent la fermeture à 03 h après un horaire de nuit, un signal signé plus récent et une lecture indisponible des horaires. Les trois cas conservent les preuves attendues avec zéro requête d’appel. À l’assemblage, conserver les mises à jour conditionnelles d’incident de #217 et le filtre des cuisines actives de #193.
+
+— signé Codex @ cloud · 2026-11-28
+
 ## 2026-11-26 — Paiement Clover après déplacement d’une liaison
 
 La réconciliation locale de #183 sur `86d190c` conserve les références par magasin de #178 pour la saisie, la reprise, l’import et le paiement Clover. Les 161 essais ciblés couvrent aussi le règlement et l’impression sur la caisse confirmée et le contrôle manuel d’une liaison Uber Eats. Les réponses des fournisseurs sont simulées. La CI du SHA réconcilié et la réception marchande restent à vérifier avant publication.

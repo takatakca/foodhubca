@@ -294,6 +294,71 @@ describe('missed-order check (created-orders)', () => {
     expect(await recoverMissedUberOrders()).toEqual({ recovered: 0 });
     expect(calls).toHaveLength(0);
   });
+
+  it('keeps earlier recoveries, skips an unreadable candidate, and still finds missed cancellations', async () => {
+    const repo = getRepo();
+    await repo.upsertStore(store({ autoAccept: false, meta: { uberPos: { orderManager: 'foodhub' } } }));
+    const existing = 'fixture-missed-cancel';
+    mockFetch((c) => appToken(c) ?? { status: 200, body: uberOrder(existing) });
+    const seeded = await handleUberEvent({ event_type: 'orders.notification', meta: { resource_id: existing } });
+    expect(seeded.orderId).toBeTruthy();
+
+    const now = Date.now();
+    const ids = ['fixture-missed-first', 'fixture-missed-error', 'fixture-missed-invalid', 'fixture-missed-last'];
+    const placed = new Date(now - 180_000).toISOString();
+    mockFetch((c) => {
+      const token = appToken(c);
+      if (token) return token;
+      const path = new URL(c.url).pathname;
+      if (path.endsWith('/created-orders')) return { status: 200, body: { orders: ids.map((id) => ({ id, placed_at: placed })) } };
+      if (path.endsWith('/canceled-orders')) return { status: 200, body: { orders: [{ id: existing }] } };
+      if (path.endsWith('/fixture-missed-error')) return { status: 500 };
+      if (path.endsWith('/fixture-missed-invalid')) return { status: 200, body: {} };
+      return { status: 200, body: uberOrder(path.split('/').pop()!) };
+    });
+
+    expect(await recoverMissedUberOrders(now)).toEqual({ recovered: 2, cancelled: 1, error: 'Uber order fetch failed: HTTP 500' });
+    const recovered = await Promise.all(ids.map((id) => repo.findOrder('uber_eats', id)));
+    expect(recovered.map((order) => order?.externalOrderId ?? null)).toEqual([ids[0], null, null, ids[3]]);
+    expect((await repo.findOrder('uber_eats', existing))?.status).toBe('cancelled');
+    expect(calls.filter((c) => c.url.endsWith('/fixture-missed-error'))).toHaveLength(2);
+    const entries = (await repo.listActivity({})).filter((entry) => entry.action === 'uber_order_recovered');
+    expect(entries.map((entry) => entry.orderId).sort()).toEqual([recovered[0]?.id, recovered[3]?.id].sort());
+  });
+
+  it('ends intake on a shared order token refusal and still checks cancellations with the polling token', async () => {
+    const repo = getRepo();
+    const managed = { autoAccept: false, meta: { uberPos: { orderManager: 'foodhub' } } };
+    await repo.upsertStore(store(managed));
+    await repo.upsertStore(store({ ...managed, channelStoreId: 'fixture-missed-other-store' }));
+    const existing = 'fixture-token-cancel';
+    mockFetch((c) => appToken(c) ?? { status: 200, body: uberOrder(existing) });
+    await handleUberEvent({ event_type: 'orders.notification', meta: { resource_id: existing } });
+    await invalidateUberToken('orders');
+
+    const now = Date.now();
+    const placed = new Date(now - 180_000).toISOString();
+    let listed = false;
+    mockFetch((c) => {
+      const token = appToken(c);
+      if (token) return listed ? { status: 403, body: { error: 'invalid_scope' } } : token;
+      const path = new URL(c.url).pathname;
+      if (path.endsWith('/created-orders')) {
+        listed = true;
+        return { status: 200, body: { orders: ['fixture-refused', 'fixture-untried'].map((id) => ({ id, placed_at: placed })) } };
+      }
+      if (path.endsWith('/canceled-orders')) return { status: 200, body: { orders: [{ id: existing }] } };
+      throw new Error(`Unexpected provider call ${path}`);
+    });
+
+    expect(await recoverMissedUberOrders(now)).toEqual({
+      recovered: 0, cancelled: 1, error: expect.stringContaining('Uber OAuth token refused: HTTP 403'),
+    });
+    expect(calls.filter((c) => c.url.includes('/created-orders?'))).toHaveLength(1);
+    expect(calls.filter((c) => c.url.includes('/canceled-orders?'))).toHaveLength(1);
+    expect(calls.filter((c) => c.url.includes('/v2/eats/order/'))).toEqual([]);
+    expect((await repo.findOrder('uber_eats', existing))?.status).toBe('cancelled');
+  });
 });
 
 describe('"Do not touch" and publish to all Uber stores', () => {

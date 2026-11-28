@@ -118,12 +118,6 @@ describe('Screen relay alerts without a console open', () => {
 
   const offlineScreen = { platform: 'skip' as const, kind: 'screen_down', detectedAt: 6 };
 
-  function gate() {
-    let resolve!: () => void;
-    const promise = new Promise<void>((done) => { resolve = done; });
-    return { promise, resolve };
-  }
-
   async function prepareZeroMinuteScreenCall() {
     await saveLocation({ code: KITCHEN, name: 'Test kitchen', address: '', active: true });
     await saveHours({ locations: { [KITCHEN]: allDayWeek() }, brands: {}, holidays: [] });
@@ -737,7 +731,7 @@ describe('Screen relay alerts without a console open', () => {
     try {
       expect(await runWatch({ trigger: 'timer' })).toMatchObject({ opened: 2, escalated: 2 });
       expect(conflicts).toBe(3);
-      expect(warning).toHaveBeenCalledExactlyOnceWith('[foodhub] Watchtower could not save a call result after a concurrent incident update.');
+      expect(warning).toHaveBeenCalledExactlyOnceWith('[foodhub] Watchtower could not save a dispatch result after a concurrent incident update.');
     } finally {
       replace.mockRestore();
       warning.mockRestore();
@@ -1029,8 +1023,66 @@ describe('Screen relay alerts without a console open', () => {
     expect(opened).toHaveLength(1);
     const [incident] = opened;
     expect(incident).toMatchObject({ kind, severity: 'critical', deviceId: screenId, level: 0 });
-    return { incident, tick };
+    return { incident, screenId, tick };
   }
+
+  it.each([
+    { kind: 'sms', action: 'ack', status: 'acknowledged', purpose: 'alert' },
+    { kind: 'owner', action: 'resolve', status: 'resolved', purpose: 'alert_owner' },
+    { kind: 'sms', action: 'note', status: 'open', purpose: 'alert' },
+  ] as const)('preserves the $kind SMS result when an operator performs $action during dispatch', async ({ kind, action, status, purpose }) => {
+    const { incident, screenId, tick } = await openScreenIncident(offlineScreen);
+    const laterStage = kind === 'owner' ? 1 : 20;
+    await saveWatchSettings({ smsAfterMin: 1, callAfterMin: laterStage, ownerAfterMin: laterStage }, OWNER);
+    const managerPhone = '+15145550126';
+    const ownerPhone = '+15145550127';
+    const recipientPhone = kind === 'owner' ? ownerPhone : managerPhone;
+    const sid = `SM${'4'.repeat(32)}`;
+    const repo = getRepo();
+    const deliveryPrefs = { alertCall: false };
+    await repo.saveUser({ username: 'sms-manager', name: 'Manager', phone: managerPhone, role: 'manager', locations: [KITCHEN], active: true, prefs: deliveryPrefs });
+    await repo.saveUser({ username: 'sms-owner', name: 'Owner', phone: ownerPhone, role: 'owner', locations: [KITCHEN], active: true, prefs: deliveryPrefs });
+    const started = gate();
+    const released = gate();
+    fetchMock.mockImplementation(async (input, init) => {
+      expect(String(input)).toBe(`${TWILIO_BASE}/2010-04-01/Accounts/${TWILIO_ACCOUNT}/Messages.json`);
+      const to = new URLSearchParams(String(init?.body)).get('To');
+      if (to !== recipientPhone) return Response.json({ sid: `SM${'3'.repeat(32)}` }, { status: 201 });
+      started.resolve();
+      await released.promise;
+      return Response.json({ sid }, { status: 201 });
+    });
+
+    const pending = tick(1);
+    const updatedAt = new Date(START + 7.5 * 60_000).toISOString();
+    try {
+      await Promise.race([started.promise, pending.then(() => { throw new Error('Expected the SMS to be in flight'); })]);
+      advanceTo(7.5);
+      expect(await actOnIncident(incident.id, action, OWNER, { note: 'Operator updated the incident' })).toMatchObject({ status });
+    } finally {
+      released.resolve();
+      await pending;
+    }
+
+    expect((await readOutbox()).filter((entry) => entry.ref === sid)).toMatchObject([
+      { channel: 'sms', purpose, ok: true, incidentId: incident.id },
+    ]);
+    const saved = await getIncident(incident.id);
+    expect(saved).toMatchObject({ status, locationCode: KITCHEN, level: 0, updatedAt });
+    const steps = saved?.steps.filter((step) => step.kind === kind);
+    expect(steps).toMatchObject([{ kind, ok: true, message: 'Sent', dispatchId: expect.any(String) }]);
+    expect(JSON.stringify(steps)).not.toContain(recipientPhone);
+    expect(JSON.stringify(steps)).not.toContain(sid);
+    const expectedRequests = kind === 'owner' ? 2 : 1;
+    expect(fetchMock).toHaveBeenCalledTimes(expectedRequests);
+    if (action === 'resolve') {
+      advanceTo(8);
+      await reportScreen(screenId, 'skip', 0);
+    }
+    await tick(2);
+    expect(fetchMock).toHaveBeenCalledTimes(expectedRequests);
+    expect((await getIncident(incident.id))?.steps.filter((step) => step.kind === kind)).toEqual(steps);
+  });
 
   it.each([
     { reason: 'the owner signs out of voice alerts', supportPhone: null },

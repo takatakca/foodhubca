@@ -1,3 +1,11 @@
+## 2026-11-28 — Résultats SMS conservés dans les alertes Watchtower
+
+Après une modification concurrente de l’alerte, Watchtower ajoute les résultats SMS du gérant, du soutien et du propriétaire au même incident avec la vérification d’identité déjà utilisée pour les appels. L’état plus récent de l’alerte, la cuisine et les réservations d’envoi sont conservés. Le numéro apparaît masqué et la référence du fournisseur reste dans le journal des messages.
+
+Trois scénarios simulés reproduisent une prise en charge, une fermeture et une note d’opérateur pendant une demande SMS. Ils vérifient la présence du résultat et l’absence d’un deuxième envoi au passage suivant. La réception marchande reste suivie dans [#46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé Codex @ cloud · 2026-11-28 06:26 Montréal
+
 ## 2026-11-28 — Cuisines actives, relais partiel et relève Watchtower
 
 L’assemblage de [#217](https://github.com/takatakca/foodhubca/pull/217) réunit `809d84b` et l’essai `1e00c43` de [#193](https://github.com/takatakca/foodhubca/pull/193). Une lecture partielle du relais garde les alarmes d’écran ouvertes et laisse poursuivre la surveillance des tablettes, sans enregistrer un passage complet. Avant chaque demande téléphonique ou SMS d’une alarme d’appareil, le moteur revérifie la cuisine et le jumelage. Une réservation d’envoi qui n’a pas commencé peut être reprise. Un envoi déjà tenté garde sa réservation et son reçu dans l’incident de sa cuisine. Un ancien numéro invalide ne consomme pas le deuxième palier si la lecture du contact suivant échoue temporairement.

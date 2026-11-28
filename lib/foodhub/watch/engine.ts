@@ -13,7 +13,7 @@ import { inboxSummary } from '../inbox';
 import { effectiveHours, getHours, holidaysFor, isOpenAt, localDate, openIntervals } from '../hours';
 import { DEVICE_OFFLINE_AFTER_MS, getDevice, listDevices, type Device } from '../identity/devices';
 import { getScreen, listScreens, SCREEN_PLATFORM_LABEL, screenStatus, type PlatformScreen } from '../screens';
-import { aiConfigured, callConfigured, maskContact, normalizePhone, placeCall, postToChat, sendSms } from '../notify';
+import { aiConfigured, callConfigured, maskContact, normalizePhone, placeCall, postToChat, sendSms, type SendResult } from '../notify';
 import { listCases, RECOVERABLE } from '../recon/engine';
 import { getRepo, KvReadError } from '../repo';
 import { isWaitingScheduled } from '../scheduling';
@@ -638,6 +638,9 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
     changed = true;
   };
   const screenAlert = SHARED_PHONE_KINDS.includes(i.kind);
+  const dispatchStep = (kind: 'call' | 'sms' | 'owner', to: string, result: SendResult) => {
+    step(kind, to, result.ok, result.message, result.uncertain, screenAlert ? crypto.randomUUID() : undefined);
+  };
   const reservations = screenAlert ? screenStageReservations(i) : null;
   const note = (message: string) => {
     if (i.steps.some((entry) => entry.kind === 'note' && entry.message === message)) return;
@@ -695,8 +698,7 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
     const result = await placeCall({ to: destination, say: callText(i, lang), lang }, { purpose, incidentId: i.id });
     const attempted = Boolean(normalized) && !result.skipped;
     if (!attempted && stage) stage.started = stageHadStarted ?? false;
-    const dispatchId = SHARED_PHONE_KINDS.includes(i.kind) ? crypto.randomUUID() : undefined;
-    step('call', `${label} (${maskContact(destination)})`, result.ok, result.message, result.uncertain, dispatchId);
+    dispatchStep('call', `${label} (${maskContact(destination)})`, result);
     return attempted ? 'attempted' : 'not-sent';
   };
 
@@ -787,13 +789,13 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
       for (const u of list) {
         const r = await alertSms(u.phone!, smsText(i, u.prefs?.lang ?? 'fr'), 'alert');
         if (!r) return changed;
-        step('sms', `${u.name} (${maskContact(u.phone!)})`, r.ok, r.message);
+        dispatchStep('sms', `${u.name} (${maskContact(u.phone!)})`, r);
       }
       if (i.severity === 'critical') {
         for (const p of s.supportPhones) {
           const r = await alertSms(p, smsText(i, 'fr'), 'alert_support');
           if (!r) return changed;
-          step('sms', `support (${maskContact(p)})`, r.ok, r.message);
+          dispatchStep('sms', `support (${maskContact(p)})`, r);
         }
       }
       if (!list.length) step('sms', '—', false, 'Aucun gérant de garde avec un cellulaire. / No manager on duty with a phone.');
@@ -838,7 +840,7 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
         if (u.prefs?.alertSms !== false) {
           const r = await alertSms(u.phone!, `${smsText(i, lang)}\n(${Math.round(elapsed)} min sans réponse / no answer)`, 'alert_owner');
           if (!r) return changed;
-          step('owner', `${u.name} (${maskContact(u.phone!)})`, r.ok, r.message);
+          dispatchStep('owner', `${u.name} (${maskContact(u.phone!)})`, r);
         }
         if (!shouldCall) continue;
         // A prior send may have waited while this owner changed their preferences.
@@ -1046,7 +1048,7 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
       ordinaryCatalog ??= getCatalog();
       return (await ordinaryCatalog).locations.find((location) => location.code === code)?.phone ?? undefined;
     };
-    const callResults = new Map<string, Incident['steps']>();
+    const dispatchResults = new Map<string, Incident['steps']>();
     for (const i of dirty.values()) {
       const screenIncident = SHARED_PHONE_KINDS.includes(i.kind);
       // Persist the current status before escalation. A late writer must not overwrite a resolution or send from a stale snapshot.
@@ -1054,8 +1056,8 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
       const stepCount = i.steps.length;
       if (!missingRelayEvidence(i) && await escalate(i, s, users, now, quiet, ordinaryKitchenPhone)) {
         report.escalated++;
-        const dispatched = i.steps.slice(stepCount).filter((entry) => entry.kind === 'call' && entry.dispatchId);
-        if (dispatched.length) callResults.set(i.id, dispatched);
+        const dispatched = i.steps.slice(stepCount).filter((entry) => entry.dispatchId);
+        if (dispatched.length) dispatchResults.set(i.id, dispatched);
       } else if (screenIncident) dirty.delete(i.id);
     }
     // Open incidents not touched this run can still need the next escalation step.
@@ -1063,9 +1065,9 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
 
     for (const i of dirty.values()) {
       if (await saveIncident(i)) continue;
-      const dispatched = callResults.get(i.id);
-      if (dispatched) await appendCallResults(i, dispatched).catch(() => {
-        console.warn('[foodhub] Watchtower could not save a call result after a concurrent incident update.');
+      const dispatched = dispatchResults.get(i.id);
+      if (dispatched) await appendDispatchResults(i, dispatched).catch(() => {
+        console.warn('[foodhub] Watchtower could not save a dispatch result after a concurrent incident update.');
       });
     }
     for (const i of fresh.filter((x) => x.severity === 'critical')) {
@@ -1116,7 +1118,7 @@ async function changeIncident(id: string, apply: (i: Incident) => IncidentChange
   throw new Error('Watchtower incident changed while saving. Try again.');
 }
 
-async function appendCallResults(source: Incident, dispatched: Incident['steps']): Promise<void> {
+async function appendDispatchResults(source: Incident, dispatched: Incident['steps']): Promise<void> {
   await changeIncident(source.id, (current) => {
     if (current.key !== source.key || (current.locationCode ?? null) !== (source.locationCode ?? null)) return false;
     const saved = new Set(current.steps.map((entry) => entry.dispatchId));

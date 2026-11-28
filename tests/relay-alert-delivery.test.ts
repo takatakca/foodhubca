@@ -2,12 +2,13 @@ import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET as cronWatch } from '../app/api/foodhub/cron/watch/route';
 import { POST as incidentAction } from '../app/api/foodhub/incidents/route';
+import { PATCH as patchProfile } from '../app/api/foodhub/auth/me/route';
 import { GET as callStatus } from '../app/api/foodhub/messages/call-status/route';
 import { GET as messages } from '../app/api/foodhub/messages/route';
 import { POST as heartbeat } from '../app/api/foodhub/screens/heartbeat/route';
 import { GET as watchSettingsRead, PUT as watchSettingsWrite } from '../app/api/foodhub/watch/settings/route';
 import type { Actor } from '../lib/foodhub/activity';
-import { hashPassword } from '../lib/foodhub/auth';
+import { hashPassword, sessionCookieFor } from '../lib/foodhub/auth';
 import { saveLocation } from '../lib/foodhub/catalog';
 import { allDayWeek, saveHours } from '../lib/foodhub/hours';
 import { enrollDevice, heartbeat as tabletHeartbeat } from '../lib/foodhub/identity/devices';
@@ -38,6 +39,12 @@ const fetchMock = vi.fn<typeof fetch>();
 
 function advanceTo(minute: number) {
   vi.setSystemTime(START + minute * 60_000);
+}
+
+function gate() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => { resolve = done; });
+  return { promise, resolve };
 }
 
 function relayRequest(screen: Heartbeat['screens'][number], token = RELAY_TOKEN) {
@@ -1024,6 +1031,107 @@ describe('Screen relay alerts without a console open', () => {
     expect(incident).toMatchObject({ kind, severity: 'critical', deviceId: screenId, level: 0 });
     return { incident, tick };
   }
+
+  async function prepareManagerVoice(secondRole: 'manager' | 'owner' = 'manager') {
+    const { incident, tick } = await openScreenIncident(offlineScreen);
+    await saveWatchSettings({ callAfterMin: 2, ownerAfterMin: 30 }, OWNER);
+    const repo = getRepo();
+    const firstPhone = '+15145550126';
+    const secondPhone = '+15145550127';
+    if (secondRole === 'manager') await repo.saveUser({ username: 'manager-a', name: 'First manager', phone: firstPhone, role: 'manager', locations: [KITCHEN], active: true, prefs: { alertSms: false } });
+    const second = await repo.saveUser({ username: 'manager-b', name: 'Second recipient', phone: secondPhone, role: secondRole, locations: [KITCHEN], active: true, prefs: { alertSms: false } });
+    await tick(1);
+    return { incident, tick, firstPhone, second, secondPhone };
+  }
+
+  it.each([
+    { reason: 'the next manager goes off duty', prefs: { onDuty: false } },
+    { reason: 'the next manager disables calls', prefs: { alertCall: false } },
+    { reason: 'the next manager cannot be read', prefs: null },
+  ])('preserves the first call when $reason while it is in progress', async ({ prefs }) => {
+    const { incident, tick, firstPhone, second } = await prepareManagerVoice();
+    const firstStarted = gate();
+    const firstReleased = gate();
+    const calls: Array<string | null> = [];
+    fetchMock.mockImplementation(async (input, init) => {
+      expect(input).toBe(`${CALLS}.json`);
+      const to = new URLSearchParams(String(init?.body)).get('To');
+      calls.push(to);
+      if (to === firstPhone) {
+        firstStarted.resolve();
+        await firstReleased.promise;
+      }
+      return Response.json({ sid: CALL_SID, status: 'queued' }, { status: 201 });
+    });
+
+    const readUser = prefs ? undefined : vi.spyOn(getRepo(), 'getUser');
+    const pending = tick(2);
+    try {
+      await firstStarted.promise;
+      if (prefs) {
+        const cookie = (await sessionCookieFor(second, 'password')).split(';')[0];
+        const response = await patchProfile(new Request(`${BASE}/auth/me`, {
+          method: 'PATCH', headers: { cookie, 'content-type': 'application/json' }, body: JSON.stringify({ prefs }),
+        }));
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject({ user: { prefs } });
+      } else {
+        readUser?.mockRejectedValueOnce(new Error('Temporary user storage error'));
+      }
+    } finally {
+      firstReleased.resolve();
+      try { await pending; } finally { readUser?.mockRestore(); }
+    }
+    await tick(3);
+    expect(calls).toEqual([firstPhone]);
+    expect(await getIncident(incident.id)).toMatchObject({ level: 2 });
+    expect(await getRepo().getKv(`watch:screen-stage:${incident.id}:2`)).toMatchObject({ settled: true });
+    expect(await readOutbox()).toMatchObject([{ incidentId: incident.id, purpose: 'alert', ok: true, ref: CALL_SID }]);
+  });
+
+  it('defers an unreadable owner fallback before starting any manager-stage voice request', async () => {
+    const { incident, tick, secondPhone } = await prepareManagerVoice('owner');
+    fetchMock.mockResolvedValue(Response.json({ sid: CALL_SID, status: 'queued' }, { status: 201 }));
+    const readUser = vi.spyOn(getRepo(), 'getUser').mockRejectedValueOnce(new Error('Temporary user storage error'));
+    try {
+      await tick(2);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(await getIncident(incident.id)).toMatchObject({ level: 1 });
+      expect(await getRepo().getKv(`watch:screen-stage:${incident.id}:2`)).toBeNull();
+    } finally {
+      readUser.mockRestore();
+    }
+    await tick(3);
+    await tick(4);
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(`${CALLS}.json`, expect.objectContaining({ method: 'POST' }));
+    expect(new URLSearchParams(String(fetchMock.mock.calls[0][1]?.body)).get('To')).toBe(secondPhone);
+    expect(await getIncident(incident.id)).toMatchObject({ level: 2 });
+  });
+
+  it('does not settle another worker’s reservation after an unconfirmed release before sending', async () => {
+    const { incident, tick } = await prepareManagerVoice('owner');
+    const repo = getRepo();
+    const stageKey = `watch:screen-stage:${incident.id}:2`;
+    const replacement = { startedAt: START + 2 * 60_000 + 1 };
+    const releaseKv = repo.releaseKv.bind(repo);
+    const readUser = vi.spyOn(repo, 'getUser').mockRejectedValueOnce(new Error('Temporary user storage error'));
+    const release = vi.spyOn(repo, 'releaseKv').mockImplementationOnce(async (key) => {
+      expect(key).toBe(stageKey);
+      await releaseKv(key);
+      expect(await repo.claimKv(key, replacement)).toBe(true);
+      throw new Error('Release returned an ambiguous result');
+    });
+    try {
+      await tick(2);
+      expect(release).toHaveBeenCalledTimes(1);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(await getIncident(incident.id)).toMatchObject({ level: 1 });
+      expect(await repo.getKv(stageKey)).toEqual(replacement);
+    } finally {
+      release.mockRestore();
+      readUser.mockRestore();
+    }
+  });
 
   it.each(scenarios)('sends the first $platform $kind call once when a shared number is saved after the SMS stage', async (scenario) => {
     const { incident, tick } = await openScreenIncident(scenario);

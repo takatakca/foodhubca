@@ -443,11 +443,15 @@ async function detect(s: WatchSettings, now: number): Promise<Detection[]> {
 
 // ---------- escalation ----------
 
-function recipients(users: FoodHubUser[], i: Incident, roles: Array<FoodHubUser['role']>, kind?: 'sms' | 'call') {
-  return users.filter((u) => u.active && u.phone && roles.includes(u.role)
+function isRecipient(u: FoodHubUser, i: Incident, kind?: 'sms' | 'call') {
+  return u.active && u.phone
     && (!i.locationCode || !u.locations?.length || u.locations.includes(i.locationCode))
     && u.prefs?.onDuty !== false
-    && (!kind || (kind === 'sms' ? u.prefs?.alertSms !== false : u.prefs?.alertCall !== false)));
+    && (!kind || (kind === 'sms' ? u.prefs?.alertSms !== false : u.prefs?.alertCall !== false));
+}
+
+function recipients(users: FoodHubUser[], i: Incident, roles: Array<FoodHubUser['role']>, kind?: 'sms' | 'call') {
+  return users.filter((u) => roles.includes(u.role) && isRecipient(u, i, kind));
 }
 
 function smsText(i: Incident, lang: 'fr' | 'en') {
@@ -509,6 +513,11 @@ function screenStageReservations(i: Incident) {
       return previous && Number.isFinite(previous.startedAt) && startedAt - previous.startedAt >= SCREEN_STAGE_SETTLE_MS
         ? 'unconfirmed' : 'defer';
     },
+    async releaseUnsent(level: number) {
+      const key = `watch:screen-stage:${i.id}:${level}`;
+      // Never settle this reservation after an ambiguous deletion. Another worker may now hold it.
+      if (owned.delete(key)) await repo.releaseKv(key);
+    },
     async settle() {
       // Keep every owned stage in flight until this run has used its shared destination dedupe set.
       for (const [key, reservation] of owned) {
@@ -548,14 +557,15 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
   const called = new Set<string>();
   let reservedFirstDestination: string | undefined;
   const call = async (to: string, label: string, lang: 'fr' | 'en', purpose: string) => {
-    const destination = normalizePhone(to) ?? to;
-    if (called.has(destination) || (reservedFirstDestination && firstScreenCallFingerprint(destination) === reservedFirstDestination)) return true;
-    if (!(await mayNotify())) return false;
+    const normalized = normalizePhone(to);
+    const destination = normalized ?? to;
+    if (called.has(destination) || (reservedFirstDestination && firstScreenCallFingerprint(destination) === reservedFirstDestination)) return 'not-sent';
+    if (!(await mayNotify())) return 'stopped';
     called.add(destination);
     const result = await placeCall({ to: destination, say: callText(i, lang), lang }, { purpose, incidentId: i.id });
     const dispatchId = SHARED_PHONE_KINDS.includes(i.kind) ? crypto.randomUUID() : undefined;
     step('call', `${label} (${maskContact(destination)})`, result.ok, result.message, result.uncertain, dispatchId);
-    return true;
+    return normalized && !result.skipped ? 'attempted' : 'not-sent';
   };
 
   const reserve = async (level: number): Promise<ScreenStageDecision> => {
@@ -607,7 +617,7 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
         } else {
           if (i.screenFirstCallPending) { delete i.screenFirstCallPending; changed = true; }
           if (claimed) {
-            if (!(await call(destination, target.purpose === 'alert_shared_screen' ? 'screen hotline' : i.locationCode ?? 'kitchen', 'fr', target.purpose))) return changed;
+            if (await call(destination, target.purpose === 'alert_shared_screen' ? 'screen hotline' : i.locationCode ?? 'kitchen', 'fr', target.purpose) === 'stopped') return changed;
           } else {
             // Earlier claims did not record a destination. They still block a first-call replay.
             reservedFirstDestination = receipt?.destinationFingerprint;
@@ -644,12 +654,34 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
     if (i.level < 2 && elapsed >= s.callAfterMin && i.severity === 'critical') {
       const permission = await reserve(2);
       if (permission === 'defer') return changed;
-      advance(2, permission);
-      if (permission !== 'dispatch') return changed;
-      const to = recipients(users, i, ['manager'], 'call');
-      for (const u of (to.length ? to : recipients(users, i, ['owner'], 'call')).slice(0, 2)) {
-        if (!(await call(u.phone!, u.name, u.prefs?.lang ?? 'fr', 'alert'))) return changed;
+      if (permission !== 'dispatch') {
+        advance(2, permission);
+        return changed;
       }
+      const to = recipients(users, i, ['manager'], 'call');
+      const repo = getRepo();
+      let attempted = false;
+      for (const candidate of (to.length ? to : recipients(users, i, ['owner'], 'call')).slice(0, 2)) {
+        let user: FoodHubUser | null;
+        try {
+          user = await repo.getUser(candidate.username);
+        } catch {
+          if (attempted) break;
+          // No request started. Give back only our own reservation so the stage can retry.
+          await reservations?.releaseUnsent(2).catch(() => {
+            note('Réservation du palier d’appel à vérifier au prochain passage. / Call stage reservation will be checked on the next pass.');
+          });
+          return changed;
+        }
+        if (user?.id !== candidate.id || user.role !== candidate.role || !isRecipient(user, i, 'call')) continue;
+        const outcome = await call(user.phone!, user.name, user.prefs?.lang ?? 'fr', 'alert');
+        if (outcome === 'stopped') {
+          advance(2, permission);
+          return changed;
+        }
+        if (outcome === 'attempted') attempted = true;
+      }
+      advance(2, permission);
     }
     if (i.level < 3 && elapsed >= s.ownerAfterMin && i.severity === 'critical') {
       const permission = await reserve(3);
@@ -663,10 +695,10 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
           const r = await sendSms({ to: u.phone!, body: `${smsText(i, lang)}\n(${Math.round(elapsed)} min sans réponse / no answer)` }, { purpose: 'alert_owner', incidentId: i.id });
           step('owner', `${u.name} (${maskContact(u.phone!)})`, r.ok, r.message);
         }
-        if (u.prefs?.alertCall !== false && !(await call(u.phone!, u.name, lang, 'alert_owner'))) return changed;
+        if (u.prefs?.alertCall !== false && await call(u.phone!, u.name, lang, 'alert_owner') === 'stopped') return changed;
       }
       for (const p of s.supportPhones) {
-        if (!(await call(p, 'support', 'fr', 'alert_support'))) return changed;
+        if (await call(p, 'support', 'fr', 'alert_support') === 'stopped') return changed;
       }
     }
     return changed;

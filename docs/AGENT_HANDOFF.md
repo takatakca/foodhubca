@@ -1,3 +1,11 @@
+## 2026-11-28 — Préférences avant l’appel de relève Watchtower
+
+Le deuxième palier relit le compte de chaque destinataire juste avant l’appel. Il vérifie l’identité, le rôle, la cuisine, l’état de garde et la préférence d’appel. Si la lecture échoue avant le premier envoi du palier, le prochain passage retente le palier. Après un envoi, Watchtower conserve son résultat et passe au palier suivant sans rejouer cet appel.
+
+Les scénarios simulés couvrent deux changements de préférence depuis un profil signé pendant un appel déjà en cours, ainsi qu’une lecture indisponible avant le premier envoi et après un appel accepté. La vérification marchande sur le téléphone reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-28
+
 ## 2026-11-28 — Numéro commun relu avant un nouvel appel d’écran
 
 Le passage Watchtower relit les réglages avant de réserver le premier appel d’un écran admissible. Une sauvegarde autorisée pendant un appel déjà lancé s’applique au prochain incident. Le reçu du premier appel et le rattachement de chaque alerte à sa cuisine sont conservés. Si les réglages ne peuvent pas être relus, le passage laisse cette alerte sans réservation et pourra la reprendre au prochain passage.

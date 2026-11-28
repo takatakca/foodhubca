@@ -15,6 +15,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import android.webkit.CookieManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -74,6 +75,9 @@ class OrderWatchService : Service() {
     private var wifiLock: WifiManager.WifiLock? = null
     private val main = Handler(Looper.getMainLooper())
     private val draining = AtomicBoolean(false)
+    private val printListenerEvidence = PrintListenerEvidence()
+    private val printListenerWorker = Executors.newSingleThreadExecutor()
+    private val reportingPrintListener = AtomicBoolean(false)
     @Volatile private var queueScope: QueueScope? = null
     private var startupScope: QueueScope? = null
     @Volatile private var queueLocation: String? = null
@@ -115,6 +119,7 @@ class OrderWatchService : Service() {
     }
 
     override fun onDestroy() {
+        printListenerWorker.shutdownNow()
         poller?.shutdownNow()
         Alarm.stop(this)
         runCatching { wakeLock?.release() }
@@ -154,8 +159,10 @@ class OrderWatchService : Service() {
         if (scope == null) return setStatus(getString(R.string.status_bad_url))
         val drain = QueueLogic.drainForScope(prefs.queueDrain, scope)
         val api = apiFor(scope)
+        // Keep the cookie actually used for this successful read, before the WebView can change enrollment.
+        val readCookies = cookieFor(scope.origin)
         val queue = try {
-            api.queue(drain?.since ?: prefs.since, scope.location, scope.deviceId, prefs.paper, prefs.ticketLang, continuation)
+            api.queue(drain?.since ?: prefs.since, scope.location, scope.deviceId, prefs.paper, prefs.ticketLang, continuation, readCookies)
         } catch (e: FoodHubApi.ApiError) {
             continuation = null
             queueLocation = null
@@ -180,6 +187,7 @@ class OrderWatchService : Service() {
         val horizon = QueueLogic.parseInstant(queue.serverTime)
         val activeDrain = prefs.anchorQueueDrain(QueueDrain(scope, location, since), continuation, horizon)
             ?: throw FoodHubApi.ApiError(0, "Missing print queue checkpoint")
+        if (horizon != null) reportPrintListener(scope, location, readCookies)
         val pendingIds = prefs.pending.filter(::pendingInCurrentScope).map { it.id }.toSet()
         val firstRun = prefs.firstRun
         val restored = if (horizon != null) prefs.recentQueueReceiptIds(scope, location) else emptySet()
@@ -226,6 +234,28 @@ class OrderWatchService : Service() {
         }
         if (ring.isNotEmpty()) announce(ring)
         setStatus(getString(R.string.status_ok, LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss")), queue.location ?: "?", ring.size))
+    }
+
+    private fun reportPrintListener(scope: QueueScope, location: String, readCookies: String?) {
+        if (!reportingPrintListener.compareAndSet(false, true)) return
+        val observation = printListenerEvidence.afterRead(scope, location, readCookies, SystemClock.elapsedRealtime())
+        if (observation == null) {
+            reportingPrintListener.set(false)
+            return
+        }
+        runCatching {
+            printListenerWorker.execute {
+                try {
+                    runCatching {
+                        apiFor(scope).reportPrintListener(observation) {
+                            !printListenerWorker.isShutdown && observation.matches(configuredQueueScope(), queueScope, queueLocation)
+                        }
+                    }
+                } finally {
+                    reportingPrintListener.set(false)
+                }
+            }
+        }.onFailure { reportingPrintListener.set(false) }
     }
 
     /** The WebView's cookies for Food Hub (read on the main thread, where CookieManager lives). */

@@ -157,6 +157,29 @@ describe('app → Food Hub API', () => {
     expect(body.orders).toHaveLength(1);
     expect(JSON.stringify(body)).not.toMatch(/Ana|5550101/);
   });
+
+  it('keeps the confirmed Clover merchant with the order ID in the feed and events after remapping', async () => {
+    const repo = getRepo();
+    const { order: original } = await repo.insertOrderIfNew(order('confirmed-store'));
+    const { order: legacy } = await repo.insertOrderIfNew(order('legacy-store'));
+    const mapping = { channel: original.channel, channelStoreId: original.channelStoreId, brandName: 'Po Poulet', locationCode: 'TEST_KITCHEN', cloverMerchantId: 'MERCHANT0001', autoAccept: false, online: true, meta: {} };
+    await repo.upsertStore(mapping);
+    await repo.patchOrder(original.id, { posMerchantId: 'MERCHANT0001' }, { posOrderId: 'CONFIRMED' });
+    await repo.patchOrder(legacy.id, {}, { posOrderId: 'LEGACY' });
+    await detectOrderChanges();
+    await repo.upsertStore({ ...mapping, cloverMerchantId: 'MERCHANT0002' });
+    await repo.updateOrder(original.id, { status: 'completed' });
+    await detectOrderChanges();
+
+    const path = '/api/suite/v1/orders?limit=10';
+    const response = await ordersRoute(new Request(`http://hub.local${path}`, { headers: { 'x-takatak-app': 'rew4rd', 'x-takatak-signature': signSuite(SECRET_B, path) } }));
+    expect(response.status).toBe(200);
+    expect((await response.json()).orders).toEqual(expect.arrayContaining([
+      expect.objectContaining({ orderId: original.id, cloverOrderId: 'CONFIRMED', cloverMerchantId: 'MERCHANT0001' }),
+      expect.objectContaining({ orderId: legacy.id, cloverOrderId: 'LEGACY', cloverMerchantId: 'MERCHANT0002' }),
+    ]));
+    expect((await outbox())[0]?.event.data.order).toMatchObject({ orderId: original.id, cloverOrderId: 'CONFIRMED', cloverMerchantId: 'MERCHANT0001' });
+  });
 });
 
 describe('suite directory (which restaurant has which app)', () => {

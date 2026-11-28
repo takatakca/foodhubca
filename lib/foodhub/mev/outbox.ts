@@ -122,7 +122,12 @@ export async function syncOrderMev(ref: MevJob['order'], baseKey: string): Promi
     if (!rec) return null;
     if (!rec.token && ['accepted', 'offline'].includes(rec.status) && isElectronic(rec)) rec.token = await newReceiptToken(ref);
     await repo.patchOrder(o.id, { mev: rec });
-    await noteCloverInvoice(o.posOrderId && !o.viaPos ? { mid: (await repo.findStore(o.channel, o.channelStoreId))?.cloverMerchantId ?? null, posOrderId: o.posOrderId, notes: o.notes } : null, rec, o.timeline?.mev);
+    const register = o.posOrderId && !o.viaPos ? {
+      mid: o.timeline?.posMerchantId ?? (await repo.findStore(o.channel, o.channelStoreId))?.cloverMerchantId ?? null,
+      posOrderId: o.posOrderId,
+      notes: o.notes,
+    } : null;
+    await noteCloverInvoice(register, rec, o.timeline?.mev);
     return rec;
   }
   if (ref.model === 'pos') {

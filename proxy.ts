@@ -94,7 +94,10 @@ async function gate(req: NextRequest) {
   if (session?.v && (!session.b || session.v === ownerSessionVersion())) return NextResponse.next();
 
   if (pathname.startsWith('/api/')) {
-    return NextResponse.json({ ok: false, error: 'Please sign in.' }, { status: 401 });
+    return NextResponse.json({ ok: false, error: 'Please sign in.' }, {
+      status: 401,
+      headers: { 'Cache-Control': 'private, no-store' },
+    });
   }
   const to = req.nextUrl.clone();
   const isTablet = Boolean(await verifyDevice(readCookie(req.headers.get('cookie'), DEVICE_COOKIE)));

@@ -1,3 +1,4 @@
+import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { GET as messages } from '../app/api/foodhub/messages/route';
 import { hashPassword, sessionCookieFor } from '../lib/foodhub/auth';
@@ -6,6 +7,7 @@ import { OUTBOX, type OutboxEntry } from '../lib/foodhub/notify';
 import { getRepo } from '../lib/foodhub/repo';
 import type { Role } from '../lib/foodhub/types';
 import { INCIDENTS } from '../lib/foodhub/watch/engine';
+import { proxy } from '../proxy';
 
 const URL = 'https://hub.example.test/api/foodhub/messages';
 const PASSWORD = 'fixture-message-history-password';
@@ -44,6 +46,13 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+});
+
+it('prevents caching the anonymous rejection issued before the history route', async () => {
+  const response = await proxy(new NextRequest(URL));
+  expect(response.status).toBe(401);
+  expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+  expect(await response.json()).not.toHaveProperty('messages');
 });
 
 it('shows only incident history attributable to the signed-in kitchens and preserves the global log', async () => {

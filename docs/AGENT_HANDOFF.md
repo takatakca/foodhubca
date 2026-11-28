@@ -1,3 +1,9 @@
+## 2026-11-27 — Refus anonyme de l’historique des messages
+
+Le proxy répond avant la route d’historique si la session manque. Ses réponses API 401 portent maintenant `Cache-Control: private, no-store`. Une vérification HTTP locale sur PostgreSQL confirme le périmètre des cuisines et le refus sans session. Le brouillon reste dans la file de revue.
+
+— signé Codex @ cloud · 2026-11-27
+
 ## 2026-11-27 — Historique des messages par cuisine
 
 Les sessions limitées à une cuisine affichent les messages rattachés à un incident de leur périmètre. Une tablette suit la cuisine où elle est jumelée, dans le périmètre du compte. Le journal global conserve les messages sans incident attribuable. Les appels et les réglages de destinataire sont traités par leurs contrôles existants. Les scénarios simulés vérifient les comptes de deux cuisines distinctes, les sessions de tablette et l’indisponibilité des données de l’incident.

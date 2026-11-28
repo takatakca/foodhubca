@@ -254,11 +254,11 @@ export interface InboxSweep { processed: number; failed: number }
 export async function sweepInbox(opts: { now?: number; limit?: number } = {}): Promise<InboxSweep> {
   const now = opts.now ?? Date.now();
   const repo = getRepo();
-  const open = (await repo.listDocs<InboxEntry>(INBOX, { keys: ['received', 'processing', 'failed'], limit: 500 })).map((d) => d.data);
-  const stuck = stuckMs();
-  const due = open.filter((e) => (e.status === 'failed' ? Boolean(e.nextAt) && Date.parse(e.nextAt!) <= now : now - Date.parse(e.updatedAt) >= stuck))
-    .sort((a, b) => a.receivedAt.localeCompare(b.receivedAt))
-    .slice(0, opts.limit ?? 20);
+  const due = await repo.listDueInboxEntries(INBOX, {
+    interruptedAt: new Date(now - stuckMs()).toISOString(),
+    retryAt: new Date(now).toISOString(),
+    limit: opts.limit ?? 20,
+  });
   const out: InboxSweep = { processed: 0, failed: 0 };
   for (const e of due) {
     // Interrupted again and again (e.g. a payload that stops the server each time): a person looks at it.

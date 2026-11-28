@@ -15,10 +15,11 @@
 // time to be saved first. Turn it off with FOODHUB_CLOVER_PLATFORM_ORDERS=off.
 import { logActivity } from '../activity';
 import { CHANNEL_LABELS, CHANNEL_MARKETPLACE, fromCents, nowIso } from '../config';
+import { menuChangesRefused } from '../menu/lock';
 import { cloverFetch } from './clover-http';
 import { getRepo } from '../repo';
 import { screenEntryStoreRef } from '../screen-entry-id';
-import type { ChannelKey, NormalizedOrder, OrderLine } from '../types';
+import type { ChannelKey, ChannelStore, NormalizedOrder, OrderLine, StoredOrder } from '../types';
 import { cloverBaseUrl, cloverToken } from './clover';
 import { isPlatformTender, platformFromLabel } from './platform-labels';
 import { cloverOrderTitle, normName, normalizeCloverOrderTitle } from './clover-order';
@@ -93,6 +94,16 @@ function linesOf(order: any): OrderLine[] {
 
 export interface CloverPlatformImport { merchantId: string; imported: number; skipped: number; posOrderIds: string[]; error?: string }
 
+function confirmedOtherKitchen(order: StoredOrder, receivingStore: ChannelStore | undefined, merchantId: string): boolean {
+  // The confirmed POS receipt records the original register. The store's current mapping could have changed since then.
+  const savedMerchant = order.timeline?.posMerchantId;
+  const originalMerchant = typeof savedMerchant === 'string' ? savedMerchant.trim() : '';
+  return Boolean(receivingStore && receivingStore.cloverMerchantId === merchantId && receivingStore.locationCode
+    && order.locationCode && order.locationCode !== receivingStore.locationCode
+    && !order.viaHub && order.posOrderId?.trim() && originalMerchant && originalMerchant !== merchantId
+    && !menuChangesRefused(receivingStore));
+}
+
 /**
  * Reads the Clover orders created since the last run, keeps the ones a delivery platform created through Clover's
  * own integration, and records them in Food Hub (read-only, "via Clover"). Returns their Clover order ids so the
@@ -113,13 +124,16 @@ export async function importCloverPlatformOrders(mid: string, opts: { now?: numb
   const recent = await repo.listOrders({ since: new Date(since - 3 * 24 * 3600_000).toISOString(), limit: 5000 });
   const known = opts.knownPosOrderIds ?? new Set(recent.map((o) => o.posOrderId).filter(Boolean) as string[]);
   const ownScreenTitles = new Set<string>();
-  const ownOrderCodes = new Set<string>();
+  const ownOrderCodes = new Map<string, StoredOrder[]>();
   for (const order of recent) {
     if (order.viaPos) continue;
     if (order.viaHub === 'screen' && screenEntryStoreRef(order.externalOrderId)) {
       ownScreenTitles.add(normalizeCloverOrderTitle(cloverOrderTitle(order)));
     } else {
-      ownOrderCodes.add(`${order.channel}|${(order.displayId || order.externalOrderId.slice(0, 8)).toLowerCase()}`);
+      const code = `${order.channel}|${(order.displayId || order.externalOrderId.slice(0, 8)).toLowerCase()}`;
+      const matching = ownOrderCodes.get(code);
+      if (matching) matching.push(order);
+      else ownOrderCodes.set(code, [order]);
     }
   }
   try {
@@ -143,14 +157,16 @@ export async function importCloverPlatformOrders(mid: string, opts: { now?: numb
         if (!id || created > until || known.has(id)) continue;
         const channel = detectPlatform(co, orderTypes, tenders);
         if (!channel) continue; // an in-store order
-        const titleId = String(co?.title ?? '').replace(/^[^#]*#\s*/, '').trim().toLowerCase();
-        if (ownScreenTitles.has(normalizeCloverOrderTitle(co?.title)) || (titleId && ownOrderCodes.has(`${channel}|${titleId}`))) continue;
+        if (ownScreenTitles.has(normalizeCloverOrderTitle(co?.title))) continue;
         // The brand: the only store of that platform on this merchant, or the brand named in the Clover title / note.
         // Several candidates and no name → brand left unknown rather than guessed (never filed under the wrong brand).
         const candidates = storesHere.filter((s) => s.channel === channel);
         const text = normName(`${co?.title ?? ''} ${co?.note ?? ''}`);
         const named = candidates.filter((s) => normName(s.brandName) && text.includes(normName(s.brandName)));
         const store = candidates.length === 1 ? candidates[0] : named.length === 1 ? named[0] : undefined;
+        const titleId = String(co?.title ?? '').replace(/^[^#]*#\s*/, '').trim().toLowerCase();
+        const matching = titleId ? ownOrderCodes.get(`${channel}|${titleId}`) : undefined;
+        if (matching?.some((order) => !confirmedOtherKitchen(order, store, mid))) continue;
         const location = store?.locationCode ?? onlyLocation(named.length ? named : candidates) ?? fallbackLocation;
         const payments: any[] = co?.payments?.elements ?? [];
         const sum = (f: string) => fromCents(payments.reduce((s, p) => s + (Number(p?.[f]) || 0), 0));

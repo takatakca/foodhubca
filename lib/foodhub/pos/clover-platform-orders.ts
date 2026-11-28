@@ -234,16 +234,16 @@ export async function importCloverPlatformOrders(mid: string, opts: { now?: numb
           locationCode: location,
           createdAt: new Date(created || now).toISOString(),
         };
-        const { order, isNew } = await repo.insertOrderIfNew(n);
-        known.add(id);
-        if (!isNew) { out.skipped++; continue; }
-        const placed = new Date(n.placedAt).toISOString();
         const fresh = now - created < 90 * 60_000;
-        await repo.updateOrder(order.id, {
+        const seenAt = nowIso();
+        // Persist what Clover already did together with the order, so a retry never finds a half-imported row.
+        const { order, isNew } = await repo.insertOrderIfNew(n, {
           status: fresh ? 'accepted' : 'completed',
           posOrderId: id,
-          timeline: { ...(order.timeline ?? {}), acceptedAt: placed, acceptedBy: 'clover', seenAt: nowIso(), seenBy: 'Clover', ...(fresh ? {} : { completedAt: nowIso() }) },
+          timeline: { acceptedAt: n.placedAt, acceptedBy: 'clover', seenAt, seenBy: 'Clover', ...(fresh ? {} : { completedAt: seenAt }) },
         });
+        known.add(id);
+        if (!isNew) { out.skipped++; continue; }
         await repo.addEvent(order.id, 'via_clover', { message: `Received in Clover through Clover's own ${CHANNEL_LABELS[channel]} integration — Food Hub only follows it (nothing is sent to ${CHANNEL_LABELS[channel]} or Clover).${store ? '' : ` Brand not known: ${candidates.length} ${CHANNEL_LABELS[channel]} stores use this Clover and the order does not name one.`}`, cloverOrderId: id });
         await noteLastOrder(channel, n.placedAt);
         // Only for a kitchen whose invoices go through Takatak MEV (sevOfRecord qcmev); the Clover MEV app otherwise.

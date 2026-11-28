@@ -1,3 +1,11 @@
+## 2026-11-28 — Insertion complète d’une commande native Clover
+
+L’import enregistre le statut, l’identifiant de commande Clover et la chronologie dans la même insertion. Une réponse perdue après l’écriture laisse donc une commande complète. Le rejeu retrouve cette commande sans doublon. La régression interrompt une insertion simulée et vérifie les états accepté et terminé après rejeu.
+
+Une ancienne ligne marquée nouvelle sans référence Clover exige une vérification de provenance et un contrôle atomique de son état avant toute correction. Le rejeu PostgreSQL du candidat et la validation du tri dans un bac à sable Clover autorisé restent rattachés à la PR et à la preuve marchande. [PR #223](https://github.com/takatakca/foodhubca/pull/223) · [Checklist #46](https://github.com/takatakca/foodhubca/issues/46)
+
+— signé : Codex @ cloud · 2026-11-28 07:34 Montréal
+
 ## 2026-11-28 — Reprise des pages de commandes natives Clover
 
 L’import conserve sa fenêtre de création et reprend après sa limite de dix pages. La borne d’import n’avance qu’après une réponse complète. La reprise teste un horodatage partagé sur plus de 1 000 commandes, une suppression avant le prochain lot, deux lectures qui se chevauchent et les réponses Clover malformées ou en erreur. La fenêtre de 24 heures s’applique à la première lecture. Un curseur existant hors des 90 jours documentés est conservé pour rapprochement.

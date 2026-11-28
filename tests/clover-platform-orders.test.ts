@@ -113,6 +113,48 @@ describe('platform orders received through Clover', () => {
     expect(r3.imported).toBe(0);
   });
 
+  it.each([
+    { ageMinutes: 10, status: 'accepted' },
+    { ageMinutes: 100, status: 'completed' },
+  ])('records the Clover receipt and $status status even if the import stops after the insert', async ({ ageMinutes, status }) => {
+    const now = Date.now();
+    const createdAt = now - ageMinutes * min;
+    const repo = getRepo();
+    const insert = repo.insertOrderIfNew.bind(repo);
+    const externalOrderId = 'clover-DDNATIVE-INTERRUPTED';
+    cloverOrders = [cloverOrder('DDNATIVE-INTERRUPTED', createdAt, { orderType: { id: 'OT-DD' } })];
+
+    const interrupted = vi.spyOn(repo, 'insertOrderIfNew').mockImplementationOnce(async (...args) => {
+      await insert(...args);
+      throw new Error('Connection lost after the order insert committed');
+    });
+    try {
+      const first = await importCloverPlatformOrders(MID, { now });
+      expect(first.error).toBe('Connection lost after the order insert committed');
+    } finally {
+      interrupted.mockRestore();
+    }
+
+    const persistedOnInsert = await repo.findOrder('doordash', externalOrderId);
+    const replay = await importCloverPlatformOrders(MID, { now: now + min });
+    expect(replay).toMatchObject({ imported: 0, posOrderIds: [] });
+    expect(replay.error).toBeUndefined();
+    const rows = (await repo.listOrders()).filter((order) => order.externalOrderId === externalOrderId);
+    expect(rows).toEqual([persistedOnInsert]);
+    expect(rows[0]).toMatchObject({
+      viaPos: 'clover',
+      status,
+      posOrderId: 'DDNATIVE-INTERRUPTED',
+      timeline: {
+        acceptedAt: new Date(createdAt).toISOString(),
+        acceptedBy: 'clover',
+        seenAt: expect.any(String),
+        seenBy: 'Clover',
+      },
+    });
+    expect(rows[0].timeline?.completedAt).toEqual(status === 'completed' ? expect.any(String) : undefined);
+  });
+
   it('resumes a bounded window across the page budget without losing orders sharing the same creation time', async () => {
     const now = Date.now();
     const placed = now - 5 * min;

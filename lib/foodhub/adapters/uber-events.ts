@@ -55,10 +55,13 @@ export async function handleUberEvent(
     if (polled && (String(details?.id ?? '') !== polled.orderId
       || (detailStoreId != null && String(detailStoreId) !== polled.storeId))) {
       const reason = 'Uber polled order details do not match the listed order and store';
-      const previous = await getRepo().findJobByReference(polled.orderId);
-      if (previous?.kind !== 'webhook_unparsed' || previous.channel !== 'uber_eats' || previous.result?.reason !== reason) {
+      const repo = getRepo();
+      const previous = await repo.findJobByReference(polled.orderId, {
+        kind: 'webhook_unparsed', channel: 'uber_eats', reason, listedStoreId: polled.storeId, reviewOnly: true,
+      });
+      if (!previous) {
         // Review the listed identity without keeping data that can enter the normal webhook handler on Replay.
-        await getRepo().addJob({
+        await repo.addJob({
           kind: 'webhook_unparsed', channel: 'uber_eats', reference: polled.orderId, status: 'error',
           request: { replayable: false, body: { meta: { resource_id: polled.orderId, user_id: polled.storeId } } },
           result: { reason },

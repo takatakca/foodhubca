@@ -11,6 +11,11 @@ export interface Doc<T = Record<string, unknown>> { id: string; key?: string | n
 export interface DocFilter { since?: string; until?: string; keys?: string[]; limit?: number }
 
 type StoreSnapshot = Pick<ChannelStore, 'channel' | 'channelStoreId' | 'locationCode' | 'updatedAt' | 'meta'>;
+type JobReferenceFilter = Partial<Pick<FoodHubJob, 'kind' | 'channel'>> & {
+  reason?: string;
+  listedStoreId?: string;
+  reviewOnly?: true;
+};
 
 export interface FoodHubRepo {
   mode: 'supabase' | 'memory';
@@ -38,7 +43,7 @@ export interface FoodHubRepo {
   saveMenu(menu: MasterMenu): Promise<MasterMenu>;
   listMenus(): Promise<MasterMenu[]>;
   addJob(job: Omit<FoodHubJob, 'id' | 'createdAt' | 'updatedAt'>): Promise<FoodHubJob>;
-  findJobByReference(reference: string): Promise<FoodHubJob | null>;
+  findJobByReference(reference: string, filter?: JobReferenceFilter): Promise<FoodHubJob | null>;
   updateJob(id: string, patch: Partial<FoodHubJob>): Promise<void>;
   listJobs(limit?: number): Promise<FoodHubJob[]>;
   /** Small key/value store (last sync report, Clover sales cache). */
@@ -168,9 +173,16 @@ const memoryRepo: FoodHubRepo = {
     memState().jobs.set(full.id, full);
     return full;
   },
-  async findJobByReference(reference) {
-    // Newest first, same as the Supabase implementation.
-    return [...memState().jobs.values()].reverse().find((j) => j.reference === reference) ?? null;
+  async findJobByReference(reference, { kind, channel, reason, listedStoreId, reviewOnly } = {}) {
+    // Jobs are inserted in creation order, so the last match is the newest.
+    const matches = [...memState().jobs.values()].filter((job) => job.reference === reference
+      && (kind === undefined || job.kind === kind)
+      && (channel === undefined || job.channel === channel)
+      && (reason === undefined || job.result?.reason === reason)
+      && (!reviewOnly || job.request?.replayable === false)
+      && (listedStoreId === undefined
+        || (job.request?.body as { meta?: { user_id?: unknown } } | undefined)?.meta?.user_id === listedStoreId));
+    return matches.at(-1) ?? null;
   },
   async updateJob(id, patch) {
     const s = memState();
@@ -459,8 +471,14 @@ function supabaseRepo(): FoodHubRepo {
       const data = must(await db.from('fh_jobs').insert({ kind: job.kind, channel: job.channel, reference: job.reference, status: job.status, request: job.request, result: job.result ?? null }).select('*').single());
       return rowToJob(data);
     },
-    async findJobByReference(reference) {
-      const data = must(await db.from('fh_jobs').select('*').eq('reference', reference).order('created_at', { ascending: false }).limit(1).maybeSingle());
+    async findJobByReference(reference, { kind, channel, reason, listedStoreId, reviewOnly } = {}) {
+      let query = db.from('fh_jobs').select('*').eq('reference', reference);
+      if (kind !== undefined) query = query.eq('kind', kind);
+      if (channel !== undefined) query = query.eq('channel', channel);
+      if (reason !== undefined) query = query.eq('result->>reason', reason);
+      if (reviewOnly) query = query.eq('request->replayable', false);
+      if (listedStoreId !== undefined) query = query.eq('request->body->meta->>user_id', listedStoreId);
+      const data = must(await query.order('created_at', { ascending: false }).limit(1).maybeSingle());
       return data ? rowToJob(data) : null;
     },
     async updateJob(id, patch) {

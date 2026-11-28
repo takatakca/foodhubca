@@ -12,7 +12,7 @@ import { TechDetails } from '../tech-details';
 import { plainTitle } from '../tech-text';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { SettingsHead } from '../settings-ui';
-import { api } from '@/lib/ui/api';
+import { api, ApiError } from '@/lib/ui/api';
 import { useI18n } from '@/lib/i18n/client';
 import type { WatchSettings } from '@/lib/foodhub/watch/types';
 import { CELEBRATION_KEYS } from '@/lib/ui/celebrate';
@@ -173,7 +173,10 @@ export default function GoLivePage() {
     try {
       const [ch, w, u, d, s, f, cat, ck, relay] = await Promise.all([
         api<ChannelsData>('/api/foodhub/channels'),
-        api<WatchGoLive>('/api/foodhub/watch/settings'),
+        api<WatchGoLive>('/api/foodhub/watch/settings').catch((error: unknown) => {
+          if (error instanceof ApiError && error.status === 503) return null;
+          throw error;
+        }),
         api<{ users: User[] }>('/api/foodhub/users'),
         api<{ devices: Device[] }>('/api/foodhub/devices'),
         api<{ stores: Store[] }>('/api/foodhub/stores'),
@@ -195,7 +198,7 @@ export default function GoLivePage() {
       const list = (xs: Array<{ name: string }>) => xs.map((l) => shortLoc(l.name)).join(', ');
       const relayChecks = relayGoLiveSteps({
         relay,
-        watch: w.settings ? {
+        watch: w?.settings ? {
           enabled: w.settings.enabled, rules: w.settings.rules, callConfigured: w.channels.call,
           sharedPhoneConfigured: w.screenAlertPhoneConfigured === true,
         } : null,
@@ -206,12 +209,14 @@ export default function GoLivePage() {
         { group: t('Fondations', 'Foundations'), key: 'db', state: ch.mode === 'memory' ? 'todo' : 'done', title: t('Base de données Supabase', 'Supabase database'), body: ch.mode === 'memory' ? t('Mode démo : rien n’est gardé au redémarrage. Lancez npm run setup avec l’URL et la clé Supabase, puis exécutez INSTALL_ALL.sql.', 'Demo mode: nothing is kept across restarts. Run npm run setup with the Supabase URL and key, then run INSTALL_ALL.sql.') : t('Branchée.', 'Connected.'), href: '/settings/channels', cta: t('Voir', 'See') },
         { group: t('Fondations', 'Foundations'), key: 'secret', state: ch.dashboardProtected ? 'done' : 'todo', title: t('Mot de passe de secours (DASHBOARD_PASSWORD)', 'Recovery password (DASHBOARD_PASSWORD)'), body: ch.dashboardProtected ? t('Défini : connexion de secours « owner ».', 'Set: recovery sign-in as “owner”.') : t('Définissez DASHBOARD_PASSWORD (npm run setup ou l’hébergeur) : la connexion de secours « owner ». Obligatoire avant le mode direct, sinon la console se verrouille. Vous le tapez vous-même — jamais dans le clavardage.', 'Set DASHBOARD_PASSWORD (npm run setup or the hosting settings): the recovery sign-in as “owner”. Required before live mode, or the console locks itself. You type it yourself — never in chat.'), href: '/settings/channels', cta: t('Voir', 'See') },
         sessionSecretStep(ch, t, loc, Date.now()),
-        ...alertSteps(w.channels, t),
+        ...alertSteps(w?.channels ?? null, t),
         { group: t('Équipe', 'Team'), key: 'owner', state: owner ? 'done' : 'todo', title: t('Votre compte propriétaire', 'Your owner account'), body: owner ? t('Connexion par code, sans mot de passe.', 'Code sign-in, no password.') : t('Créez votre compte avec votre courriel ou cellulaire, puis ne gardez le mot de passe que pour le secours.', 'Create your account with your email or cell, then keep the password for recovery only.'), href: '/settings/team', cta: t('Ajouter', 'Add') },
         { group: t('Équipe', 'Team'), key: 'managers', state: locNoManager.length ? 'todo' : 'done', title: t('Un gérant joignable par succursale', 'A reachable manager per location'), body: locNoManager.length ? `${t('Sans gérant avec cellulaire et NIP :', 'No manager with cell and PIN:')} ${list(locNoManager)}` : t('Chaque succursale a un gérant avec cellulaire et NIP.', 'Every location has a manager with a cell and a PIN.'), href: '/settings/team', cta: t('Équipe', 'Team') },
         { group: t('Équipe', 'Team'), key: 'pins', state: staffNoPin ? 'warn' : 'done', title: t('NIP des employés', 'Staff PINs'), body: staffNoPin ? t(`${staffNoPin} employé(s) sans NIP — ils ne peuvent pas déverrouiller une tablette.`, `${staffNoPin} staff without a PIN — they cannot unlock a tablet.`) : t('Tous les employés ont un NIP.', 'All staff have a PIN.'), href: '/settings/team', cta: t('Équipe', 'Team') },
         { group: t('Cuisine', 'Kitchen'), key: 'tablets', state: locNoTablet.length ? 'todo' : tabletsOff ? 'warn' : 'done', title: t('Une tablette par cuisine', 'A tablet per kitchen'), body: locNoTablet.length ? `${t('Sans tablette :', 'No tablet:')} ${list(locNoTablet)}` : tabletsOff ? t(`${tabletsOff} tablette(s) hors ligne en ce moment.`, `${tabletsOff} tablet(s) offline right now.`) : t('Toutes en ligne.', 'All online.'), href: '/settings/devices', cta: t('Tablettes', 'Tablets') },
-        { group: t('Cuisine', 'Kitchen'), key: 'kphone', state: noPhone.length ? 'warn' : 'done', title: t('Téléphone de chaque cuisine', 'Each kitchen’s phone'), body: noPhone.length ? `${t('La surveillance ne peut pas appeler :', 'The watchtower cannot call:')} ${list(noPhone)}` : t('La surveillance appelle la cuisine en premier, comme Uber.', 'The watchtower calls the kitchen first, like Uber.'), href: '/settings/business', cta: t('Ajouter', 'Add') },
+        { group: t('Cuisine', 'Kitchen'), key: 'kphone', state: noPhone.length ? 'warn' : 'done', title: t('Téléphone de chaque cuisine', 'Each kitchen’s phone'), body: noPhone.length
+          ? t(`Téléphone de cuisine à vérifier pour ${list(noPhone)}.`, `Check the kitchen phone for ${list(noPhone)}.`)
+          : t('Chaque cuisine a un téléphone configuré.', 'Every kitchen has a phone configured.'), href: '/settings/business', cta: t('Ajouter', 'Add') },
         ...relayChecks,
         cloverStep(ch, t, locName),
         ...cloverDefaultSteps(ch, t, locName),

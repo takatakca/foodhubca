@@ -1,3 +1,17 @@
+## 2026-11-27 — Sauvegardes simultanées des réglages Watchtower
+
+Les réglages Watchtower sont recalculés sur la dernière révision enregistrée lorsque deux sauvegardes se chevauchent. Une modification de délai conserve le changement de numéro commun déjà enregistré. Un premier enregistrement utilise la clé existante de la base. Une lecture indisponible répond 503. Si plusieurs écritures empêchent encore la sauvegarde, une réponse 409 invite à recharger les réglages. Le journal conserve un événement par sauvegarde confirmée.
+
+La correction utilise `fh_kv.updated_at` et la clé primaire existants. Vérifier les parcours avec des réglages déjà enregistrés ou encore absents avant publication. [Suivi #155](https://github.com/takatakca/foodhubca/issues/155)
+
+## 2026-11-27 — Périmètre du numéro commun de relève
+
+Le propriétaire qui a accès à toutes les cuisines peut consulter et modifier le numéro commun dans Réglages → Alertes depuis une session de console. Les vues à périmètre limité gardent l’indication qu’un numéro est configuré et les autres réglages autorisés. Si les réglages enregistrés sont indisponibles, l’écran signale la panne et suspend la sauvegarde jusqu’au retour de la lecture. Les incidents restent rattachés à la cuisine et à l’appareil concernés. Les essais simulés couvrent les permissions et une même destination avec des incidents de deux cuisines distinctes. À la réconciliation de #185 et #188, conserver le contrôle de périmètre et leurs vérifications respectives. La vérification du téléphone réel reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+Quand la lecture des réglages d’alerte renvoie HTTP 503, la page Mise en service garde les autres contrôles visibles et laisse la vérification des alertes à faire. Les réglages de l’appel des écrans sont alors signalés comme indisponibles. Les essais de chargement couvrent les deux langues, la réponse normale et les autres erreurs.
+
+— signé : Codex @ cloud · 2026-11-27
+
 ## 2026-11-26 — Paiement Clover après déplacement d’une liaison
 
 La réconciliation locale de #183 sur `86d190c` conserve les références par magasin de #178 pour la saisie, la reprise, l’import et le paiement Clover. Les 161 essais ciblés couvrent aussi le règlement et l’impression sur la caisse confirmée et le contrôle manuel d’une liaison Uber Eats. Les réponses des fournisseurs sont simulées. La CI du SHA réconcilié et la réception marchande restent à vérifier avant publication.

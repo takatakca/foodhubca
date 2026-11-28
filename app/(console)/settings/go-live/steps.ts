@@ -90,8 +90,13 @@ export function stepText(t: T, s: Pick<Step, 'state' | 'optional' | 'title' | 'b
 type Notify = { email: boolean; sms: boolean; call: boolean; chat: boolean; ai: boolean };
 
 /** Sign-in emails and texts are needed; the team chat and the AI explanations are optional. */
-export function alertSteps(n: Notify, t: T): Step[] {
+export function alertSteps(n: Notify | null, t: T): Step[] {
   const g = t('Connexion et alertes', 'Sign-in & alerts');
+  if (!n) return [{
+    group: g, key: 'alerts-settings', state: 'todo', title: t('Réglages d’alerte indisponibles', 'Alert settings unavailable'),
+    body: t('Réessayez pour vérifier les courriels de connexion, les textos et les appels.', 'Try again to check sign-in emails, texts and calls.'),
+    href: '/settings/alerts', cta: t('Voir les alertes', 'View alerts'),
+  }];
   return [
     { group: g, key: 'email', state: n.email ? 'done' : 'todo', title: t('Courriels de connexion (SMTP ou Resend)', 'Sign-in emails (SMTP or Resend)'), body: n.email ? t('Les codes partent par courriel.', 'Codes are sent by email.') : t('SMTP_HOST + SMTP_USER + SMTP_PASS (votre boîte courriel) ou RESEND_API_KEY (domaine vérifié chez Resend), plus AUTH_EMAIL_FROM.', 'SMTP_HOST + SMTP_USER + SMTP_PASS (your own mailbox) or RESEND_API_KEY (domain verified at Resend), plus AUTH_EMAIL_FROM.'), href: '/settings/alerts', cta: t('Tester', 'Test') },
     { group: g, key: 'sms', state: n.sms && n.call ? 'done' : 'todo', title: t('Textos et appels (Twilio)', 'Texts and calls (Twilio)'), body: n.sms ? (n.call ? t('Textos et appels d’alerte prêts.', 'Alert texts and calls ready.') : t('Textos prêts ; ajoutez TWILIO_FROM pour les appels.', 'Texts ready; add TWILIO_FROM for calls.')) : t('TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN et TWILIO_FROM (un numéro canadien).', 'TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_FROM (a Canadian number).'), href: '/settings/alerts', cta: t('Tester', 'Test') },

@@ -43,7 +43,13 @@ const RANGE: Record<NumKey, Range> = {
 };
 const MAX_PHONES = 5;
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
-const rulesOf = (w: Watch): Rules => { const r: Watch = { ...w }; delete r.updatedAt; delete r.updatedBy; return r; };
+function rulesOf(w: Watch, includeSharedPhone: boolean): Rules {
+  const r = { ...w };
+  delete r.updatedAt;
+  delete r.updatedBy;
+  if (!includeSharedPhone) delete r.screenAlertPhone;
+  return r;
+}
 /** Reads a phone number like the server does (a 10-digit number gets +1). */
 function e164(raw: string): string | null {
   const s = raw.trim();
@@ -60,7 +66,7 @@ export default function AlertSettingsPage() {
   const { viewer, can, allLocations } = useViewer();
   const toast = useToast();
   const edit = can('admin');
-  const canPreviewSharedCall = edit && allLocations && !viewer.device;
+  const editSharedPhone = edit && allLocations && !viewer.device;
   const [w, setW] = useState<Rules | null>(null);
   const [changed, setChanged] = useState<{ at?: string; by?: string }>({});
   const [kinds, setKinds] = useState<Kind[]>([]);
@@ -86,19 +92,23 @@ export default function AlertSettingsPage() {
     if (!HHMM.test(r.quietFrom) || !HHMM.test(r.quietTo)) out.push(t('Heures calmes : choisissez les deux heures', 'Quiet hours: pick both times'));
     if (r.supportPhones.length > MAX_PHONES) out.push(t(`${MAX_PHONES} numéros au maximum`, `${MAX_PHONES} numbers at most`));
     for (const p of r.supportPhones) if (!e164(p)) out.push(t(`Numéro à vérifier : ${p}`, `Check this number: ${p}`));
-    if (r.screenAlertPhone && !e164(r.screenAlertPhone)) out.push(screenPhoneError);
+    if (editSharedPhone && r.screenAlertPhone && !e164(r.screenAlertPhone)) out.push(screenPhoneError);
     return out;
-  }, [screenPhoneError, t]);
+  }, [editSharedPhone, screenPhoneError, t]);
   // The rules save by themselves (no Save button): kept on this screen at once, sent 1.2 s after the last change.
   const autosave = useAutosave<Rules>({
     formKey: 'alert-rules', user: viewer.username, value: w, enabled: edit, validate,
     save: async (r) => {
-      const settings = { ...r, screenAlertPhone: r.screenAlertPhone ? e164(r.screenAlertPhone) : r.screenAlertPhone };
+      const settings = rulesOf(r, editSharedPhone);
+      if (settings.screenAlertPhone) settings.screenAlertPhone = e164(settings.screenAlertPhone);
       const d = await api<{ settings: Watch }>('/api/foodhub/watch/settings', { method: 'PUT', json: { settings } });
       setChanged({ at: d.settings.updatedAt, by: d.settings.updatedBy });
-      return rulesOf(d.settings);
+      return rulesOf(d.settings, editSharedPhone);
     },
-    onRestore: (r) => setW((cur) => (cur && r.screenAlertPhone === undefined ? { ...r, screenAlertPhone: cur.screenAlertPhone } : r)),
+    onRestore: (r) => setW((cur) => {
+      if (!editSharedPhone) return rulesOf(r, false);
+      return cur && r.screenAlertPhone === undefined ? { ...r, screenAlertPhone: cur.screenAlertPhone } : r;
+    }),
     onSaved: (r) => setW(r),
   });
   const undo = useUndo<Rules>(w, (r) => setW(r), { enabled: edit });
@@ -108,10 +118,10 @@ export default function AlertSettingsPage() {
   const resetUndo = undo.reset;
 
   const load = useCallback(() => api<{ settings: Watch; kinds: Kind[]; channels: Channels }>('/api/foodhub/watch/settings').then((d) => {
-    const r = rulesOf(d.settings);
+    const r = rulesOf(d.settings, editSharedPhone);
     setW(r); setChanged({ at: d.settings.updatedAt, by: d.settings.updatedBy }); setKinds(d.kinds); setChannels(d.channels); setErr('');
     markLoaded(r); resetUndo();
-  }).catch((e) => setErr(e instanceof Error ? e.message : String(e))), [markLoaded, resetUndo]);
+  }).catch((e) => setErr(e instanceof Error ? e.message : String(e))), [editSharedPhone, markLoaded, resetUndo]);
   useEffect(() => { load(); }, [load]);
 
   const set = (p: Partial<Rules>) => setW((cur) => (cur ? { ...cur, ...p } : cur));
@@ -150,7 +160,7 @@ export default function AlertSettingsPage() {
   }
 
   async function previewSharedCall() {
-    if (!canPreviewSharedCall || previewSavePending) return;
+    if (!editSharedPhone || previewSavePending) return;
     setBusy('shared-call-preview');
     setSharedPreview(null);
     try {
@@ -219,7 +229,7 @@ export default function AlertSettingsPage() {
                 </li>
               ))}
             </ol></Hint>
-            {edit && (
+            {editSharedPhone && (
               <Field
                 className="mt-4 max-w-md"
                 label={t('Numéro commun pour les alertes d’écran', 'Shared phone for screen alerts')}
@@ -231,7 +241,7 @@ export default function AlertSettingsPage() {
                   onChange={(e) => set({ screenAlertPhone: e.target.value.trim() ? e.target.value : null })} />
               </Field>
             )}
-            {canPreviewSharedCall && (
+            {editSharedPhone && (
               <div className="mt-3 max-w-md">
                 <Button variant="outline" onClick={previewSharedCall} disabled={previewSavePending} loading={busy === 'shared-call-preview'}>
                   {t('Simuler la relève des écrans', 'Simulate screen alert routing')}

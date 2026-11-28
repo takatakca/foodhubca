@@ -207,10 +207,62 @@ export function uberDirectStep(label: string, evidence: GoLiveFacts['uberDirect'
 }
 
 export type CloverAppInfo = {
-  configured: boolean; merchants: Array<{ status?: string }>;
+  configured: boolean; merchants: Array<{ status?: string; needsReconnect?: boolean }>;
   legalStatus?: { supportEmailSet: boolean; supportPhoneSet?: boolean; approved: boolean };
   domain?: { url: string; ready: boolean; problems: PublicUrlProblem[] };
 };
+
+type CloverRoutingInput = {
+  clover: { missing: string[]; tokenMerchants?: number; appConfigured?: boolean; app?: CloverAppInfo };
+  channels: Array<{ channel: string; label: string }>;
+  goLive?: Pick<GoLiveFacts, 'clover'>;
+};
+
+/** Local routing configuration and credential coverage for this viewer's stores. */
+export function cloverStep(ch: CloverRoutingInput, t: T, locName: (code: string) => string): Step {
+  const base = { group: t('Plateformes', 'Platforms'), key: 'clover', title: 'Clover', href: '/settings/channels' };
+  const routing = ch.goLive?.clover;
+  if (routing?.routingStatus === 'disabled') {
+    return { ...base, state: 'todo', cta: t('Vérifier', 'Review'), body: t('L’envoi de commandes par Food Hub vers Clover est désactivé.', 'Sending orders from Food Hub to Clover is disabled.') };
+  }
+  if (routing?.routingStatus !== 'checked') {
+    return { ...base, state: 'todo', cta: t('Vérifier', 'Review'), body: t('La lecture des liaisons Clover est indisponible. Réessayez pour vérifier la caisse de chaque liaison.', 'Clover mapping data is unavailable. Retry to check the register for each mapping.') };
+  }
+  const envToken = ch.clover.missing.length === 0 || (ch.clover.tokenMerchants ?? 0) > 0;
+  const merchants = (ch.clover.app?.merchants ?? []).filter((m) => m.status !== 'pending');
+  const active = merchants.filter((m) => !m.needsReconnect).length;
+  const appKeys = Boolean(ch.clover.app?.configured ?? ch.clover.appConfigured);
+  const configured = envToken || active > 0;
+  const stuck = routing.unreachableStores;
+  if (configured && stuck.length) {
+    const why = (problem: typeof stuck[number]) => problem.reason === 'no_merchant' ? t('aucun marchand Clover', 'no Clover merchant')
+      : problem.reason === 'reconnect' ? t('accès de l’app Clover expiré : à rebrancher', 'Clover app access expired: reconnect') : t('marchand sans jeton', 'merchant without a token');
+    const label = (key: string) => ch.channels.find((x) => x.channel === key)?.label ?? key;
+    const list = stuck.slice(0, 4).map((problem) => `${problem.brandName} · ${locName(problem.locationCode)} · ${label(problem.channel)} (${why(problem)})`).join(', ') + (stuck.length > 4 ? ` … (+${stuck.length - 4})` : '');
+    return { ...base, state: 'todo', href: '/stores/mapping', cta: t('Corriger', 'Fix'),
+      body: `${t('Ces liaisons ne disposent pas d’un accès Clover utilisable :', 'These mappings need usable Clover access:')} ${list}` };
+  }
+  let body: string;
+  if (configured) body = active ? t(`Liaisons vérifiées. Marchands avec un accès Clover configuré (${active}).`, `Mappings checked. Merchants with Clover access configured (${active}).`)
+    : t('Liaisons vérifiées. Les identifiants Clover sont configurés.', 'Mappings checked. Clover credentials are configured.');
+  else if (merchants.some((merchant) => merchant.needsReconnect)) body = t('L’accès Clover a expiré. Vérifiez les clés de l’app et reconnectez le marchand.', 'Clover access has expired. Check the app keys and reconnect the merchant.');
+  else if (appKeys) body = t('Les clés de l’app sont en place. Branchez un marchand Clover dans les réglages ou ouvrez l’app depuis Clover.', 'The app keys are set. Connect a Clover merchant in settings or open the app from Clover.');
+  else body = `${t('Manque :', 'Missing:')} ${ch.clover.missing.join(', ')}`;
+  return { ...base, state: configured ? 'done' : 'todo', body, cta: t('Brancher', 'Connect') };
+}
+
+export function cloverPrintStep(report: { ok: boolean; unprintedCount: number; items: number } | null, t: T): Step | null {
+  if (!report?.ok) return null;
+  const coverage = report.items === 0 ? t('Aucun article n’a été vérifié.', 'No items were checked.') : report.unprintedCount
+    ? t(`${report.unprintedCount} article(s) sur ${report.items} n’ont pas d’étiquette d’imprimante.`, `${report.unprintedCount} of ${report.items} item(s) have no printer label.`)
+    : t('Les articles vérifiés ont une étiquette d’imprimante.', 'The checked items have printer labels.');
+  return {
+    group: t('Plateformes', 'Platforms'), key: 'clover-print', state: report.items === 0 || report.unprintedCount ? 'todo' : 'done',
+    title: t('Étiquettes d’impression Clover', 'Clover printer labels'),
+    body: `${coverage} ${t('Vérifiez le ticket sur l’imprimante de la cuisine avec une commande d’essai autorisée.', 'Check the ticket on the kitchen printer with an authorized test order.')}`,
+    href: '/settings/channels', cta: t('Vérifier', 'Review'),
+  };
+}
 
 /**
  * Clover App Market app: domain, keys, webhook, public legal pages, merchants waiting for approval. The app keys are

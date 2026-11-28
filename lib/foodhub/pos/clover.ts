@@ -78,9 +78,9 @@ export function cloverExpected(): boolean {
 }
 
 /** The merchant to use when a store has none: CLOVER_MERCHANT_ID, else the only merchant connected through the app. */
-export async function defaultCloverMerchant(): Promise<string | null> {
+export async function defaultCloverMerchant(knownApproved?: readonly string[]): Promise<string | null> {
   if (process.env.CLOVER_MERCHANT_ID) return process.env.CLOVER_MERCHANT_ID;
-  const connected = await connectedCloverMerchantIds().catch(() => [] as string[]);
+  const connected = knownApproved ?? await connectedCloverMerchantIds().catch(() => [] as string[]);
   return connected.length === 1 ? connected[0] : null;
 }
 

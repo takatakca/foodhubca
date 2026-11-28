@@ -18,18 +18,16 @@ import type { WatchSettings } from '@/lib/foodhub/watch/types';
 import { CELEBRATION_KEYS } from '@/lib/ui/celebrate';
 import { cn } from '@/lib/ui/cn';
 import type { GoLiveFacts } from '@/lib/foodhub/go-live';
-import { alertSteps, cloverAppSteps, goLiveProgress, goLiveStages, relayGoLiveSteps, stepBadge, stepKind, stepTally, stepText, tallyLine, uberDirectStep, type CloverAppInfo, type GoLiveStage, type RelayGoLiveInput, type Step } from './steps';
+import { alertSteps, cloverAppSteps, cloverPrintStep, cloverStep, goLiveProgress, goLiveStages, relayGoLiveSteps, stepBadge, stepKind, stepTally, stepText, tallyLine, uberDirectStep, type CloverAppInfo, type GoLiveStage, type RelayGoLiveInput, type Step } from './steps';
 
 type Readiness = { channel: string; label: string; configured: boolean; canSend: boolean; missing: string[]; viaClover?: boolean };
-/** A mapped store whose orders cannot get into Clover (lib/foodhub/go-live.ts, sent by /api/foodhub/channels). */
-type CloverStoreProblem = { channel: string; brandName: string; locationCode: string; merchantId: string | null; reason: 'no_merchant' | 'no_token' | 'reconnect' };
 type SessionSecretInfo = { source: 'env' | 'password' | 'dev' | null; set: boolean; strong: boolean; since: string | null; changedAt: string | null };
 type ChannelsData = {
   mode: string; liveEnabled: boolean; dashboardProtected: boolean;
   clover: { configured: boolean; appConfigured?: boolean; tokenMerchants?: number; missing: string[]; webhookAuthSet?: boolean; verification?: { code: string } | null; app?: CloverAppInfo };
   channels: Readiness[]; relay?: { channels: string[] };
   goLive?: {
-    clover: { injectionEnabled: boolean; unreachableStores: CloverStoreProblem[]; defaultRoutedStores?: Store[] };
+    clover: GoLiveFacts['clover'];
     sessionSecret: SessionSecretInfo;
     uberDirect?: GoLiveFacts['uberDirect'];
   };
@@ -84,46 +82,13 @@ type CloverCheck = { report: { ok: boolean; unprintedCount: number; items: numbe
 /** Clover register check: kitchen printing labels and tax rates (read from Clover). */
 function cloverCheckSteps(ck: CloverCheck, t: (fr: string, en: string) => string): Step[] {
   const out: Step[] = [];
-  const r = ck.report;
-  if (r?.ok) {
-    out.push({ group: t('Plateformes', 'Platforms'), key: 'clover-print', state: r.unprintedCount ? 'todo' : 'done', title: t('Impression en cuisine (Clover)', 'Kitchen printing (Clover)'),
-      body: r.unprintedCount ? t(`${r.unprintedCount} article(s) sur ${r.items} n’ont pas d’étiquette d’imprimante : ils ne s’impriment pas en cuisine.`, `${r.unprintedCount} of ${r.items} item(s) have no printer label: they never print in the kitchen.`) : t('Tous les articles s’impriment en cuisine.', 'Every item prints in the kitchen.'),
-      href: '/settings/channels', cta: t('Corriger', 'Fix') });
-  }
+  const print = cloverPrintStep(ck.report, t);
+  if (print) out.push(print);
   if (ck.taxes?.ok) {
     out.push({ group: t('Plateformes', 'Platforms'), key: 'clover-tax', state: ck.taxes.problems.length ? 'todo' : 'done', title: t('Taxes dans Clover', 'Taxes in Clover'),
       body: ck.taxes.problems.length ? t((ck.taxes.problemsFr ?? ck.taxes.problems).join(' '), ck.taxes.problems.join(' ')) : t(`Taxes par défaut : ${ck.taxes.defaultPercent} %.`, `Default taxes: ${ck.taxes.defaultPercent}%.`), href: '/settings/channels', cta: t('Voir', 'See') });
   }
   return out;
-}
-
-/**
- * Clover line: orders reach Clover only with a merchant token in the environment or a merchant connected through the
- * app — and it stays to-do while a mapped store cannot reach its own register (no merchant, no token, app access expired).
- */
-function cloverStep(ch: ChannelsData, t: (fr: string, en: string) => string, locName: (code: string) => string): Step {
-  const envToken = ch.clover.missing.length === 0 || (ch.clover.tokenMerchants ?? 0) > 0;
-  const active = (ch.clover.app?.merchants ?? []).filter((m) => m.status !== 'pending').length;
-  const appKeys = Boolean(ch.clover.app?.configured ?? ch.clover.appConfigured);
-  const done = envToken || active > 0;
-  const stuck = ch.goLive?.clover.unreachableStores ?? [];
-  if (done && stuck.length) {
-    const why = (p: CloverStoreProblem) => p.reason === 'no_merchant' ? t('aucun marchand Clover', 'no Clover merchant')
-      : p.reason === 'reconnect' ? t('accès de l’app Clover expiré : à rebrancher', 'Clover app access expired: reconnect') : t('marchand sans jeton', 'merchant without a token');
-    const label = (k: string) => ch.channels.find((x) => x.channel === k)?.label ?? k;
-    const list = stuck.slice(0, 4).map((p) => `${p.brandName} · ${shortLoc(locName(p.locationCode))} · ${label(p.channel)} (${why(p)})`).join(' ; ') + (stuck.length > 4 ? ` … (+${stuck.length - 4})` : '');
-    return { group: t('Plateformes', 'Platforms'), key: 'clover', state: 'todo', title: 'Clover', href: '/stores/mapping', cta: t('Corriger', 'Fix'),
-      body: `${t('Ces magasins ne peuvent pas envoyer leurs commandes dans Clover :', 'These stores cannot get their orders into Clover:')} ${list}` };
-  }
-  return {
-    group: t('Plateformes', 'Platforms'), key: 'clover', state: done ? 'done' : 'todo', title: 'Clover',
-    body: done
-      ? (active ? t(`Accès Clover configuré. Marchands branchés par l’app (${active}).`, `Clover access is configured. Merchants connected through the app (${active}).`) : t('Les identifiants Clover sont configurés.', 'Clover credentials are configured.'))
-      : appKeys
-        ? t('Les clés de l’app sont en place, mais aucun marchand Clover n’est branché : « Brancher un marchand Clover », ou ouvrez l’app depuis Clover.', 'The app keys are in, but no Clover merchant is connected: “Connect a Clover merchant”, or open the app from Clover.')
-        : `${t('Manque :', 'Missing:')} ${ch.clover.missing.join(', ')}`,
-    href: '/settings/channels', cta: t('Brancher', 'Connect'),
-  };
 }
 
 function cloverDefaultSteps(ch: ChannelsData, t: (fr: string, en: string) => string, locName: (code: string) => string): Step[] {
@@ -213,7 +178,7 @@ export default function GoLivePage() {
         { group: t('Cuisine', 'Kitchen'), key: 'tablets', state: locNoTablet.length ? 'todo' : tabletsOff ? 'warn' : 'done', title: t('Une tablette par cuisine', 'A tablet per kitchen'), body: locNoTablet.length ? `${t('Sans tablette :', 'No tablet:')} ${list(locNoTablet)}` : tabletsOff ? t(`${tabletsOff} tablette(s) hors ligne en ce moment.`, `${tabletsOff} tablet(s) offline right now.`) : t('Toutes en ligne.', 'All online.'), href: '/settings/devices', cta: t('Tablettes', 'Tablets') },
         { group: t('Cuisine', 'Kitchen'), key: 'kphone', state: noPhone.length ? 'warn' : 'done', title: t('Téléphone de chaque cuisine', 'Each kitchen’s phone'), body: noPhone.length ? `${t('La surveillance ne peut pas appeler :', 'The watchtower cannot call:')} ${list(noPhone)}` : t('La surveillance appelle la cuisine en premier, comme Uber.', 'The watchtower calls the kitchen first, like Uber.'), href: '/settings/business', cta: t('Ajouter', 'Add') },
         ...relayChecks,
-        cloverStep(ch, t, locName),
+        cloverStep(ch, t, (code) => shortLoc(locName(code))),
         ...cloverDefaultSteps(ch, t, locName),
         ...(['uber_eats', 'doordash', 'skip'] as const).map((k): Step => {
           const r = ready(k);

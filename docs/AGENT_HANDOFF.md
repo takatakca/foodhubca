@@ -1,3 +1,9 @@
+## 2026-11-28 — Preuve des liaisons Clover dans la mise en service
+
+La checklist distingue une lecture réussie même si le périmètre est vide, une lecture indisponible et l’injection désactivée. Un accès local connu reste vérifiable quand il suffit pour les caisses du périmètre. Une liaison qui dépend de l’accès OAuth reste à vérifier si la lecture échoue. Les accès OAuth expirés restent en attente si les clés nécessaires au rafraîchissement sont absentes. Le contrôle des étiquettes demande un essai autorisé pour vérifier le ticket physique dans [#46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé Codex @ cloud · 2026-11-28 09:40 Montréal
+
 ## 2026-11-26 — Paiement Clover après déplacement d’une liaison
 
 La réconciliation locale de #183 sur `86d190c` conserve les références par magasin de #178 pour la saisie, la reprise, l’import et le paiement Clover. Les 161 essais ciblés couvrent aussi le règlement et l’impression sur la caisse confirmée et le contrôle manuel d’une liaison Uber Eats. Les réponses des fournisseurs sont simulées. La CI du SHA réconcilié et la réception marchande restent à vérifier avant publication.

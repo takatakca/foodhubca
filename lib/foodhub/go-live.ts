@@ -37,7 +37,12 @@ type CloverStoreRoute = Pick<ChannelStore, 'channel' | 'brandName' | 'locationCo
 export interface CloverStoreProblem extends CloverStoreRoute { merchantId: string | null; reason: 'no_merchant' | 'no_token' | 'reconnect' }
 
 export interface GoLiveFacts {
-  clover: { injectionEnabled: boolean; unreachableStores: CloverStoreProblem[]; defaultRoutedStores: CloverStoreRoute[] };
+  clover: {
+    injectionEnabled: boolean;
+    routingStatus: 'checked' | 'unavailable' | 'disabled';
+    unreachableStores: CloverStoreProblem[];
+    defaultRoutedStores: CloverStoreRoute[];
+  };
   /** Last recorded Uber confirmation for direct mappings in this viewer's locations. */
   uberDirect: { confirmed: number; mapped: number } | null;
   sessionSecret: SessionSecretCheck;
@@ -45,26 +50,33 @@ export interface GoLiveFacts {
 
 /**
  * Resolve a mapped store as injectOrder does: its merchant, else the default. Check local credentials and describe
- * working fallback routes separately so the kitchen can verify the destination. Via-Clover stores already get orders.
+ * working fallback routes separately so the kitchen can verify the destination. Via-Clover stores do not use injection.
  */
 async function cloverRoutingFacts(scopedStores: Promise<ChannelStore[] | null>, injectionEnabled: boolean): Promise<GoLiveFacts['clover']> {
-  const unreachableStores: CloverStoreProblem[] = [];
-  const defaultRoutedStores: CloverStoreRoute[] = [];
-  const facts = { injectionEnabled, unreachableStores, defaultRoutedStores };
+  const facts: GoLiveFacts['clover'] = {
+    injectionEnabled, routingStatus: injectionEnabled ? 'checked' : 'disabled', unreachableStores: [], defaultRoutedStores: [],
+  };
   if (!injectionEnabled) return facts;
-  const [stores, connections, fallback] = await Promise.all([
-    scopedStores, listCloverConnections().catch(() => []), defaultCloverMerchant().catch(() => null),
-  ]);
-  if (!stores) return facts;
-  const app = new Map(connections.map((c) => [c.merchantId, c]));
-  for (const s of stores) {
-    if (isViaClover(s.channel)) continue;
+  const stores = await scopedStores;
+  if (!stores) return { ...facts, routingStatus: 'unavailable' };
+  const injectedStores = stores.filter((store) => !isViaClover(store.channel));
+  if (!injectedStores.length) return facts;
+
+  const connections = await listCloverConnections().catch(() => null);
+  const app = new Map(connections?.map((c) => [c.merchantId, c]));
+  const fallback = await defaultCloverMerchant(connections?.filter((c) => c.status !== 'pending').map((c) => c.merchantId) ?? []);
+  for (const s of injectedStores) {
     const mid = s.cloverMerchantId || fallback;
+    const hasEnvironmentToken = Boolean(mid && cloverTokenFor(mid));
+    if (!connections && !hasEnvironmentToken) {
+      facts.routingStatus = 'unavailable';
+      continue;
+    }
     const c = mid ? app.get(mid) : undefined;
-    const reason = !mid ? 'no_merchant' : cloverTokenFor(mid) ? null : !c || c.status === 'pending' ? 'no_token' : c.needsReconnect ? 'reconnect' : null;
+    const reason = !mid ? 'no_merchant' : hasEnvironmentToken ? null : !c || c.status === 'pending' ? 'no_token' : c.needsReconnect ? 'reconnect' : null;
     const store = { channel: s.channel, brandName: s.brandName, locationCode: s.locationCode };
-    if (reason) unreachableStores.push({ ...store, merchantId: mid ?? null, reason });
-    else if (!s.cloverMerchantId) defaultRoutedStores.push(store);
+    if (reason) facts.unreachableStores.push({ ...store, merchantId: mid ?? null, reason });
+    else if (!s.cloverMerchantId) facts.defaultRoutedStores.push(store);
   }
   return facts;
 }
@@ -121,7 +133,7 @@ export async function goLiveFacts(actor: AuthUser, now = new Date()): Promise<Go
     ? getRepo().listStores().then((stores) => stores.filter((store) => inScope(actor, store.locationCode))).catch(() => null)
     : Promise.resolve(null);
   const [clover, sessionSecret, stores] = await Promise.all([
-    cloverRoutingFacts(scopedStores, injectionEnabled).catch(() => ({ injectionEnabled, unreachableStores: [], defaultRoutedStores: [] })),
+    cloverRoutingFacts(scopedStores, injectionEnabled).catch(() => ({ injectionEnabled, routingStatus: 'unavailable' as const, unreachableStores: [], defaultRoutedStores: [] })),
     sessionSecretCheck(now),
     scopedStores,
   ]);

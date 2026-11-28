@@ -13,7 +13,8 @@ import { ServicesStrip } from '../components/live/services-strip';
 import { ProgressRing } from '../components/ui/progress-ring';
 import { CelebrationBanner } from '../components/ui/celebration';
 import { I18nProvider } from '../lib/i18n/client';
-import { goLiveProgress, goLiveStages, relayGoLiveSteps, type RelayGoLiveInput, type Step } from '@/app/(console)/settings/go-live/steps';
+import { cloverPrintStep, cloverStep, goLiveProgress, goLiveStages, relayGoLiveSteps, type RelayGoLiveInput, type Step } from '@/app/(console)/settings/go-live/steps';
+import type { GoLiveFacts } from '../lib/foodhub/go-live';
 
 const KEYS = [
   'SMTP_HOST', 'SMTP_USER', 'SMTP_PASS', 'SMTP_PORT', 'RESEND_API_KEY', 'AUTH_EMAIL_FROM', 'REPORT_EMAIL_FROM',
@@ -31,6 +32,36 @@ beforeEach(() => {
   (globalThis as { __foodhubMem?: unknown }).__foodhubMem = undefined;
 });
 afterEach(() => { env(saved); });
+
+describe('Clover checklist evidence', () => {
+  const en = (_: string, english: string) => english;
+  const fr = (french: string) => french;
+  const loc = (code: string) => code;
+  const configured = { clover: { missing: [], tokenMerchants: 1 }, channels: [] };
+  const routing = (routingStatus: GoLiveFacts['clover']['routingStatus']) => ({ clover: {
+    injectionEnabled: routingStatus !== 'disabled', routingStatus, unreachableStores: [], defaultRoutedStores: [],
+  } });
+
+  it('does not turn a configured Clover token into verified routing when the read is missing or injection is off', () => {
+    expect(cloverStep(configured, fr, loc)).toMatchObject({ state: 'todo', body: expect.stringContaining('indisponible') });
+    expect(cloverStep({ ...configured, goLive: routing('unavailable') }, en, loc)).toMatchObject({ state: 'todo', body: expect.stringContaining('unavailable') });
+    expect(cloverStep({ ...configured, goLive: routing('disabled') }, fr, loc)).toMatchObject({ state: 'todo', body: expect.stringContaining('désactivé') });
+    expect(cloverStep({ ...configured, goLive: routing('checked') }, en, loc)).toMatchObject({ state: 'done', body: expect.stringContaining('Mappings checked') });
+  });
+
+  it('treats expired OAuth without usable access as needing action even when scoped mappings are empty', () => {
+    const clover = { missing: ['CLOVER_ACCESS_TOKEN'], app: { configured: true, merchants: [{ status: 'active', needsReconnect: true }, { status: 'pending' }] } };
+    expect(cloverStep({ clover, channels: [], goLive: routing('checked') }, en, loc)).toMatchObject({ state: 'todo', body: expect.stringContaining('has expired') });
+  });
+
+  it('reports printer label coverage and keeps the physical ticket check open in both languages', () => {
+    const covered = { ok: true, items: 3, unprintedCount: 0 };
+    expect(cloverPrintStep(covered, fr)).toMatchObject({ state: 'done', title: 'Étiquettes d’impression Clover', body: expect.stringMatching(/étiquette d’imprimante.*commande d’essai/) });
+    expect(cloverPrintStep(covered, en)).toMatchObject({ state: 'done', title: 'Clover printer labels', body: expect.stringMatching(/printer labels.*authorized test order/) });
+    expect(cloverPrintStep({ ...covered, unprintedCount: 1 }, en)).toMatchObject({ state: 'todo', body: expect.stringContaining('1 of 3') });
+    expect(cloverPrintStep({ ...covered, items: 0 }, en)).toMatchObject({ state: 'todo', body: expect.stringContaining('No items were checked') });
+  });
+});
 
 const row = (rows: ServiceHealth[], key: string) => rows.find((r) => r.key === key);
 const SECRETS = { SMTP_PASS: 'smtp-pass-not-shown-1', TWILIO_AUTH_TOKEN: 'twilio-token-not-shown-2', ANTHROPIC_API_KEY: 'ai-key-not-shown-3' };

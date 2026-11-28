@@ -1,3 +1,15 @@
+## 2026-11-28 — Reprise et débranchement Uber sur le même candidat
+
+La répétition réunit les avis paginés de #218 et le débranchement protégé de #220. La console garde le choix explicite de caisse et présente le statut du routage séparément de la réception. Elle exécute une opération Uber à la fois par vue, conserve le résultat par magasin et indique la vérification requise après un débranchement si la liaison a changé pendant la demande. Les 174 tests ciblés, TypeScript et ESLint ciblé passent. Rejouer la compilation, les parcours signés sur PostgreSQL et la console dans Chromium. La preuve marchande est suivie dans [#46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-28
+
+## 2026-11-28 — Liaison modifiée pendant un débranchement Uber
+
+Lorsque Uber accepte le débranchement, Food Hub vérifie la liaison et l’état Uber enregistré avant de mettre à jour le magasin. Une nouvelle liaison ou une confirmation plus récente reste intacte, même si le magasin n’était pas lié au départ. L’écran garde le gestionnaire inconnu jusqu’à une nouvelle vérification Uber. L’activation, la vérification et le débranchement se font une action à la fois. Le résultat d’un magasin reste affiché quand une autre liaison change. Les autres données enregistrées en parallèle restent présentes. Le groupe de magasins du compte Uber et l’interrupteur des écritures restent nécessaires. Un compte limité à des cuisines doit avoir une liaison autorisée avant toute demande. Les essais utilisent des sessions et commerces fictifs et ne contactent aucun fournisseur.
+
+— signé : Codex @ cloud · 2026-11-28
+
 ## 2026-11-28 — Identité des commandes Uber reprises
 
 La reprise vérifie que les détails concernent la commande et le magasin de la liste Uber avant d’enregistrer, d’annuler ou d’envoyer une commande en cuisine. Quand Uber omet le magasin des détails, la commande doit correspondre à l’identifiant exact de la liste pour conserver ce magasin. Un désaccord conserve seulement l’avis de recherche et laisse les autres commandes de la liste avancer. Si le même désaccord revient, la reprise conserve l’avis existant. L’avis est consultable dans Canaux et ne peut pas être rejoué. Une réponse corrigée permet ensuite à la reprise de traiter la commande. Les deux essais fictifs reproduisent un envoi vers une autre cuisine et une annulation de la mauvaise commande avant correction. La vérification marchande reste dans [la checklist #46](https://github.com/takatakca/foodhubca/issues/46).

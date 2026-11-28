@@ -191,19 +191,19 @@ export async function closeCancelledCloverOrder(order: StoredOrder, mid: string 
   if (!cloverDeleteCancelledEnabled()) return { ok: false, skipped: true, message: opts.flagOnly ? 'Flagging cancelled orders in Clover is off (FOODHUB_CLOVER_DELETE_CANCELLED=off).' : 'Removing cancelled orders from Clover is off (FOODHUB_CLOVER_DELETE_CANCELLED=off).' };
   if (!order.posOrderId) return { ok: false, skipped: true, message: 'Order is not in Clover.' };
   const configuredMerchant = mid || process.env.CLOVER_MERCHANT_ID;
-  const merchant = configuredMerchant || (await defaultCloverMerchant());
+  const merchant = order.timeline?.posMerchantId || configuredMerchant || (await defaultCloverMerchant());
   if (!merchant) return { ok: false, skipped: true, message: 'Order is not in Clover.' };
   try {
     const path = `/orders/${encodeURIComponent(order.posOrderId)}`;
     const tag = `CANCELLED — ${platformLabel(order.channel)} #${order.displayId || order.externalOrderId.slice(0, 8)}`.slice(0, 127);
-    // The OAuth default may have changed since creation. Verify the POS order before touching the inferred register.
-    const verified = configuredMerchant ? null : await cloverJson(merchant, path);
+    // Check the order before changing a Clover register different from the current explicit or configured register.
+    const verified = merchant === configuredMerchant ? null : await cloverJson(merchant, path);
     if (verified) {
       const title = String(verified.json?.title ?? '').trim().toLowerCase();
       const activeTitle = cloverOrderTitle(order, title.startsWith('⏰') ? '⏰ ' : '').trim().toLowerCase();
       const alreadyFlagged = title === tag.trim().toLowerCase();
       if (!verified.ok || String(verified.json?.id ?? '') !== order.posOrderId || (title !== activeTitle && !alreadyFlagged)) {
-        return { ok: false, message: 'Could not confirm this order on the default Clover register. Check its register before closing it.' };
+        return { ok: false, message: 'Could not confirm this order on the selected Clover register. Check its register before closing it.' };
       }
       if (alreadyFlagged) return { ok: true, message: 'Order already flagged “CANCELLED” in Clover.' };
     }

@@ -1,3 +1,9 @@
+## 2026-11-27 — Liaison révisée pendant une activation Uber
+
+Si une liaison est créée ou change de cuisine, de marque ou de caisse pendant la demande Uber, Food Hub garde la liaison enregistrée entre-temps. Le résultat indique que la demande Uber a été acceptée et invite à vérifier séparément la cuisine et la caisse déjà enregistrées. Les lectures et les confirmations de webhook publiées pendant la demande sont conservées lorsque la liaison reste la même. Les essais locaux suspendent la réponse simulée pendant une modification de liaison. [Suivi de la preuve marchande](https://github.com/takatakca/foodhubca/issues/46)
+
+— signé : Codex @ cloud · 2026-11-27
+
 ## Choix de la caisse lors du branchement Uber
 
 La PR #199 conserve la caisse d’un magasin qui reste dans sa cuisine. Pour un déplacement ou pour un nouveau magasin dans une cuisine qui dessert plusieurs caisses, le formulaire demande un choix. Le serveur revalide les suggestions avant de transmettre le lot à Uber. Les tests utilisent des magasins et des caisses synthétiques. La publication de #198 précède #199 dans la [file de déploiement](https://github.com/takatakca/foodhubca/issues/155). Les preuves de réception en cuisine et au téléphone restent suivies dans [la checklist marchande](https://github.com/takatakca/foodhubca/issues/46).

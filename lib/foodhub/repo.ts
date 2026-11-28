@@ -10,7 +10,8 @@ export interface ActivityFilter { limit?: number; since?: string; until?: string
 export interface Doc<T = Record<string, unknown>> { id: string; key?: string | null; at?: string | null; data: T }
 export interface DocFilter { since?: string; until?: string; keys?: string[]; limit?: number }
 
-type StoreSnapshot = Pick<ChannelStore, 'channel' | 'channelStoreId' | 'locationCode' | 'updatedAt' | 'meta' | 'cloverMerchantId'>;
+type StoreSnapshot = Pick<ChannelStore, 'channel' | 'channelStoreId' | 'locationCode' | 'updatedAt' | 'meta' | 'cloverMerchantId'>
+  & Partial<Pick<ChannelStore, 'brandName'>>;
 
 export interface FoodHubRepo {
   mode: 'supabase' | 'memory';
@@ -31,6 +32,7 @@ export interface FoodHubRepo {
   findStore(channel: ChannelKey, channelStoreId: string): Promise<ChannelStore | null>;
   getStore(id: string): Promise<ChannelStore | null>;
   upsertStore(store: Omit<ChannelStore, 'id'> & { id?: string }): Promise<ChannelStore>;
+  insertStoreIfAbsent(store: Omit<ChannelStore, 'id'>): Promise<ChannelStore | null>;
   /** With a snapshot, update only if the stored identity, location and metadata still match. */
   updateStore(id: string, patch: Partial<ChannelStore>, expected?: StoreSnapshot): Promise<ChannelStore | null>;
   deleteStore(id: string): Promise<void>;
@@ -145,11 +147,19 @@ const memoryRepo: FoodHubRepo = {
     s.stores.set(next.id, next);
     return next;
   },
+  async insertStoreIfAbsent(store) {
+    const { stores } = memState();
+    for (const entry of stores.values()) {
+      if (entry.channel === store.channel && entry.channelStoreId === store.channelStoreId) return null;
+    }
+    return memoryRepo.upsertStore({ ...store, id: crypto.randomUUID() });
+  },
   async updateStore(id, patch, expected) {
     const s = memState();
     const cur = s.stores.get(id);
     if (!cur) return null;
     if (expected?.cloverMerchantId !== undefined && cur.cloverMerchantId !== expected.cloverMerchantId) return null;
+    if (expected?.brandName !== undefined && cur.brandName !== expected.brandName) return null;
     if (expected && (cur.channel !== expected.channel || cur.channelStoreId !== expected.channelStoreId || cur.locationCode !== expected.locationCode
       || cur.updatedAt !== expected.updatedAt || !isDeepStrictEqual(cur.meta, expected.meta))) return null;
     const next = { ...cur, ...patch, updatedAt: nowIso() };
@@ -432,6 +442,12 @@ function supabaseRepo(): FoodHubRepo {
         : await db.from('fh_channel_stores').upsert(row, { onConflict: 'channel,channel_store_id' }).select('*').single();
       return rowToStore(must(res));
     },
+    async insertStoreIfAbsent(store) {
+      const data = must(await db.from('fh_channel_stores').upsert({ ...storeToRow(store), updated_at: nowIso() }, {
+        onConflict: 'channel,channel_store_id', ignoreDuplicates: true,
+      }).select('*').maybeSingle());
+      return data ? rowToStore(data) : null;
+    },
     async updateStore(id, patch, expected) {
       let query = db.from('fh_channel_stores').update({ ...storeToRow(patch), updated_at: nowIso() }).eq('id', id);
       if (expected) {
@@ -440,6 +456,7 @@ function supabaseRepo(): FoodHubRepo {
           .eq('location_code', expected.locationCode).eq('updated_at', expected.updatedAt).eq('meta', JSON.stringify(expected.meta));
         if (expected.cloverMerchantId === null) query = query.is('clover_merchant_id', null);
         else if (expected.cloverMerchantId !== undefined) query = query.eq('clover_merchant_id', expected.cloverMerchantId);
+        if (expected.brandName !== undefined) query = query.eq('brand_name', expected.brandName);
       }
       const data = must(await query.select('*').maybeSingle());
       return data ? rowToStore(data) : null;

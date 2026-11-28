@@ -1,3 +1,4 @@
+- 2026-11-27 | Codex @ cloud | répétition locale #199 et #201 | conserver la liaison la plus récente pendant l’activation Uber | suite : revoir la gestion d’un succès Uber avec conflit local sur les cartes marchandes — signé : Codex @ cloud · 2026-11-27
 - 2026-11-27 | Codex @ navigateur marchand | fix/merchant-address-matching → #199 | en revue | choix explicite de la caisse dans une cuisine partagée et lors du déplacement Uber | publier selon la file, vérifier le trajet réel dans #46
 - 2026-11-27 | Codex @ navigateur marchand | fix/merchant-address-matching → PR | en revue | rapprocher une adresse Uber du catalogue actif et signaler les correspondances incertaines | liaisons réelles et preuve de réception suivies dans #46
 - 2026-11-27 | Codex @ cloud | fix/show-uber-link-evidence → PR #198 | branche de revue | réconcilier la lecture des liaisons Uber sur #194 publié | vérifier la CI du SHA exact, puis conserver l’ordre #198 avant #199. — signé Codex @ cloud

@@ -2,7 +2,7 @@
 
 Le signalement de lecture de la file d’impression utilise le cookie signé de la tablette et la cuisine de son inscription actuelle. Il reste séparé du signal d’écran, du son, de la visibilité et des décisions de relève. Réglages → Tablettes affiche l’heure du signalement associé à la cuisine actuelle et laisse l’état d’écran lisible si ce relevé est indisponible. Après un déplacement, un signalement tardif de l’ancienne cuisine est écarté de l’affichage.
 
-Les essais ciblés couvrent l’accès, le déplacement, les dates invalides, les réessais et les pannes de stockage. Le code Android, le parcours compilé et la CI se vérifient sur la branche de revue. L’impression physique et la réception du numéro commun restent au contrôle marchand. [Checklist #46](https://github.com/takatakca/foodhubca/issues/46)
+Les essais ciblés couvrent l’accès, le déplacement, les dates invalides, les réessais et les pannes de stockage. Android signale une consultation réussie depuis un fil d’exécution distinct. Le cookie utilisé pour consulter la file doit correspondre à l’inscription courante. L’envoi est limité à une tentative par minute et tolère un ancien serveur. Les 32 tests JVM passent. Le parcours compilé et la CI se vérifient sur la branche de revue, après la PR #219. L’impression physique et la réception du numéro commun restent au contrôle marchand. [Checklist #46](https://github.com/takatakca/foodhubca/issues/46)
 
 — signé : Codex @ cloud · 2026-11-28 10:08 Montréal
 

@@ -285,6 +285,45 @@ describe('webhooks and checks', () => {
     expect(await recoverMissedUberCancellations()).toBe(0);
     expect(api()).toHaveLength(0); // nothing open any more: no call
   });
+
+  it('filters to managed direct Uber orders before taking the newest 500', async () => {
+    const repo = getRepo();
+    const now = Date.now();
+    await repo.upsertStore(store());
+    await repo.upsertStore(store({ channelStoreId: 'fixture-empty-managed' }));
+    await repo.upsertStore(store({ channelStoreId: 'fixture-unmanaged', meta: { uberPos: { orderManager: 'other' } } }));
+    const old = await uberOrder('accepted', {
+      externalOrderId: 'fixture-older-direct',
+      createdAt: new Date(now - 90 * 60_000).toISOString(),
+    });
+    const newer = new Date(now - 30 * 60_000).toISOString();
+    const decoys = [
+      { channel: 'doordash', marketplace: 'doordash' },
+      { viaPos: 'clover' },
+      { viaHub: 'relay' },
+      { channelStoreId: 'fixture-unmanaged' },
+    ];
+    const sample: StoredOrder[] = [];
+    for (const [group, overrides] of decoys.entries()) {
+      for (let index = 0; index < 500; index++) {
+        const order = await uberOrder('accepted', {
+          ...overrides, externalOrderId: `fixture-other-${group}-${index}`, createdAt: newer,
+        });
+        if (index === 0) sample.push(order);
+      }
+    }
+    const cloverOnly = await uberOrder('accepted', {
+      externalOrderId: 'fixture-clover-only', channelStoreId: 'fixture-empty-managed', viaPos: 'clover', createdAt: newer,
+    });
+    mockFetch(() => ({ status: 200, body: { orders: [{ id: old.externalOrderId }] } }));
+
+    expect(await recoverMissedUberCancellations(now)).toBe(1);
+    expect(api().map(({ method, url }) => [method, url])).toEqual([
+      ['GET', `${API}/v1/eats/stores/uber-ndg/canceled-orders?limit=50`],
+    ]);
+    expect((await repo.getOrder(old.id))?.status).toBe('cancelled');
+    for (const row of [...sample, cloverOnly]) expect((await repo.getOrder(row.id))?.status).toBe('accepted');
+  });
 });
 
 describe('Uber Direct: update, list, proof of delivery, refund webhook', () => {

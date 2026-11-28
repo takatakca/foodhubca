@@ -1,3 +1,54 @@
+## 2026-11-28 — Préparation de #188 sur la tête de #184
+
+Le rapprochement local part de `d46b3d3` après l’intégration de #183 et #194. Les préférences de relève, les reçus du fournisseur et les protections du relais et des tablettes de #190 sont conservés. Le rejeu PostgreSQL vérifie la caisse Clover et les appels concurrents. Suivre la publication exacte de #184 avant la reprise de #188. La réception sur le téléphone marchand reste suivie dans [#46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-28
+
+## 2026-11-28 — Préparation de #184 après la fusion de #183
+
+Le rapprochement sur `8c2f858` conserve les protections Watchtower, la checklist de mise en service et le rejeu PostgreSQL. Le scénario de reprise vérifie aussi que la caisse Clover confirmée reste enregistrée avec la commande récupérée. La preuve sur le téléphone marchand reste suivie dans [#46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-28
+
+## 2026-11-27 — Lecture indisponible des réglages de relève
+
+Quand la lecture des réglages d’alerte renvoie HTTP 503, la page Mise en service garde les autres contrôles visibles et laisse la vérification des alertes à faire. La ligne des téléphones indique les coordonnées configurées dans le catalogue. Les essais de chargement couvrent les deux langues, la réponse normale et les autres erreurs.
+
+— signé : Codex @ cloud · 2026-11-27
+
+## 2026-11-27 — Préparation de #184 après la publication de #204
+
+Le SHA public `04dcc86` était stable et les sept contrôles de santé répondaient correctement. Les deux passages automatiques Watchtower de 23:03:58 et 23:04:58 UTC ont été observés dans la base Food Hub. Le rapprochement local conserve le diagnostic d’impression Clover publié et le rejeu des paliers de relève ajouté par #186 à la branche de #184. La vérification sur un téléphone marchand reste dans [#46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-27
+
+## 2026-11-26 — Paiement Clover après déplacement d’une liaison
+
+La réconciliation locale de #183 sur `86d190c` conserve les références par magasin de #178 pour la saisie, la reprise, l’import et le paiement Clover. Les 161 essais ciblés couvrent aussi le règlement et l’impression sur la caisse confirmée et le contrôle manuel d’une liaison Uber Eats. Les réponses des fournisseurs sont simulées. La CI du SHA réconcilié et la réception marchande restent à vérifier avant publication.
+
+La paire caisse et commande confirmée reste stable dans les événements et la lecture Suite. La note de facture Clover, quand elle est activée, utilise aussi la caisse confirmée si la liaison a changé. Le repli historique garde la liaison courante pour une commande sans caisse enregistrée. Deux tests reproduisent les destinations erronées avec des fournisseurs simulés. Sur `b59c904`, 133 tests ciblés, TypeScript et ESLint passent.
+
+La cuisine enregistrée sur la commande peut marquer la remise au livreur et la commande terminée. Si la liaison actuelle désigne une autre cuisine, Food Hub affiche un paiement Clover en attente. Le contrôle intervient avant la recherche du type de paiement et l’envoi à Clover. Pour une commande déjà terminée, vérifier le paiement sur la commande de la caisse Clover d’origine et l’enregistrer dans Clover si nécessaire. Le contrôle compare les deux cuisines lorsqu’elles sont connues. La preuve marchande reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+À la création ou au rattachement d’une commande Clover retrouvée, Food Hub enregistre la caisse confirmée avec l’identifiant de commande. Le règlement utilise cette caisse si la liaison change de caisse dans la même cuisine. Les anciennes commandes sans caisse enregistrée suivent la liaison actuelle ou la caisse par défaut configurée. Elles nécessitent une vérification sur la caisse d’origine après un remplacement. Les essais simulés couvrent le changement de caisse, la caisse OAuth approuvée, le rattachement et le contrôle de cuisine.
+
+L’impression à l’arrivée, le déclenchement planifié et la réimpression utilisent aussi la caisse confirmée. Une caisse devenue inaccessible produit une erreur d’impression sur la commande. Les essais sur `cdde075` couvrent ces trois parcours avec des réponses Clover simulées, ainsi que la réimpression d’une commande historique. Les 193 tests ciblés, TypeScript et ESLint réussissent.
+
+L’annulation et la relève vers la tablette Skip ferment la commande sur la caisse qui l’a confirmée. Si cette caisse diffère de la caisse configurée, Food Hub y vérifie l’identifiant et le titre avant de demander une modification. Lors d’un envoi concurrent, la copie excédentaire est retirée de la caisse qui l’a créée. Une même référence sur deux caisses distingue toujours deux copies lorsque les deux caisses sont confirmées. Les 117 tests ciblés utilisent des réponses Clover simulées.
+
+Si l’annulation arrive pendant le premier envoi, Food Hub ferme la commande sur la caisse confirmée avant impression. L’arrêt s’applique aussi lorsque l’acceptation automatique est désactivée. Quand Clover renvoie un échec après l’annulation, la relève vers la tablette Skip est abandonnée. Les trois scénarios reproduisaient l’erreur avant correction. Sur `df03fc9`, les 136 tests ciblés, TypeScript et ESLint réussissent avec des fournisseurs simulés.
+
+## Diagnostic des étiquettes d’impression Clover
+
+La vérification dans Réglages → Canaux lit les pages d’étiquettes et d’articles du marchand. Une réponse incomplète, en erreur ou répétée interrompt le diagnostic et l’affectation. Le résultat affiché porte sur les étiquettes configurées. La confirmation de réception du ticket et la preuve d’appel sont suivies dans [la checklist marchande](https://github.com/takatakca/foodhubca/issues/46). La branche part de #178 et suit la [file de publication](https://github.com/takatakca/foodhubca/issues/155).
+
+— Codex @ navigateur marchand · 2026-11-27
+## 2026-11-26 — Arrivée des commandes Uber Eats par Clover
+
+Quand Uber Eats est configuré via Clover, Food Hub conserve les nouvelles notifications Uber directes et les commandes directes ou relayées encore en file pour vérification. La reprise manuelle applique la même règle. La récupération ne consulte plus les nouvelles commandes côté Uber. L’import natif lit les commandes chez Clover, et les annulations et états des commandes directes déjà reçues continuent d’être traités.
+
+Les essais signés couvrent les notifications ordinaires et planifiées, les entrées déjà normalisées, la reprise, l’import natif Clover et les annulations antérieures. Les preuves de réception réelle restent suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
 ## 2026-11-26 — Compteurs de la tablette après un déplacement
 
 Le signal natif vérifie de nouveau la cuisine et le jumelage juste avant de renvoyer les compteurs. Une tablette déplacée relit sa nouvelle affectation au signal suivant. Une tablette révoquée ou absente reçoit une demande de reconnexion. Les réponses d’erreur ne contiennent ni compteur ni identifiant. Un signal normal conserve ses compteurs courants.
@@ -45,6 +96,8 @@ La réservation du premier appel enregistre une empreinte normalisée de la dest
 Deux processus Watchtower peuvent lire la même occurrence alors que le premier vient d’écrire sa révision et attend le fournisseur simulé. Une réservation durable par palier empêche un second envoi pour cette occurrence. Le processus qui observe un palier déjà réservé attend la fin de son envoi ou consigne un résultat non confirmé après deux minutes. Une réservation ambiguë ne déclenche aucun rappel automatique pour le palier concerné. Les paliers ultérieurs reprennent selon les règles existantes.
 
 Avant une demande qui n’a pas encore démarré, la relève vérifie que l’incident est toujours ouvert dans la même cuisine. Le journal conserve le résultat des demandes déjà parties. La preuve de réception réelle reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+Le scénario PostgreSQL du contrôle de reprise maintient le premier appel de gestionnaire simulé en attente pendant qu’un second processus lit et met à jour la même alerte. Il vérifie que ce passage ne renvoie pas l’appel, puis acquitte l’alerte et vérifie que le résultat du premier appel demeure dans l’historique sans appel au gestionnaire de relève.
 
 — signé : Codex @ cloud · 2026-11-26
 

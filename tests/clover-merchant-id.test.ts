@@ -2,7 +2,7 @@
 // instead of the Clover merchant ID never gets its orders into the register: Clover's API does not know that number.
 // Production had 7 Uber stores on such a number, copied from store to store by the merchant picker. Refused on save,
 // and never offered again.
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { POST } from '../app/api/foodhub/stores/route';
 import { cloverMerchantIdProblem, knownCloverMerchants } from '../lib/foodhub/pos/clover';
 import { getRepo } from '../lib/foodhub/repo';
@@ -40,6 +40,45 @@ describe('Clover merchant ID on a store mapping', () => {
     const good = await save({ ...base, cloverMerchantId: 'TESTMERCH0002' });
     expect(good.status).toBe(200);
     expect((await getRepo().findStore('uber_eats', 'ue-test-1'))?.cloverMerchantId).toBe('TESTMERCH0002');
+  });
+
+  it('restores the default only when the mapping editor explicitly clears the register', async () => {
+    const mapping = { channel: 'uber_eats', channelStoreId: 'ue-default', brandName: 'Po Poulet', locationCode: 'NDG_6284' };
+    const initial = await save({ ...mapping, cloverMerchantId: 'TESTMERCH0002', autoAccept: false });
+    const { store } = await initial.json();
+    for (const patch of [{}, { cloverMerchantId: null }]) {
+      const response = await save({ ...mapping, id: store.id, ...patch });
+      expect((await response.json()).store.cloverMerchantId).toBe('TESTMERCH0002');
+    }
+    for (const choice of ['', '  ']) {
+      await save({ ...mapping, id: store.id, cloverMerchantId: 'TESTMERCH0002' });
+      const response = await save({ ...mapping, id: store.id, cloverMerchantId: choice });
+      expect(response.status).toBe(200);
+      expect((await response.json()).store.cloverMerchantId).toBeNull();
+      expect(await getRepo().getStore(store.id)).toMatchObject({ cloverMerchantId: null, autoAccept: false });
+    }
+    const moved = await save({ ...mapping, id: store.id, locationCode: 'SAINT_LEONARD', cloverMerchantId: '' });
+    expect(moved.status).toBe(400);
+    expect((await getRepo().getStore(store.id))?.locationCode).toBe('NDG_6284');
+  });
+
+  it('keeps the new kitchen and register when a mapping changes during a manual save', async () => {
+    const mapping = { channel: 'uber_eats', channelStoreId: 'ue-changing', brandName: 'Po Poulet', locationCode: 'NDG_6284' };
+    const { store } = await (await save({ ...mapping, cloverMerchantId: 'TESTMERCH0002' })).json();
+    const repo = getRepo();
+    const lookup = repo.findStore.bind(repo);
+    const competingWrite = vi.spyOn(repo, 'findStore').mockImplementationOnce(async (...args) => {
+      const previous = await lookup(...args);
+      await repo.updateStore(store.id, { locationCode: 'SAINT_LEONARD', cloverMerchantId: 'TESTMERCH0003' });
+      return previous;
+    });
+    try {
+      const response = await save({ ...mapping, id: store.id, cloverMerchantId: '' });
+      expect(response.status).toBe(409);
+      expect(await repo.getStore(store.id)).toMatchObject({ locationCode: 'SAINT_LEONARD', cloverMerchantId: 'TESTMERCH0003' });
+    } finally {
+      competingWrite.mockRestore();
+    }
   });
 
   it('a wrong ID already saved on a store is not offered again in the merchant pickers', () => {

@@ -1,3 +1,16 @@
+## 2026-11-27 — Choix de la caisse Clover sur la version publiée
+
+La branche #201 reprend `7764c7e`. Le choix explicite de la caisse par défaut et la vérification de la liaison au moment de l’enregistrement restent couverts. Lors d’un déplacement Uber, le formulaire doit soumettre la caisse de destination. La vérification sur caisse marchande reste suivie dans #46.
+
+— signé Codex @ cloud · 2026-11-27
+
+## 27 novembre 2026 — Caisse par défaut dans l’éditeur de liaison
+
+Le formulaire manuel de Restaurants → Liaisons transmet une chaîne vide quand le commerçant choisit la caisse par défaut. La sauvegarde efface alors l’ancienne caisse explicite pour une liaison qui reste dans sa cuisine. Les appels partiels qui omettent ce champ ou envoient une valeur nulle conservent leur comportement. Un changement de cuisine Uber exige toujours un marchand Clover de destination.
+
+La mise à jour d’une liaison existante compare en base la version, la cuisine, le magasin, la caisse et les métadonnées lues pendant la requête. Une réaffectation concurrente renvoie un conflit et laisse le choix le plus récent en place. Les régressions utilisent des magasins fictifs. Le parcours d’activation Uber est suivi à part dans la PR #199. Le déploiement suit la file de #155.
+
+— Codex @ Chrome, 27 novembre 2026
 ## 2026-11-26 — Paiement Clover après déplacement d’une liaison
 
 La réconciliation locale de #183 sur `86d190c` conserve les références par magasin de #178 pour la saisie, la reprise, l’import et le paiement Clover. Les 161 essais ciblés couvrent aussi le règlement et l’impression sur la caisse confirmée et le contrôle manuel d’une liaison Uber Eats. Les réponses des fournisseurs sont simulées. La CI du SHA réconcilié et la réception marchande restent à vérifier avant publication.

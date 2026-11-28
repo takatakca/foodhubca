@@ -1,5 +1,15 @@
 ## 2026-11-28 — Périmètre magasin des avis Dasher DoorDash
 
+## 2026-11-28 — Index de rapprochement historique DoorDash
+
+La recherche du [#195](https://github.com/takatakca/foodhubca/pull/195) utilise l’index non unique `fh_orders_channel_pos_store_idx` sur `(channel, pos_order_id, channel_store_id)` pour les références Clover, avec ou sans magasin transmis. La recherche continue de couvrir tout l’historique et de détecter les doublons.
+
+Pour une base existante en service, le propriétaire installe l’index avant la publication après la sauvegarde prévue au protocole de déploiement. Utiliser `psql -X -v ON_ERROR_STOP=1 -f supabase/upgrade_fh_orders_pos_reference_idx.sql` avec la connexion approuvée en mode direct ou session et l’autovalidation activée. Le fichier crée l’index en mode concurrent, puis vérifie sa définition et sa validité dans une instruction séparée. Si un index invalide ou différent porte déjà ce nom, examiner le catalogue et reprendre la mise à niveau après avoir corrigé l’index. Pour une nouvelle base, `supabase/INSTALL_ALL.sql` inclut l’index.
+
+Sur PostgreSQL 17 local, l’installation neuve et la mise à niveau répétée de la version précédente produisent le même index et préservent les lignes fictives, dont les références partagées. Le contrôle échoue sur un index incorrect ou invalide. La vérification de la base cible et l’essai marchand restent suivis dans la [checklist #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-28 07:34 Montréal
+
 Le rapprochement par référence client vérifie le magasin transmis dans `delivery.location_id` et tient compte du format plat et des références marchandes présentes. Les références de magasin contradictoires ou les commandes qui restent ambiguës sont conservées pour vérification. Les magasins protégés restent exclus du rapprochement par référence client, y compris lorsque la liaison porte un identifiant de plateforme protégé. L’identifiant de commande DoorDash explicite garde sa priorité. [Documentation DoorDash](https://developer.doordash.com/en-US/docs/marketplace/how_to/dasher_status_webhooks/)
 
 Sur deux cuisines fictives qui partagent une référence Clover, deux avis signés ont produit un seul règlement Clover simulé pour la cuisine désignée. Les avis dont le magasin diffère de celui de la commande n’ont déclenché aucune écriture de commande ni requête fournisseur. Les 63 tests ciblés, TypeScript et ESLint passent. La CI du SHA exact, la revue et la publication par le propriétaire précèdent l’essai marchand. [PR #195](https://github.com/takatakca/foodhubca/pull/195) · [Checklist #46](https://github.com/takatakca/foodhubca/issues/46)

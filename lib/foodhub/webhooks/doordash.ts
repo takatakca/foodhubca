@@ -97,14 +97,16 @@ export function classifyDoorDash(raw: any): DoorDashClassified {
 const INTERNAL_ORDER_UUID = /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i;
 
 /** Older notices can carry only the merchant reference that we sent on confirmation. Clover IDs are register-local. */
-async function idFromClientOrderId(clientOrderId: string, merchantStoreRef: unknown): Promise<string> {
+async function idFromClientOrderId(clientOrderId: string, ...merchantStoreRefs: unknown[]): Promise<string> {
   const reference = clientOrderId.trim();
   if (!reference) return '';
   let merchantStoreId: string | undefined;
-  if (merchantStoreRef !== undefined && merchantStoreRef !== null) {
+  for (const merchantStoreRef of merchantStoreRefs) {
+    if (merchantStoreRef === undefined || merchantStoreRef === null) continue;
     if (typeof merchantStoreRef !== 'string' && typeof merchantStoreRef !== 'number') return '';
-    merchantStoreId = String(merchantStoreRef).trim();
-    if (!merchantStoreId) return '';
+    const candidateStoreId = String(merchantStoreRef).trim();
+    if (!candidateStoreId || (merchantStoreId !== undefined && merchantStoreId !== candidateStoreId)) return '';
+    merchantStoreId = candidateStoreId;
   }
   const repo = getRepo();
   const [internal, pos] = await Promise.all([
@@ -286,7 +288,11 @@ export async function handleDoorDashWebhook(raw: any): Promise<HandlerOutcome> {
     return { result: 'menu status noted' };
   }
   if (c.kind === 'dasher') {
-    const id = doordashId || (await idFromClientOrderId(clientOrderId, body?.store?.merchant_supplied_id));
+    // DoorDash sends the merchant's store identifier in delivery.location_id. Older notices can be flat.
+    const id = doordashId || (await idFromClientOrderId(
+      clientOrderId, raw?.delivery?.location_id, raw?.location_id,
+      raw?.delivery?.store?.merchant_supplied_id, raw?.store?.merchant_supplied_id,
+    ));
     if (!id) { await keepUnparsed('doordash', raw, 'DoorDash Dasher update without an order id Food Hub can verify', clientOrderId || null); return { result: 'kept: unknown order' }; }
     await applyCourierUpdate('doordash', id, { status: c.courierStatus!, ...doorDashCourierDetails(body) }, `doordash:${body.dasher_status || c.eventType}`);
     return { result: `dasher ${c.courierStatus}` };

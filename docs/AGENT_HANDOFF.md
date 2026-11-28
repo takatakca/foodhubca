@@ -1,3 +1,9 @@
+## 2026-11-28 — Routage déclaré par Uber
+
+L’activation indique si Uber a accepté la demande, quel gestionnaire Uber déclare et si Uber confirme l’état des webhooks. Les résultats et le journal comptent la configuration seulement quand Uber désigne Food Hub avec les webhooks actifs. Une nouvelle vérification en échec remplace l’indication précédente. La preuve de réception en cuisine reste suivie dans [#46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé Codex @ cloud · 2026-11-28
+
 ## 2026-11-26 — Paiement Clover après déplacement d’une liaison
 
 La réconciliation locale de #183 sur `86d190c` conserve les références par magasin de #178 pour la saisie, la reprise, l’import et le paiement Clover. Les 161 essais ciblés couvrent aussi le règlement et l’impression sur la caisse confirmée et le contrôle manuel d’une liaison Uber Eats. Les réponses des fournisseurs sont simulées. La CI du SHA réconcilié et la réception marchande restent à vérifier avant publication.

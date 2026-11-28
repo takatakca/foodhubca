@@ -39,7 +39,7 @@ const EVENT: Record<string, [string, string]> = {
   pos_injected: ['Envoyée à Clover', 'Sent to Clover'], pos_failed: ['Clover a refusé', 'Clover refused it'], pos_skipped: ['Clover non connecté', 'Clover not connected'],
   accepted: ['Acceptée', 'Accepted'], accept: ['Acceptée', 'Accepted'], accept_failed: ['Acceptation échouée', 'Accept failed'], deny: ['Refusée', 'Rejected'], deny_failed: ['Refus échoué', 'Reject failed'],
   ready: ['Prête', 'Ready'], ready_failed: ['« Prête » non envoyé', 'Ready not sent'], dispatch: ['Remise au livreur', 'Picked up'], complete: ['Terminée', 'Completed'],
-  cancel: ['Annulée', 'Cancelled'], cancel_failed: ['Annulation échouée', 'Cancel failed'], printed: ['Imprimée en cuisine', 'Printed in the kitchen'], print_failed: ['Impression échouée', 'Print failed'],
+  cancel: ['Annulée', 'Cancelled'], cancel_failed: ['Annulation échouée', 'Cancel failed'], printed: ['Demande d’impression envoyée à Clover', 'Print request sent to Clover'], print_failed: ['Impression échouée', 'Print failed'],
   tablet_print_claimed: ['Réservation sur tablette', 'Tablet reservation'], tablet_cancel_print_claimed: ['Réservation sur tablette', 'Tablet reservation'],
   routed_to_skip_tablet: ['Relève vers la tablette Skip', 'Skip tablet fallback'], needs_attention: ['À vérifier', 'Needs attention'], platform_status: ['Mise à jour plateforme', 'Platform update'],
   pos_paid: ['Payée dans Clover', 'Paid in Clover'], pos_payment_failed: ['Paiement Clover non noté', 'Clover payment not recorded'], pos_cancelled: ['Retirée de Clover', 'Removed from Clover'],

@@ -1,6 +1,6 @@
 ## 2026-11-28 — Historique des réservations d’impression de tablette
 
-La réservation d’un ticket de commande ou d’annulation enregistre un événement de réservation. L’historique de la commande présente aussi les anciens événements de tablette comme des réservations, en français et en anglais. Les lignes historiques en base et les événements Clover restent intacts. Les réponses de reprise de la tablette gardent leur forme.
+La réservation d’un ticket de commande ou d’annulation enregistre un événement de réservation. L’historique de la commande présente aussi les anciens événements de tablette comme des réservations, en français et en anglais. Les lignes historiques en base restent intactes. Un événement d’impression Clover indique l’envoi de la demande à Clover. La sortie papier est vérifiée sur place. Les réponses de reprise de la tablette gardent leur forme.
 
 Les trois régressions échouaient sur la tête précédente de #219. Les 58 tests ciblés passent après la correction, y compris la portée de la cuisine et la déduplication des réessais. Le parcours compilé, la CI du SHA exact et l’observation de la sortie papier restent à vérifier. [PR #219](https://github.com/takatakca/foodhubca/pull/219) · [Checklist marchande #46](https://github.com/takatakca/foodhubca/issues/46)
 

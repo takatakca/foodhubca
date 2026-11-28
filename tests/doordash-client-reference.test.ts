@@ -161,6 +161,42 @@ describe('DoorDash signed legacy order attribution', () => {
     await expectKept(body);
   });
 
+  it('holds a protected nested Dasher location before looking up the shared Clover reference', async () => {
+    const north = await addOrder(NORTH, 'fixture-dd-order-north');
+    const south = await addOrder(SOUTH, 'fixture-dd-order-south');
+    vi.stubEnv('FOODHUB_MENU_LOCKED_STORES', `doordash:${NORTH.store}`);
+    const lookup = vi.spyOn(getRepo(), 'findPosOrderReferences');
+    const body = dasherUpdate({ location_id: NORTH.store, dasher_status: 'dasher_out_for_delivery' });
+    try {
+      await post(body);
+      expect(lookup).not.toHaveBeenCalled();
+    } finally {
+      lookup.mockRestore();
+    }
+
+    expect(await getRepo().getOrder(north.id)).toEqual(north);
+    expect(await getRepo().getOrder(south.id)).toEqual(south);
+    expect(provider).not.toHaveBeenCalled();
+    await expectKept(body);
+  });
+
+  it('holds a unique legacy reference when its mapped store carries a protected platform ID', async () => {
+    const order = await addOrder(NORTH, 'fixture-dd-order-north');
+    const repo = getRepo();
+    const store = await repo.findStore('doordash', NORTH.store);
+    if (!store) throw new Error('Missing DoorDash fixture store');
+    const protectedId = 'fixture-protected-platform-id';
+    await repo.updateStore(store.id, { meta: { platformStoreId: protectedId } });
+    vi.stubEnv('FOODHUB_MENU_LOCKED_STORES', `doordash:${protectedId}`);
+    const body = dasherUpdate({ dasher_status: 'dasher_out_for_delivery' });
+    await post(body);
+
+    expect(await repo.getOrder(order.id)).toEqual(order);
+    expect(await repo.listEvents(order.id)).toEqual([]);
+    expect(provider).not.toHaveBeenCalled();
+    await expectKept(body);
+  });
+
   it('uses matching Dasher and merchant store references', async () => {
     const north = await addOrder(NORTH, 'fixture-dd-order-north');
     const south = await addOrder(SOUTH, 'fixture-dd-order-south');

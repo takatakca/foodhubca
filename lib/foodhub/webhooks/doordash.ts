@@ -21,7 +21,7 @@ import { logActivity } from '../activity';
 import { parseDoorDashOrder } from '../adapters/doordash';
 import { nowIso } from '../config';
 import { applyCourierUpdate, doorDashCourierDetails, doorDashCourierStatus } from '../courier';
-import { isProtectedDoorDashId } from '../doordash/guard';
+import { guardDoorDashOrder, isProtectedDoorDashId } from '../doordash/guard';
 import { doorDashSandboxReason } from '../doordash/sandbox';
 import { mevOnOrderChange } from '../mev/hooks';
 import { menuCallbackOutcome } from '../ops';
@@ -108,6 +108,7 @@ async function idFromClientOrderId(clientOrderId: string, ...merchantStoreRefs: 
     if (!candidateStoreId || (merchantStoreId !== undefined && merchantStoreId !== candidateStoreId)) return '';
     merchantStoreId = candidateStoreId;
   }
+  if (isProtectedDoorDashId(merchantStoreId)) return '';
   const repo = getRepo();
   const [internal, pos] = await Promise.all([
     INTERNAL_ORDER_UUID.test(reference) ? repo.getOrder(reference) : null,
@@ -119,6 +120,7 @@ async function idFromClientOrderId(clientOrderId: string, ...merchantStoreRefs: 
   if (!candidate || candidate.viaPos || candidate.viaHub) return '';
   // Check age only after exact matches across the history, so an old collision also prevents guessing.
   if (!internalMatch && !(Date.parse(candidate.createdAt) >= Date.now() - 3 * 86400_000)) return '';
+  if (await guardDoorDashOrder(candidate)) return '';
   return candidate.externalOrderId;
 }
 

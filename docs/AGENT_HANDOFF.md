@@ -1,10 +1,10 @@
 ## 2026-11-28 — Périmètre magasin des avis Dasher DoorDash
 
-Le rapprochement par référence client vérifie le magasin transmis dans `delivery.location_id` et tient compte du format plat et des références marchandes présentes. Les références de magasin contradictoires ou les commandes qui restent ambiguës sont conservées pour vérification. L’identifiant de commande DoorDash explicite garde sa priorité. [Documentation DoorDash](https://developer.doordash.com/en-US/docs/marketplace/how_to/dasher_status_webhooks/)
+Le rapprochement par référence client vérifie le magasin transmis dans `delivery.location_id` et tient compte du format plat et des références marchandes présentes. Les références de magasin contradictoires ou les commandes qui restent ambiguës sont conservées pour vérification. Les magasins protégés restent exclus du rapprochement par référence client, y compris lorsque la liaison porte un identifiant de plateforme protégé. L’identifiant de commande DoorDash explicite garde sa priorité. [Documentation DoorDash](https://developer.doordash.com/en-US/docs/marketplace/how_to/dasher_status_webhooks/)
 
-Sur deux cuisines fictives qui partagent une référence Clover, deux avis signés ont produit un seul règlement Clover simulé pour la cuisine désignée. Les avis dont le magasin diffère de celui de la commande n’ont déclenché aucune écriture de commande ni requête fournisseur. Les 61 tests ciblés, TypeScript et ESLint passent. La CI du SHA exact, la revue et la publication par le propriétaire précèdent l’essai marchand. [PR #195](https://github.com/takatakca/foodhubca/pull/195) · [Checklist #46](https://github.com/takatakca/foodhubca/issues/46)
+Sur deux cuisines fictives qui partagent une référence Clover, deux avis signés ont produit un seul règlement Clover simulé pour la cuisine désignée. Les avis dont le magasin diffère de celui de la commande n’ont déclenché aucune écriture de commande ni requête fournisseur. Les 63 tests ciblés, TypeScript et ESLint passent. La CI du SHA exact, la revue et la publication par le propriétaire précèdent l’essai marchand. [PR #195](https://github.com/takatakca/foodhubca/pull/195) · [Checklist #46](https://github.com/takatakca/foodhubca/issues/46)
 
-— signé : Codex @ cloud · 2026-11-28 06:07 Montréal
+— signé : Codex @ cloud · 2026-11-28 06:10 Montréal
 
 ## 2026-11-26 — Anciennes références DoorDash partagées par plusieurs caisses
 

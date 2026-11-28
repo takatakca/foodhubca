@@ -14,13 +14,13 @@ import { Hint } from '@/components/help/hint';
 import { useSignOut } from '@/components/shell/console-shell';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { SettingsHead } from '../settings-ui';
-import { ago, api, ApiError } from '@/lib/ui/api';
+import { ago, api, ApiError, timeOf } from '@/lib/ui/api';
 import { formDraftId, useFormDraft } from '@/lib/ui/use-form-draft';
 import { playSound, unlockAudio } from '@/lib/ui/sound';
 import { useI18n } from '@/lib/i18n/client';
 import { cn } from '@/lib/ui/cn';
 
-type Device = { id: string; name: string; locationCode: string; enrolledBy: string; enrolledAt: string; lastSeenAt?: string | null; soundOn?: boolean | null; visible?: boolean | null; battery?: number | null; charging?: boolean | null; signedIn?: string | null; status: 'online' | 'offline' | 'never' | 'revoked' };
+type Device = { id: string; name: string; locationCode: string; enrolledBy: string; enrolledAt: string; lastSeenAt?: string | null; printListenerObservedAt?: string; soundOn?: boolean | null; visible?: boolean | null; battery?: number | null; charging?: boolean | null; signedIn?: string | null; status: 'online' | 'offline' | 'never' | 'revoked' };
 /** What the enrol / edit pop-ups keep on this device when closed by mistake (a name and a location — nothing secret). */
 type TabletForm = { name: string; locationCode: string };
 
@@ -62,7 +62,7 @@ export default function DevicesPage() {
           {t('Cet écran est une tablette de cuisine :', 'This screen is a kitchen tablet:')} <strong>{devices.find((d) => d.id === here)?.name ?? '…'}</strong>
         </Banner>
       )}
-      {loaded && offline > 0 && <Banner tone="warn" className="mb-4">{offline === 1 ? t('1 tablette hors ligne ou jamais vue.', '1 tablet offline or never seen.') : t(`${offline} tablettes hors ligne ou jamais vues.`, `${offline} tablets offline or never seen.`)}</Banner>}
+      {loaded && offline > 0 && <Banner tone="warn" className="mb-4">{offline === 1 ? t('1 tablette sans signal d’écran récent.', '1 tablet without a recent screen signal.') : t(`${offline} tablettes sans signal d’écran récent.`, `${offline} tablets without a recent screen signal.`)}</Banner>}
 
       {!loaded && !err && <SkeletonList count={3} />}
       {loaded && devices.length === 0 && (
@@ -99,7 +99,7 @@ export default function DevicesPage() {
 }
 
 function DeviceCard({ d, here, manage, lang, onRename, onRemove }: { d: Device; here: boolean; manage: boolean; lang: 'fr' | 'en'; onRename: () => void; onRemove: () => void }) {
-  const { t } = useI18n();
+  const { t, loc } = useI18n();
   const online = d.status === 'online';
   const Battery = d.charging ? BatteryCharging : (d.battery ?? 1) < 0.25 ? BatteryLow : BatteryMedium;
   return (
@@ -109,7 +109,7 @@ function DeviceCard({ d, here, manage, lang, onRename, onRemove }: { d: Device; 
           <div className={cn('grid size-10 shrink-0 place-items-center rounded-md', online ? 'bg-go/10 text-go-2' : 'bg-stop/10 text-stop')}><MonitorSmartphone className="size-5" /></div>
           <div className="min-w-0">
             <div className="flex items-center gap-2 truncate font-bold text-ink">{d.name}{here && <Badge tone="info">{t('cet écran', 'this screen')}</Badge>}</div>
-            <div className="text-small mt-0.5 flex items-center gap-1.5 text-ink-3"><StatusDot tone={online ? 'go' : 'stop'} pulse={online} />{online ? t('En ligne', 'Online') : d.status === 'never' ? t('Jamais vue', 'Never seen') : `${t('Hors ligne', 'Offline')} · ${ago(d.lastSeenAt, lang)}`}</div>
+            <div className="text-small mt-0.5 flex flex-wrap items-center gap-x-1.5 text-ink-3"><StatusDot tone={online ? 'go' : 'stop'} pulse={online} /><span>{t('Signal de l’écran', 'Screen signal')}</span><span aria-hidden="true">·</span><span>{online ? t('En ligne', 'Online') : d.status === 'never' ? t('Jamais vue', 'Never seen') : `${t('Hors ligne', 'Offline')} · ${ago(d.lastSeenAt, lang)}`}</span></div>
           </div>
         </div>
       </div>
@@ -120,6 +120,12 @@ function DeviceCard({ d, here, manage, lang, onRename, onRemove }: { d: Device; 
         {typeof d.battery === 'number' && <Badge tone={d.battery < 0.2 && !d.charging ? 'stop' : 'neutral'} icon={<Battery className="size-3" />}>{Math.round(d.battery * 100)} %</Badge>}
         {d.signedIn && <Badge tone="dark">{d.signedIn}</Badge>}
       </div>
+      {d.printListenerObservedAt && (
+        <p className="text-small mt-3 text-ink-3">
+          {t('Consultation signalée de la file d’impression Android', 'Android print queue read reported')}{' · '}
+          <time dateTime={d.printListenerObservedAt}>{timeOf(d.printListenerObservedAt, loc, true)}</time>
+        </p>
+      )}
       <div className="text-small mt-3 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-t border-line pt-3 text-ink-3">
         <span>{t('Par', 'By')} {d.enrolledBy} · {new Date(d.enrolledAt).toLocaleDateString(lang === 'fr' ? 'fr-CA' : 'en-CA')}</span>
         {manage && <span className="flex gap-1"><Hint id="devices.edit"><Button variant="ghost" onClick={onRename} icon={<Pencil className="size-4" />}>{t('Modifier', 'Edit')}</Button></Hint><Hint id="devices.remove"><Button variant="ghost" onClick={onRemove} icon={<Trash2 className="size-4" />}>{t('Retirer', 'Remove')}</Button></Hint></span>}

@@ -1,3 +1,11 @@
+## 2026-11-28 — Signal du service Android de la file d’impression
+
+Le signalement de lecture de la file d’impression utilise le cookie signé de la tablette et la cuisine de son inscription actuelle. Il reste séparé du signal d’écran, du son, de la visibilité et des décisions de relève. Réglages → Tablettes affiche l’heure du signalement associé à la cuisine actuelle et laisse l’état d’écran lisible si ce relevé est indisponible. Après un déplacement, un signalement tardif de l’ancienne cuisine est écarté de l’affichage.
+
+Les essais ciblés couvrent l’accès, le déplacement, les dates invalides, les réessais et les pannes de stockage. Le code Android, le parcours compilé et la CI se vérifient sur la branche de revue. L’impression physique et la réception du numéro commun restent au contrôle marchand. [Checklist #46](https://github.com/takatakca/foodhubca/issues/46)
+
+— signé : Codex @ cloud · 2026-11-28 10:08 Montréal
+
 ## 2026-11-28 — Historique des réservations d’impression de tablette
 
 La réservation d’un ticket de commande ou d’annulation enregistre un événement de réservation. L’historique de la commande présente aussi les anciens événements de tablette comme des réservations, en français et en anglais. Les lignes historiques en base restent intactes. Un événement d’impression Clover indique l’envoi de la demande à Clover. La sortie papier est vérifiée sur place. Les réponses de reprise de la tablette gardent leur forme.

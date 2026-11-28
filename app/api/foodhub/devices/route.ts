@@ -3,6 +3,7 @@ import { approvalGate, inScope, withPerm } from '@/lib/foodhub/auth';
 import { getCatalog } from '@/lib/foodhub/catalog';
 import { fail, ok, readJson } from '@/lib/foodhub/http';
 import { deviceFromRequest, deviceStatus, enrollDevice, listDevices } from '@/lib/foodhub/identity/devices';
+import { listPrintListenerObservations } from '@/lib/foodhub/identity/print-listener';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,7 +11,11 @@ export const dynamic = 'force-dynamic';
 export const GET = withPerm('view', async (req, _ctx, actor) => {
   const now = Date.now();
   const here = await deviceFromRequest(req);
-  const devices = (await listDevices()).filter((d) => !d.revoked && inScope(actor, d.locationCode)).map((d) => ({ ...d, status: deviceStatus(d, now), userAgent: undefined }));
+  const visibleDevices = (await listDevices()).filter((d) => !d.revoked && inScope(actor, d.locationCode));
+  const printListener = await listPrintListenerObservations(visibleDevices);
+  const devices = visibleDevices.map((d) => ({
+    ...d, status: deviceStatus(d, now), userAgent: undefined, printListenerObservedAt: printListener.get(d.id),
+  }));
   return ok({ devices, thisDevice: here ? here.id : null });
 });
 

@@ -27,6 +27,12 @@ Les essais signés couvrent les notifications ordinaires et planifiées, les ent
 
 — signé : Codex @ cloud · 2026-11-26
 
+## 2026-11-27 — Contrôle du paquet desktop opérateur
+
+Le workflow Windows conserve la vérification native de la fenêtre et exécute le paquet avec un profil temporaire et des pages synthétiques. Le contrôle utilise les menus Commandes, Cuisine et Réglages, recharge une adresse issue de la navigation interne et vérifie la reprise de cette même adresse après une coupure. La connexion réseau du paquet passe par un proxy local qui refuse les requêtes. La comparaison locale des versions empaquetées a reproduit la perte d’adresse avec 0.1.0 et confirmé sa reprise avec 0.1.1. La validation Windows du nouveau contrôle, la signature et le parcours sur un poste marchand restent suivis dans [l’issue #155](https://github.com/takatakca/foodhubca/issues/155).
+
+— signé : Codex @ cloud · 2026-11-27
+
 ## 2026-11-26 — Numéro de commande saisi à partir d’un écran
 
 La saisie manuelle distingue désormais deux commandes qui portent le même numéro affiché dans deux magasins. Saisir deux fois le même numéro pour le même magasin reste un doublon, même depuis un autre écran ou si la première saisie date d’une version antérieure. Clover utilise une référence de magasin dans le titre de reprise des nouvelles commandes pour retrouver la bonne commande quand plusieurs magasins partagent une caisse. L’import reconnaît ce titre sans écarter une commande native de Clover qui porte le même numéro. Le numéro affiché reste celui de la plateforme. Les preuves de réception physique restent suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).

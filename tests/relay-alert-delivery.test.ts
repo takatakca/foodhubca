@@ -1243,6 +1243,38 @@ describe('Screen relay alerts without a console open', () => {
     expect(await getIncident(incident.id)).toMatchObject({ level: 2 });
   });
 
+  it('retries an unstarted manager stage after an invalid legacy number and a temporary next-recipient failure', async () => {
+    const { incident, tick, second, secondPhone } = await prepareManagerVoice();
+    const repo = getRepo();
+    const first = await repo.getUser('manager-a');
+    if (!first) throw new Error('Expected the first manager fixture');
+    await repo.saveUser({ ...first, phone: 'invalid legacy number' });
+    fetchMock.mockResolvedValue(Response.json({ sid: CALL_SID, status: 'queued' }, { status: 201 }));
+
+    const stageKey = `watch:screen-stage:${incident.id}:2`;
+    const realRead = repo.getUser.bind(repo);
+    const readUser = vi.spyOn(repo, 'getUser').mockImplementation(async (username) => {
+      if (username === second.username) throw new Error('Temporary user storage error');
+      return realRead(username);
+    });
+    try {
+      await tick(2);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(await getIncident(incident.id)).toMatchObject({ level: 1 });
+      expect(await repo.getKv(stageKey)).toBeNull();
+    } finally {
+      readUser.mockRestore();
+    }
+
+    await tick(3);
+    await tick(4);
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(`${CALLS}.json`, expect.objectContaining({ method: 'POST' }));
+    expect(new URLSearchParams(String(fetchMock.mock.calls[0][1]?.body)).get('To')).toBe(secondPhone);
+    expect(await getIncident(incident.id)).toMatchObject({ level: 2 });
+    expect(await repo.getKv(stageKey)).toMatchObject({ settled: true });
+    expect((await readOutbox()).filter(({ ok }) => ok)).toMatchObject([{ incidentId: incident.id, purpose: 'alert', ref: CALL_SID }]);
+  });
+
   it('does not settle another worker’s reservation after an unconfirmed release before sending', async () => {
     const { incident, tick } = await prepareManagerVoice('owner');
     const repo = getRepo();

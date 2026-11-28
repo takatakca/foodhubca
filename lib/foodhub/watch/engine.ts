@@ -693,10 +693,11 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
     if (!(await maySend())) return 'stopped';
     called.add(destination);
     const result = await placeCall({ to: destination, say: callText(i, lang), lang }, { purpose, incidentId: i.id });
-    if (result.skipped && stage) stage.started = stageHadStarted ?? false;
+    const attempted = Boolean(normalized) && !result.skipped;
+    if (!attempted && stage) stage.started = stageHadStarted ?? false;
     const dispatchId = SHARED_PHONE_KINDS.includes(i.kind) ? crypto.randomUUID() : undefined;
     step('call', `${label} (${maskContact(destination)})`, result.ok, result.message, result.uncertain, dispatchId);
-    return normalized && !result.skipped ? 'attempted' : 'not-sent';
+    return attempted ? 'attempted' : 'not-sent';
   };
 
   const reserve = async (level: number): Promise<ScreenStageDecision> => {

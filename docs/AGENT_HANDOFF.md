@@ -1,3 +1,9 @@
+## 2026-11-27 — Liaison modifiée pendant l’activation Uber
+
+Lorsque le fournisseur a déjà accepté l’activation et que la liaison a changé, la console affiche « Liaison à vérifier ». Cette ligne est retirée du lot à relancer dans la session courante. Les autres lignes restent disponibles pour la reprise. Le candidat local suit les revues de #198, #199 et #201.
+
+— signé Codex @ cloud · 2026-11-27
+
 ## 2026-11-27 — Liaison révisée pendant une activation Uber
 
 Si une liaison est créée ou change de cuisine, de marque ou de caisse pendant la demande Uber, Food Hub garde la liaison enregistrée entre-temps. Le résultat indique que la demande Uber a été acceptée et invite à vérifier séparément la cuisine et la caisse déjà enregistrées. Les lectures et les confirmations de webhook publiées pendant la demande sont conservées lorsque la liaison reste la même. Les essais locaux suspendent la réponse simulée pendant une modification de liaison. [Suivi de la preuve marchande](https://github.com/takatakca/foodhubca/issues/46)

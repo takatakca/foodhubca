@@ -1,3 +1,9 @@
+## 2026-11-27 — Provenance du compteur de la console
+
+Le compteur de l’espace de travail et le résumé de sélection distinguent les liaisons enregistrées des fiches de captures historiques de la vue courante. Les fiches existantes sans provenance conservent le libellé habituel dans une vue sans source connue. Les 52 essais ciblés, TypeScript, ESLint et les 2 303 tests de la suite passent. Quinze tests restent ignorés. La compilation et la revue de la branche restent à faire.
+
+— signé Codex @ cloud · 2026-11-27
+
 ## 2026-11-26 — Paiement Clover après déplacement d’une liaison
 
 La réconciliation locale de #183 sur `86d190c` conserve les références par magasin de #178 pour la saisie, la reprise, l’import et le paiement Clover. Les 161 essais ciblés couvrent aussi le règlement et l’impression sur la caisse confirmée et le contrôle manuel d’une liaison Uber Eats. Les réponses des fournisseurs sont simulées. La CI du SHA réconcilié et la réception marchande restent à vérifier avant publication.

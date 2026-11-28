@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { WorkspaceControls, WORKSPACES } from '../components/shell/platform-workspace';
 import { mobileNav, navActive, navFor, navVisible, platformNav } from '../components/shell/nav';
 import { translator } from '../lib/i18n';
+import type { StorePoint } from '../lib/foodhub/scope';
 import { ROLE_PERMISSIONS } from '../lib/foodhub/session';
 import type { Role } from '../lib/foodhub/types';
 
@@ -44,6 +45,32 @@ describe('platform workspace navigation', () => {
 });
 
 describe('workspace controls', () => {
+  const sourced: StorePoint[] = [
+    { channel: 'uber_eats', locationCode: 'DEMO', brandName: 'Demo', source: 'saved' },
+    { channel: 'doordash', locationCode: 'DEMO', brandName: 'Demo', source: 'screenshot' },
+    { channel: 'doordash', locationCode: 'DEMO', brandName: 'Other', source: 'screenshot' },
+    { channel: 'doordash', locationCode: 'OUTSIDE', brandName: 'Demo', source: 'screenshot' },
+    { channel: 'skip', locationCode: 'DEMO', brandName: 'Demo' },
+  ];
+
+  it('distinguishes saved mappings, historical screenshots and legacy points in a mixed scope', () => {
+    const html = renderToStaticMarkup(createElement(WorkspaceControls, {
+      site: { kitchen: null, brand: null }, stores: sourced, onPick: () => undefined,
+      screensHref: '/stores/screens', t: en,
+    }));
+    expect(html).toContain('1 saved mapping · 3 historical screenshot listings · 1 listing to verify');
+    expect(html).not.toContain('5 stores in this view');
+  });
+
+  it('shows only the historical screenshot listing in the selected kitchen, brand and platform', () => {
+    const html = renderToStaticMarkup(createElement(WorkspaceControls, {
+      site: { kitchen: 'DEMO', brand: 'Demo', channel: 'doordash' }, stores: sourced, onPick: () => undefined,
+      screensHref: '/stores/screens', t: fr,
+    }));
+    expect(html).toContain('DoorDash · 1 fiche de capture historique');
+    expect(html).not.toMatch(/liaison enregistrée|fiches de captures|à vérifier/);
+  });
+
   it('always offers all three providers, including unmapped workspaces, without claiming a live connection', () => {
     const html = renderToStaticMarkup(createElement(WorkspaceControls, {
       site: { kitchen: 'DEMO', brand: 'Demo', channel: 'skip' }, stores, onPick: () => undefined,

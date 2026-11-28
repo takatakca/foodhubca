@@ -1,3 +1,9 @@
+## 2026-11-28 — Sélection des annulations Uber manquées
+
+La recherche lit les 500 commandes ouvertes récentes après avoir sélectionné Uber, ses magasins gérés et les commandes directes. Les commandes relayées et importées de Clover sont filtrées avant la limite. Un magasin dont aucune commande directe admissible n’est ouverte ne déclenche pas de lecture chez Uber. La preuve marchande reste suivie dans [#46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé Codex @ cloud · 2026-11-28
+
 ## 2026-11-26 — Paiement Clover après déplacement d’une liaison
 
 La réconciliation locale de #183 sur `86d190c` conserve les références par magasin de #178 pour la saisie, la reprise, l’import et le paiement Clover. Les 161 essais ciblés couvrent aussi le règlement et l’impression sur la caisse confirmée et le contrôle manuel d’une liaison Uber Eats. Les réponses des fournisseurs sont simulées. La CI du SHA réconcilié et la réception marchande restent à vérifier avant publication.

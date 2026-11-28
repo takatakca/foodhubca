@@ -243,7 +243,12 @@ export async function importCloverPlatformOrders(mid: string, opts: { now?: numb
           timeline: { acceptedAt: n.placedAt, acceptedBy: 'clover', seenAt, seenBy: 'Clover', ...(fresh ? {} : { completedAt: seenAt }) },
         });
         known.add(id);
-        if (!isNew) { out.skipped++; continue; }
+        if (!isNew) {
+          out.skipped++;
+          // The sales snapshot can predate an insert whose committed row was recovered.
+          if (order.viaPos === 'clover' && order.posOrderId === id) out.posOrderIds.push(id);
+          continue;
+        }
         await repo.addEvent(order.id, 'via_clover', { message: `Received in Clover through Clover's own ${CHANNEL_LABELS[channel]} integration — Food Hub only follows it (nothing is sent to ${CHANNEL_LABELS[channel]} or Clover).${store ? '' : ` Brand not known: ${candidates.length} ${CHANNEL_LABELS[channel]} stores use this Clover and the order does not name one.`}`, cloverOrderId: id });
         await noteLastOrder(channel, n.placedAt);
         // Only for a kitchen whose invoices go through Takatak MEV (sevOfRecord qcmev); the Clover MEV app otherwise.

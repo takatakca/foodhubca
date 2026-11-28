@@ -155,6 +155,30 @@ describe('platform orders received through Clover', () => {
     expect(rows[0].timeline?.completedAt).toEqual(status === 'completed' ? expect.any(String) : undefined);
   });
 
+  it('excludes a Clover receipt recovered as a duplicate from the same sales report', async () => {
+    const now = Date.now();
+    const repo = getRepo();
+    const insert = repo.insertOrderIfNew.bind(repo);
+    const posOrderId = 'DDNATIVE-RECOVERED';
+    cloverOrders = [cloverOrder(posOrderId, now - 10 * min, { orderType: { id: 'OT-DD' } })];
+
+    // The Supabase repository reads back the committed row when the insert response is lost.
+    const recovered = vi.spyOn(repo, 'insertOrderIfNew').mockImplementationOnce(async (...args) => {
+      const { order } = await insert(...args);
+      return { order, isNew: false };
+    });
+    try {
+      const result = await importCloverPlatformOrders(MID, { now });
+      expect(result).toMatchObject({ imported: 0, skipped: 1, posOrderIds: [posOrderId] });
+    } finally {
+      recovered.mockRestore();
+    }
+
+    const order = await repo.findOrder('doordash', `clover-${posOrderId}`);
+    expect(order).toMatchObject({ status: 'accepted', viaPos: 'clover', posOrderId });
+    expect(await repo.listEvents(order!.id)).toEqual([]);
+  });
+
   it('resumes a bounded window across the page budget without losing orders sharing the same creation time', async () => {
     const now = Date.now();
     const placed = now - 5 * min;

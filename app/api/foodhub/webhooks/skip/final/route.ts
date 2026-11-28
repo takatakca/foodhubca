@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { parseSkipOrder, skipAdapter } from '@/lib/foodhub/adapters/skip';
 import { handleSkipFinalOrder } from '@/lib/foodhub/skip-ops';
-import { background, keepUnparsed, parseJson, unauthorized } from '@/lib/foodhub/webhook-utils';
+import { background, keepUnparsed, parseJson, SKIP_FINAL_PICKED_NOTICE, unauthorized } from '@/lib/foodhub/webhook-utils';
 import { readTextOr413 } from '@/lib/foodhub/http';
 
 export const dynamic = 'force-dynamic';
@@ -19,13 +19,13 @@ export async function POST(req: NextRequest) {
   let order: ReturnType<typeof parseSkipOrder> = null;
   try { order = parseSkipOrder(body); } catch { order = null; }
   if (!order) {
-    background('keep unparsed skip final order', () => keepUnparsed('skip', body, 'JET Connect final picked order missing id/items'));
+    background('keep unparsed skip final order', () => keepUnparsed('skip', body, 'JET Connect final picked order missing id/items', null, SKIP_FINAL_PICKED_NOTICE));
     return NextResponse.json({ errorMessage: 'Unrecognized final order payload' }, { status: 400 });
   }
   const final = order;
   background(`skip final order ${final.externalOrderId}`, async () => {
     const r = await handleSkipFinalOrder(final);
-    if (r.keep) await keepUnparsed('skip', body, r.keep, final.externalOrderId);
-  }, { channel: 'skip', body, reference: final.externalOrderId, kind: 'order' });
+    if (r.keep) await keepUnparsed('skip', body, r.keep, final.externalOrderId, SKIP_FINAL_PICKED_NOTICE);
+  }, { channel: 'skip', body, reference: final.externalOrderId, kind: 'order', notice: SKIP_FINAL_PICKED_NOTICE });
   return NextResponse.json({ OrderId: final.externalOrderId }, { status: 200 });
 }

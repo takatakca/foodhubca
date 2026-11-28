@@ -38,11 +38,17 @@ export interface OrderTimeline {
   courier?: CourierInfo;
   /** Clover merchant that returned or already held this order when its POS order ID was linked. */
   posMerchantId?: string;
+  /** Clover register and time recorded before a create request whose receipt is still pending. */
+  posCreateAttempt?: { merchantId: string; at: string; id: string };
+  /** Durable JET decision. Review an unresolved result before retrying either outbound path. */
+  skipJetAttempt?: { id: string; at: string; signal: 'accept' | 'fallback'; manual?: true; outcome?: 'accepted' | 'fallback' | 'uncertain' };
   /** Clover: payment recorded with the platform tender (when the order leaves the kitchen). */
   posPaymentId?: string;
   posPaymentError?: string;
   /** Clover: the cancelled order was removed from (or marked cancelled in) Clover. */
   posClosedAt?: string;
+  /** The worker closing an exact terminal Skip receipt in Clover. */
+  posCloseClaim?: { id: string; at: string };
   /** Items reported missing to the platform after accepting (Skip modification, DoorDash order adjustment). */
   missingItems?: Array<{ name: string; ref?: string; quantity: number; at: string }>;
   /** DoorDash: the Auto Order Release event arrived (a Dasher is near the store: start preparing now). */
@@ -67,6 +73,8 @@ export interface OrderTimeline {
     nextAt: string | null;
     lastError?: string;
     uncertain?: boolean;
+    /** This claim was persisted before an authorized Clover request started. */
+    resumeOnly?: true;
     gaveUpAt?: string;
     doneAt?: string;
     claim?: string;

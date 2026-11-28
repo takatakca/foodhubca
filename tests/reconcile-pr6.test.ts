@@ -314,7 +314,7 @@ describe('cancellation during the first Clover send', () => {
     expect(sent('POST', /print_event|\/accept/)).toHaveLength(0);
   });
 
-  it('does not request Skip tablet fallback after a cancellation during a failed Clover send', async () => {
+  it('does not request Skip tablet fallback after a cancellation during an uncertain Clover send', async () => {
     const repo = getRepo();
     const n = { ...(await uberOrder('skip-cancel-during-first-send')), channel: 'skip' as const, marketplace: 'skip' as const };
     await repo.upsertStore({ channel: n.channel, channelStoreId: n.channelStoreId, brandName: 'Po Poulet', locationCode: 'NDG_6284', cloverMerchantId: MID, autoAccept: true, online: true, meta: {} });
@@ -323,14 +323,15 @@ describe('cancellation during the first Clover send', () => {
       return json({ error: 'Clover temporarily unavailable' }, 503);
     };
 
-    const outcome = await processIncomingOrder(n);
+    await expect(processIncomingOrder(n)).rejects.toThrow(/Skip Clover receipt needs review/);
 
-    expect(outcome.order.status).toBe('cancelled');
-    expect(outcome.pos?.ok).toBe(false);
-    const events = (await repo.listEvents(outcome.order.id)).map((event) => event.type);
-    expect(events).toContain('pos_failed');
+    const order = await repo.findOrder(n.channel, n.externalOrderId);
+    expect(order).toMatchObject({ status: 'cancelled', timeline: { posCreateAttempt: { merchantId: MID } } });
+    expect(order?.posOrderId).toBeUndefined();
+    const events = (await repo.listEvents(order!.id)).map((event) => event.type);
     expect(events).not.toContain('routed_to_skip_tablet');
     expect(events).not.toContain('routed_to_skip_tablet_failed');
+    expect(sent('POST', /atomic_order/)).toHaveLength(1);
     expect(sent('POST', /print_event|sent-to-pos/)).toHaveLength(0);
   });
 });

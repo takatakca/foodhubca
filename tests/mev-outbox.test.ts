@@ -129,6 +129,28 @@ describe('platform orders through QCMEV', () => {
     expect(otherCalls).toEqual([`${cloverBase}/v3/merchants/MERCHANT0001/orders/CONFIRMED`]);
   });
 
+  it.each([false, true])('stores the fiscal receipt and annotates Clover only when the Skip register is confirmed (%s)', async (confirmed) => {
+    vi.stubEnv('FOODHUB_MEV_CLOVER_NOTE', 'on');
+    vi.stubEnv('CLOVER_BASE_URL', 'https://clover.example.test');
+    vi.stubEnv('CLOVER_MERCHANT_TOKENS', JSON.stringify({ MERCHANT0002: 'fixture-replacement-token' }));
+    const repo = getRepo();
+    const original = await platformOrder({ channel: 'skip', marketplace: 'skip' });
+    await repo.upsertStore({ channel: 'skip', channelStoreId: original.channelStoreId, brandName: 'Fixture kitchen',
+      locationCode: 'E2E_A', cloverMerchantId: 'MERCHANT0002', autoAccept: false, online: true, meta: {} });
+    const error = 'Clover network error: previous create response timed out';
+    const receipt = await repo.patchOrder(original.id, {
+      posRetry: { attempts: 1, nextAt: null, uncertain: true, lastError: error },
+      ...(confirmed ? { posMerchantId: 'MERCHANT0002' } : {}),
+    }, { posOrderId: 'FIXTURE-CLOVER-ORDER', posError: error });
+    if (!receipt) throw new Error('The legacy receipt fixture was not saved');
+
+    const accepted = await accept(receipt);
+
+    expect(accepted.timeline?.mev).toMatchObject({ status: 'accepted', noTrans: expect.any(String) });
+    expect(posts()).toHaveLength(1);
+    expect(otherCalls).toEqual(confirmed ? [expect.stringContaining('/v3/merchants/MERCHANT0002/orders/FIXTURE-CLOVER-ORDER')] : []);
+  });
+
   it('accepted → one signed sale; the receipt comes back on the order; a second change sends nothing new', async () => {
     const o = await accept(await platformOrder());
     expect(posts().length).toBe(1);

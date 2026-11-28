@@ -14,7 +14,9 @@ import { deadlineFor } from './deadline';
 import { armRetryTimer, CLOVER_RETRY_WINDOW_MS, cloverRetryDelaysS, cloverRetryOpen } from './order-retry';
 import { autoAcceptAfterClover, isSendingToClover, resendToClover } from './pipeline';
 import type { StoredOrder } from './types';
-import { getRepo } from './repo';
+import { getRepo, hasUnresolvedLegacySkipCloverReceipt } from './repo';
+import { holdUnresolvedLegacySkipCloverReceipt } from './clover-settle';
+import { recoverSkipCloverPayments, type SkipPaymentRecoveryReport } from './skip-payment-recovery';
 
 const CLAIM_TTL_MS = 90_000;
 
@@ -40,6 +42,10 @@ export async function runCloverRetries(opts: { now?: number; trigger?: string } 
     const fresh = await repo.getOrder(o.id);
     const pr = fresh?.timeline?.posRetry;
     if (!fresh || !pr?.nextAt || Date.parse(pr.nextAt) > now) continue;
+    if (hasUnresolvedLegacySkipCloverReceipt(fresh)) {
+      await holdUnresolvedLegacySkipCloverReceipt(fresh);
+      continue;
+    }
     if (!cloverRetryOpen(fresh)) { await repo.patchOrder(fresh.id, { posRetry: { ...pr, nextAt: null } }); continue; }
     if (pr.claimedAt && now - Date.parse(pr.claimedAt) < CLAIM_TTL_MS) continue;
     const late = cloverRetryTooLate(fresh, now);
@@ -70,6 +76,7 @@ export async function runCloverRetries(opts: { now?: number; trigger?: string } 
       if (sent.store?.autoAccept && mine.locationCode && sent.order.status === 'new') await autoAcceptAfterClover(sent.order, sent.pos.posOrderId);
       continue;
     }
+    if (hasUnresolvedLegacySkipCloverReceipt(sent.order)) continue;
     out.failed++;
     if (sent.mappingChanged) {
       out.gaveUp++;
@@ -91,7 +98,7 @@ export async function runCloverRetries(opts: { now?: number; trigger?: string } 
   return out;
 }
 
-export interface RecoveryReport { at: string; trigger: string; ran: boolean; clover: CloverRetryReport; inbox: { processed: number; failed: number }; mev?: { due: number; done: number; waiting: number; needsHuman: number } }
+export interface RecoveryReport { at: string; trigger: string; ran: boolean; clover: CloverRetryReport; inbox: { processed: number; failed: number }; skipPayments?: SkipPaymentRecoveryReport; mev?: { due: number; done: number; waiting: number; needsHuman: number } }
 
 const LAST_KEY = 'recovery:last';
 
@@ -112,10 +119,14 @@ export async function runOrderRecovery(opts: { now?: number; trigger?: string; f
     const clover = await runCloverRetries({ now, trigger: opts.trigger }).catch((e) => { console.error('[foodhub] Clover retries failed', e); return empty.clover; });
     const { sweepInbox } = await import('./inbox');
     const inbox = await sweepInbox({ now }).catch((e) => { console.error('[foodhub] inbox sweep failed', e); return empty.inbox; });
+    const skipPayments = await recoverSkipCloverPayments(now).catch((e) => {
+      console.error('[foodhub] Skip payment recovery failed', e instanceof Error ? e.message : e);
+      return { claimed: 0, recovered: 0, terminalClosed: 0, held: 0, failed: 1 };
+    });
     // Revenu Québec invoices waiting in the Takatak MEV outbox (nothing at all when FOODHUB_MEV=off).
     const { runMevOutbox } = await import('./mev/outbox');
     const m = await runMevOutbox({ now, trigger: opts.trigger }).catch((e) => { console.error('[foodhub] MEV outbox failed', e instanceof Error ? e.message : e); return null; });
-    return { ...empty, ran: true, clover, inbox, ...(m?.ran ? { mev: { due: m.due, done: m.done, waiting: m.waiting, needsHuman: m.needsHuman } } : {}) };
+    return { ...empty, ran: true, clover, inbox, skipPayments, ...(m?.ran ? { mev: { due: m.due, done: m.done, waiting: m.waiting, needsHuman: m.needsHuman } } : {}) };
   } finally {
     g.__takatakRecoveryRunning = 0;
   }

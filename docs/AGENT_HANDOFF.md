@@ -1,3 +1,11 @@
+## 2026-11-28 — Reprise des tickets au retour dans une cuisine
+
+La tablette conserve les identifiants exacts des tickets traités dans les quinze dernières minutes du serveur. Elle les relit après confirmation de la cuisine par le serveur pour la même adresse et la même installation. Une nouvelle cuisine reprend sa propre file et un autre serveur efface cet historique récent. Le curseur actif et les tickets en attente gardent leur fonctionnement.
+
+L’essai JVM couvre 550 reçus hors du chevauchement du curseur, le changement de cuisine, le redémarrage et le retour. Après la correction, seul le ticket dont la réponse de réclamation a été perdue est repris. Les 27 essais JVM réussissent. Le paquet signé du SHA exact et l’impression sur une tablette autorisée restent à vérifier. [PR #219](https://github.com/takatakca/foodhubca/pull/219) · [Checklist marchande #46](https://github.com/takatakca/foodhubca/issues/46)
+
+— signé : Codex @ cloud · 2026-11-28
+
 ## 2026-11-28 — Jumelage des réclamations d’impression de tablette
 
 La réclamation d’un ticket applique la même vérification de jumelage que la lecture de son état avant impression. Une tablette rattachée à une autre cuisine, ou un jumelage qui diffère de celui de la session NIP, reçoit un 403 avant toute écriture du reçu, de la marque de cuisine ou de l’événement d’impression. Une session du personnel seule ou un jumelage concordant permet toujours de réclamer le ticket et d’en relire l’état.

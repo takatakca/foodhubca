@@ -177,11 +177,13 @@ class OrderWatchService : Service() {
         queueLocation = location
         val mayHaveMore = QueueLogic.queueMayHaveMore(queue.paged, queue.items.size, queue.continuation)
         val since = queue.since ?: throw FoodHubApi.ApiError(0, "Missing print queue window")
-        val activeDrain = prefs.anchorQueueDrain(QueueDrain(scope, location, since), continuation)
+        val horizon = QueueLogic.parseInstant(queue.serverTime)
+        val activeDrain = prefs.anchorQueueDrain(QueueDrain(scope, location, since), continuation, horizon)
             ?: throw FoodHubApi.ApiError(0, "Missing print queue checkpoint")
         val pendingIds = prefs.pending.filter(::pendingInCurrentScope).map { it.id }.toSet()
         val firstRun = prefs.firstRun
-        val seen = QueueLogic.seenDuringDrain(prefs.seen, activeDrain)
+        val restored = if (horizon != null) prefs.recentQueueReceiptIds(scope, location) else emptySet()
+        val seen = QueueLogic.seenDuringDrain(prefs.seen, activeDrain, restored)
         val plan = QueueLogic.plan(queue.items, seen, pendingIds, QueueLogic.shouldPrint(prefs.autoPrint, prefs.printerType), firstRun)
         // A cancelled order whose ticket still waits for the printer (no paper, printer off): never print it now.
         val dropped = QueueLogic.cancelledPending(queue.items, pendingIds)

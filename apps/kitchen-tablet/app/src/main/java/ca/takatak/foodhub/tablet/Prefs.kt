@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import org.json.JSONArray
 import org.json.JSONObject
+import java.time.Instant
 import java.util.UUID
 
 enum class PrinterType { NONE, BLUETOOTH, NETWORK }
@@ -108,21 +109,38 @@ class Prefs(context: Context) {
     val queueDrain: QueueDrain?
         get() = sp.getString("queue_drain", null)?.let { runCatching { QueueDrain.decode(it) }.getOrNull() }
 
+    private val recentQueueReceipts: RecentQueueReceipts?
+        get() = sp.getString(RECENT_QUEUE_RECEIPTS, null)?.let { runCatching { RecentQueueReceipts.decode(it) }.getOrNull() }
+
+    fun recentQueueReceiptIds(scope: QueueScope, location: String): Set<String> =
+        recentQueueReceipts?.ids(scope, location).orEmpty()
+
     fun resetQueueProgress(origin: String?) {
         synchronized(LOCK) {
             val previousOrigin = sp.getString("seen_origin", null) ?: queueDrain?.scope?.origin
             val editor = sp.edit().remove("since").remove("queue_drain")
-            if (QueueLogic.seenOriginChanged(previousOrigin, origin)) editor.remove("seen")
+            if (QueueLogic.seenOriginChanged(previousOrigin, origin)) editor.remove("seen").remove(RECENT_QUEUE_RECEIPTS)
             (origin ?: previousOrigin)?.let { editor.putString("seen_origin", it) }
             editor.commit()
         }
     }
 
-    fun anchorQueueDrain(returned: QueueDrain, continuation: String?): QueueDrain? {
+    fun anchorQueueDrain(returned: QueueDrain, continuation: String?, horizon: Instant?): QueueDrain? {
         synchronized(LOCK) {
             val current = queueDrain
             val anchor = QueueLogic.reanchorDrain(current, returned, continuation)
-            if (anchor != current) sp.edit().putString("queue_drain", anchor?.encode()).commit()
+            val receipts = horizon?.let { recentQueueReceipts }
+            val advanced = horizon?.let {
+                val scope = returned.scope
+                receipts?.takeIf { it.matches(scope) }?.advance(it)
+                    ?: RecentQueueReceipts(scope.origin, scope.deviceId, it)
+            }
+            if (anchor != current || advanced != receipts) {
+                val editor = sp.edit()
+                if (anchor != current) editor.putString("queue_drain", anchor?.encode())
+                if (advanced != receipts) editor.putString(RECENT_QUEUE_RECEIPTS, advanced?.encode())
+                editor.commit()
+            }
             return anchor
         }
     }
@@ -139,12 +157,16 @@ class Prefs(context: Context) {
     val seen: List<String>
         get() = (sp.getString("seen", "") ?: "").split('\n').filter { it.isNotBlank() }
 
-    /** Retain handled IDs by ticket time for this kitchen, as well as the bounded history for older checkpoints. */
+    /** Retain handled IDs for this active drain and for a fresh read after leaving and returning to this kitchen. */
     fun markSeen(item: QueueItem, scope: QueueScope, location: String) {
         synchronized(LOCK) {
             val editor = sp.edit().putString("seen", QueueLogic.remember(seen, listOf(item.id)).joinToString("\n"))
             queueDrain?.takeIf { it.scope == scope && it.location == location }?.let { drain ->
                 editor.putString("queue_drain", drain.copy(handled = drain.handled + (item.id to item.at)).encode())
+            }
+            recentQueueReceipts?.takeIf { it.matches(scope) }?.let { receipts ->
+                val recorded = receipts.record(location, item.id, item.at)
+                if (recorded != receipts) editor.putString(RECENT_QUEUE_RECEIPTS, recorded.encode())
             }
             editor.commit()
         }
@@ -176,6 +198,7 @@ class Prefs(context: Context) {
     }
 
     private companion object {
+        const val RECENT_QUEUE_RECEIPTS = "recent_queue_receipts"
         /** One lock for every Prefs instance (they share the same file). */
         val LOCK = Any()
     }

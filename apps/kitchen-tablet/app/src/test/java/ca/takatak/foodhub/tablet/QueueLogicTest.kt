@@ -251,6 +251,43 @@ class QueueLogicTest {
     }
 
     @Test
+    fun returningToAKitchenOnlyRecoversItsUnacknowledgedTicketAfterMoreThanFiveHundredReceipts() {
+        val scope = QueueScope("https://hub.example", "A", "tablet-test")
+        val horizon = Instant.parse("2026-10-29T16:00:00Z")
+        val at = horizon.minusSeconds(8 * 60)
+        val handled = (1..550).map { item("receipt-$it", printed = true).copy(at = at) }
+        val lostReply = item("lost-reply", printed = true).copy(at = at)
+        val activeA = QueueDrain(scope, "A", horizon.minusSeconds(15 * 60).toString(), handled.associate { it.id to it.at })
+        val completedA = QueueLogic.finishDrain(activeA, horizon.toString())
+        assertTrue(completedA.handled.isEmpty())
+        val bScope = scope.copy(location = "B")
+        val bHorizon = horizon.plusSeconds(60)
+        val bReceipt = item("b-receipt")
+        val archive = handled.fold(RecentQueueReceipts(scope.origin, scope.deviceId, horizon)) { receipts, ticket ->
+            receipts.record("A", ticket.id, ticket.at)
+        }
+        assertNull(QueueLogic.drainForScope(completedA, bScope))
+        val moved = archive.advance(bHorizon).record("B", bReceipt.id, bHorizon)
+            .record("B", "undated", null)
+            .record("B", "future", bHorizon.plusSeconds(1))
+            .record("B", "expired", bHorizon.minusSeconds(15 * 60 + 1))
+        val restarted = RecentQueueReceipts.decode(moved.encode())
+        val returnAt = bHorizon.plusSeconds(60)
+        val archiveOnReturn = restarted.advance(returnAt)
+        val returnedA = QueueDrain(scope.copy(location = ""), "A", returnAt.minusSeconds(15 * 60).toString())
+        val deviceSeen = QueueLogic.remember(emptyList(), handled.map { it.id } + bReceipt.id)
+        assertFalse(handled.first().id in deviceSeen)
+        val restored = archiveOnReturn.ids(returnedA.scope, returnedA.location)
+        val seen = QueueLogic.seenDuringDrain(deviceSeen, returnedA, restored)
+        assertEquals(listOf("lost-reply/order=RECOVER"), steps(QueueLogic.plan(handled + lostReply, seen, emptySet(), true, false)))
+        assertEquals(setOf(bReceipt.id), archiveOnReturn.ids(bScope, "B"))
+        assertTrue(archiveOnReturn.ids(scope.copy(origin = "https://different.example"), "A").isEmpty())
+        assertTrue(archiveOnReturn.ids(scope.copy(deviceId = "other-tablet"), "A").isEmpty())
+        assertEquals(550, archiveOnReturn.advance(at.plusSeconds(15 * 60)).ids(scope, "A").size)
+        assertTrue(archiveOnReturn.advance(at.plusSeconds(15 * 60 + 1)).ids(scope, "A").isEmpty())
+    }
+
+    @Test
     fun boundedHistorySurvivesKitchenChangesButResetsForAnotherServer() {
         val original = QueueScope("https://hub.example", "A", "tablet-test")
         val otherKitchen = original.copy(location = "B")

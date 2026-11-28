@@ -39,6 +39,60 @@ enum class Step {
 data class Planned(val item: QueueItem, val step: Step)
 
 data class QueueScope(val origin: String, val location: String, val deviceId: String)
+
+/** Exact receipts that can reappear after a kitchen change clears the active cursor. */
+data class RecentQueueReceipts(
+    val origin: String, val deviceId: String, val serverTime: Instant,
+    private val kitchens: Map<String, Map<String, Instant>> = emptyMap(),
+) {
+    fun matches(scope: QueueScope): Boolean = origin == scope.origin && deviceId == scope.deviceId
+
+    fun ids(scope: QueueScope, location: String): Set<String> =
+        if (matches(scope)) kitchens[location].orEmpty().keys else emptySet()
+
+    fun advance(horizon: Instant): RecentQueueReceipts {
+        if (horizon <= serverTime) return this
+        val cutoff = horizon.minusSeconds(FRESH_REPLAY_SECONDS)
+        val retained = kitchens.mapValues { (_, receipts) -> receipts.filterValues { it >= cutoff } }
+            .filterValues { it.isNotEmpty() }
+        return copy(serverTime = horizon, kitchens = retained)
+    }
+
+    fun record(location: String, id: String, at: Instant?): RecentQueueReceipts {
+        if (at == null || at > serverTime || at < serverTime.minusSeconds(FRESH_REPLAY_SECONDS)) return this
+        val receipts = kitchens[location].orEmpty()
+        if (receipts[id]?.let { it >= at } == true) return this
+        return copy(kitchens = kitchens + (location to (receipts + (id to at))))
+    }
+
+    fun encode(): String {
+        val locations = JSONObject()
+        kitchens.forEach { (location, receipts) ->
+            val tickets = JSONObject()
+            receipts.forEach { (id, at) -> tickets.put(id, at.toString()) }
+            locations.put(location, tickets)
+        }
+        return JSONObject().put("origin", origin).put("deviceId", deviceId)
+            .put("serverTime", serverTime.toString()).put("kitchens", locations).toString()
+    }
+
+    companion object {
+        // Matches DEFAULT_SINCE_MS in lib/foodhub/kitchen/print-queue.ts.
+        private const val FRESH_REPLAY_SECONDS = 15 * 60L
+
+        fun decode(stored: String): RecentQueueReceipts {
+            val data = JSONObject(stored)
+            val locations = data.getJSONObject("kitchens")
+            val kitchens = locations.keys().asSequence().associateWith { location ->
+                val tickets = locations.getJSONObject(location)
+                tickets.keys().asSequence().associateWith { id -> Instant.parse(tickets.getString(id)) }
+            }
+            return RecentQueueReceipts(data.getString("origin"), data.getString("deviceId"),
+                Instant.parse(data.getString("serverTime")), kitchens)
+        }
+    }
+}
+
 /** The replay window or completed checkpoint, with scoped receipts for any ticket the next read can return. */
 data class QueueDrain(val scope: QueueScope, val location: String, val since: String, val handled: Map<String, Instant?> = emptyMap()) {
     fun encode(): String {
@@ -129,8 +183,8 @@ object QueueLogic {
         return returned.copy(handled = sameQueue?.handled.orEmpty())
     }
 
-    fun seenDuringDrain(recent: Collection<String>, drain: QueueDrain?): Set<String> =
-        recent.toSet() + drain?.handled.orEmpty().keys
+    fun seenDuringDrain(recent: Collection<String>, drain: QueueDrain?, restored: Set<String> = emptySet()): Set<String> =
+        recent.toSet() + drain?.handled.orEmpty().keys + restored
 
     /** Keep receipts on the inclusive lower bound. Legacy receipts without dates age from the observed horizon. */
     fun finishDrain(drain: QueueDrain, serverTime: String?): QueueDrain {

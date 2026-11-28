@@ -33,7 +33,7 @@ type OrderManager = 'foodhub' | 'pending' | 'other' | 'unknown';
 type Pick = { storeId: string; name: string; address?: string; brandName: string; locationCode: string; cloverMerchantId: string; orderManager?: OrderManager; include: boolean };
 type CloverMerchant = { id: string; name: string | null; isDefault: boolean };
 type UberResult = { ok: boolean; message: string; orderManager?: OrderManager | null };
-type Known = { channel: string; storeId: string; name: string; address: string | null; suggestedBrand: string | null; suggestedLocation: string | null; confirmedByPlatform: boolean; mapped: { id: string; brandName: string; locationCode: string } | null; expectedLocation: string | null; locationMismatch: boolean };
+type Known = import('@/lib/foodhub/known-stores').KnownStore;
 
 export function MappingView() {
   const { t } = useI18n();
@@ -198,7 +198,7 @@ export function MappingView() {
 
   function moveKnown(k: Known) {
     const store = stores?.find((s) => s.id === k.mapped?.id);
-    if (store && k.expectedLocation) editStore(store, k.expectedLocation);
+    if (store) editStore(store, k.confirmedByPlatform && k.expectedLocation ? k.expectedLocation : store.locationCode);
   }
   const unlinked = known.filter((k) => !k.mapped);
   const misplaced = known.filter((k) => k.locationMismatch);
@@ -240,12 +240,13 @@ export function MappingView() {
 
       {misplaced.length > 0 && (
         <Banner tone="warn" className="mb-5">
-          <strong>{t(`${countFr(misplaced.length, 'magasin Uber relié', 'magasins Uber reliés')} à la mauvaise cuisine`, `${countEn(misplaced.length, 'Uber store')} linked to the wrong kitchen`)}</strong> — {t('Uber les place dans une autre cuisine (même quand leur nom Uber dit « Hochelaga »).', 'Uber puts them in another kitchen (even when their Uber name says “Hochelaga”).')}
+          <strong>{t(`Cuisine à vérifier pour ${countFr(misplaced.length, 'magasin Uber', 'magasins Uber')}`, `Check the kitchen for ${countEn(misplaced.length, 'Uber store')}`)}</strong>
           <ul className="mt-2 space-y-1.5">{misplaced.map((k) => (
             <li key={k.storeId} className="flex flex-wrap items-center gap-2">
               <span className="font-semibold text-ink">{k.name}</span><span className="font-mono text-micro text-ink-3">{k.storeId}</span>
-              <span>{shortLoc(locName(k.mapped?.locationCode))} → <strong>{shortLoc(locName(k.expectedLocation))}</strong></span>
-              <Button size="sm" variant="outline" disabled={!stores?.some((s) => s.id === k.mapped?.id)} onClick={() => moveKnown(k)}>{t('Déplacer', 'Move')}</Button>
+              <span>{t('Cuisine actuelle', 'Mapped kitchen')} · {shortLoc(locName(k.mapped?.locationCode))}</span>
+              <span>{k.confirmedByPlatform ? t('Selon l’adresse Uber', 'From the Uber address') : t('Selon le registre historique', 'From the historical register')} · <strong>{shortLoc(locName(k.expectedLocation))}</strong></span>
+              <Button size="sm" variant="outline" disabled={!stores?.some((s) => s.id === k.mapped?.id)} onClick={() => moveKnown(k)}>{k.confirmedByPlatform ? t('Déplacer', 'Move') : t('Vérifier la liaison', 'Review mapping')}</Button>
             </li>
           ))}</ul>
         </Banner>

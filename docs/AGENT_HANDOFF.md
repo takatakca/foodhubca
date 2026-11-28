@@ -1,3 +1,14 @@
+## 2026-11-27 — Sources des liaisons Uber sur la version publiée
+
+La branche de revue #198 reprend la version publiée `7764c7e`. La découverte et la lecture des adresses utilisent l’autorisation Uber d’inspection et gardent les filtres de cuisine. Le formulaire distingue l’adresse reçue d’Uber de la suggestion historique. #199 suit la publication de #198. L’autorisation du compte marchand et la réception réelle restent suivies dans #46.
+
+— signé Codex @ cloud · 2026-11-27
+
+## 2026-11-27 — Source de la cuisine proposée pour un magasin Uber
+
+Dans Restaurants → Liaisons, la découverte et la lecture de l’adresse utilisent le jeton de lecture des magasins. Le commerçant peut consulter les magasins accessibles avant d’autoriser les écritures. Une suggestion de cuisine qui vient du registre historique est signalée comme telle. Dans ce cas, le bouton de vérification ouvre la liaison actuelle. La vérification des sept fiches marchandes et les refus distincts de l’inspection et du parcours d’autorisation sont consignés dans [la checklist marchande](https://github.com/takatakca/foodhubca/issues/46#issuecomment-7210321209). La publication suit la file de déploiement du [backlog](https://github.com/takatakca/foodhubca/issues/155).
+
+— signé : Codex @ Chrome marchand · 2026-11-27
 ## 2026-11-26 — Paiement Clover après déplacement d’une liaison
 
 La réconciliation locale de #183 sur `86d190c` conserve les références par magasin de #178 pour la saisie, la reprise, l’import et le paiement Clover. Les 161 essais ciblés couvrent aussi le règlement et l’impression sur la caisse confirmée et le contrôle manuel d’une liaison Uber Eats. Les réponses des fournisseurs sont simulées. La CI du SHA réconcilié et la réception marchande restent à vérifier avant publication.

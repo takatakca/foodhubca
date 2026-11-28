@@ -1032,6 +1032,141 @@ describe('Screen relay alerts without a console open', () => {
     return { incident, tick };
   }
 
+  it.each([
+    { reason: 'the owner signs out of voice alerts', supportPhone: null },
+    { reason: 'the owner profile cannot be read', supportPhone: '+15145550128' },
+  ])('preserves the SMS and later routes when $reason during the owner SMS', async ({ supportPhone }) => {
+    const { incident, tick } = await openScreenIncident(offlineScreen);
+    await saveWatchSettings({ smsAfterMin: 1, callAfterMin: 1, ownerAfterMin: 1, screenAlertPhone: null, supportPhones: supportPhone ? [supportPhone] : [] }, OWNER);
+    const managerPhone = '+15145550126';
+    const ownerPhone = '+15145550127';
+    const ownerSmsSid = `SM${'4'.repeat(32)}`;
+    const repo = getRepo();
+    await repo.saveUser({ username: 'manager-stage-three-control', name: 'Control manager', phone: managerPhone, role: 'manager', locations: [KITCHEN], active: true });
+    const owner = await repo.saveUser({ username: 'owner-stage-three-personal', name: 'Personal owner', phone: ownerPhone, role: 'owner', locations: [KITCHEN], active: true });
+
+    const ownerSmsStarted = gate();
+    const ownerSmsReleased = gate();
+    const requests: Array<{ channel: 'sms' | 'call'; to: string | null }> = [];
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = new URL(String(input));
+      expect(url.origin).toBe(TWILIO_BASE);
+      const channel = url.pathname.endsWith('/Messages.json') ? 'sms' : 'call';
+      if (channel === 'call') expect(String(input)).toBe(`${CALLS}.json`);
+      const form = new URLSearchParams(String(init?.body));
+      const to = form.get('To');
+      requests.push({ channel, to });
+      if (channel === 'sms' && to === ownerPhone) {
+        expect(form.get('Body')).toContain('min sans réponse');
+        ownerSmsStarted.resolve();
+        await ownerSmsReleased.promise;
+        return Response.json({ sid: ownerSmsSid }, { status: 201 });
+      }
+      return Response.json({ sid: channel === 'call' ? CALL_SID : `SM${'3'.repeat(32)}` }, { status: 201 });
+    });
+
+    const expected = [
+      { channel: 'sms', to: managerPhone },
+      ...(supportPhone ? [{ channel: 'sms', to: supportPhone }] : []),
+      { channel: 'call', to: managerPhone },
+      { channel: 'sms', to: ownerPhone },
+    ];
+    const readUser = supportPhone ? vi.spyOn(repo, 'getUser') : undefined;
+    const pending = tick(1);
+    try {
+      await Promise.race([
+        ownerSmsStarted.promise,
+        pending.then(() => { throw new Error('Expected the personal owner SMS to be in flight'); }),
+      ]);
+      expect(requests).toEqual(expected);
+      if (readUser) {
+        readUser.mockRejectedValueOnce(new Error('Temporary user storage error'));
+      } else {
+        const cookie = (await sessionCookieFor(owner, 'password')).split(';')[0];
+        const response = await patchProfile(new Request(`${BASE}/auth/me`, {
+          method: 'PATCH',
+          headers: { cookie, 'content-type': 'application/json' },
+          body: JSON.stringify({ prefs: { alertCall: false } }),
+        }));
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject({ user: { prefs: { alertCall: false } } });
+      }
+    } finally {
+      ownerSmsReleased.resolve();
+      try { await pending; } finally { readUser?.mockRestore(); }
+    }
+
+    const receipts = (await readOutbox()).filter((entry) => entry.incidentId === incident.id);
+    expect(receipts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ channel: 'sms', purpose: 'alert_owner', ok: true, ref: ownerSmsSid }),
+      expect.objectContaining({ channel: 'call', purpose: 'alert', ok: true, ref: CALL_SID }),
+    ]));
+    expect(await getIncident(incident.id)).toMatchObject({ level: 3 });
+    await tick(2);
+    expect(requests).toEqual(supportPhone ? [...expected, { channel: 'call', to: supportPhone }] : expected);
+    if (supportPhone) expect(receipts).toContainEqual(expect.objectContaining({ channel: 'call', purpose: 'alert_support', ok: true, ref: CALL_SID }));
+  });
+
+  it('rechecks call-only owners before the owner stage after a prior manager call', async () => {
+    const { incident, tick } = await openScreenIncident(offlineScreen);
+    await saveWatchSettings({
+      smsAfterMin: 1, callAfterMin: 1, ownerAfterMin: 1, screenAlertPhone: null, supportPhones: [],
+    }, OWNER);
+    const managerPhone = '+15145550126';
+    const formerOwnerPhone = '+15145550127';
+    const currentOwnerPhone = '+15145550128';
+    const repo = getRepo();
+    const fixtureUser = { locations: [KITCHEN], active: true, prefs: { onDuty: true, alertSms: false, alertCall: true } };
+    await repo.saveUser({ ...fixtureUser, username: 'manager-stage-three-voice', name: 'Control manager', phone: managerPhone, role: 'manager' });
+    const formerOwner = await repo.saveUser({
+      ...fixtureUser, username: 'owner-stage-three-a', name: 'First voice-only owner', phone: formerOwnerPhone, role: 'owner',
+    });
+    await repo.saveUser({ ...fixtureUser, username: 'owner-stage-three-b', name: 'Second voice-only owner', phone: currentOwnerPhone, role: 'owner' });
+
+    const managerStarted = gate();
+    const managerReleased = gate();
+    const destinations: Array<string | null> = [];
+    const ownerSid = `CA${'5'.repeat(32)}`;
+    fetchMock.mockImplementation(async (input, init) => {
+      expect(input).toBe(`${CALLS}.json`);
+      const to = new URLSearchParams(String(init?.body)).get('To');
+      destinations.push(to);
+      if (to === managerPhone) {
+        managerStarted.resolve();
+        await managerReleased.promise;
+      }
+      return Response.json({ sid: to === managerPhone ? CALL_SID : ownerSid, status: 'queued' }, { status: 201 });
+    });
+
+    const pending = tick(1);
+    try {
+      await Promise.race([
+        managerStarted.promise,
+        pending.then(() => { throw new Error('Expected the manager call to be in flight'); }),
+      ]);
+      const cookie = (await sessionCookieFor(formerOwner, 'password')).split(';')[0];
+      const response = await patchProfile(new Request(`${BASE}/auth/me`, {
+        method: 'PATCH', headers: { cookie, 'content-type': 'application/json' }, body: JSON.stringify({ prefs: { onDuty: false } }),
+      }));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ user: { prefs: { onDuty: false, alertSms: false, alertCall: true } } });
+    } finally {
+      managerReleased.resolve();
+      await pending;
+    }
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(destinations).toEqual([managerPhone, currentOwnerPhone]);
+    expect(await getIncident(incident.id)).toMatchObject({ level: 3 });
+    expect(await repo.getKv(`watch:screen-stage:${incident.id}:3`)).toMatchObject({ settled: true });
+    expect(await readOutbox()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ channel: 'call', incidentId: incident.id, purpose: 'alert', ok: true, ref: CALL_SID }),
+      expect.objectContaining({ channel: 'call', incidentId: incident.id, purpose: 'alert_owner', ok: true, ref: ownerSid }),
+    ]));
+    await tick(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   async function prepareManagerVoice(secondRole: 'manager' | 'owner' = 'manager') {
     const { incident, tick } = await openScreenIncident(offlineScreen);
     await saveWatchSettings({ callAfterMin: 2, ownerAfterMin: 30 }, OWNER);

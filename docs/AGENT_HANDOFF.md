@@ -1,3 +1,19 @@
+## 2026-11-28 — Composition locale des appels de relève Watchtower
+
+La composition locale garde la réservation par palier et les reçus liés à leur incident. Avant un appel personnel déjà prévu, Watchtower relit le profil, sa cuisine, son état de garde et sa préférence d’appel. Un propriétaire qui choisit les appels seuls reste admissible. Au palier propriétaire, un échec de lecture laisse continuer les autres destinataires admissibles et la relève configurée après le SMS déjà envoyé.
+
+Les 93 essais ciblés incluent un profil signé qui passe hors garde pendant l’appel du gérant. L’autre propriétaire qui a choisi les appels seuls reçoit l’appel simulé, avec un reçu lié à l’incident. La réception sur le téléphone est suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-28
+
+## 2026-11-28 — Appel personnel du propriétaire après le SMS
+
+Au dernier palier Watchtower, le compte est relu entre le SMS et l’appel personnel. La vérification porte sur l’identité, le rôle, la cuisine, l’état de garde et la préférence d’appel. Si la lecture échoue, l’appel est suspendu pour ce destinataire. Le reçu du SMS est conservé et la relève configurée continue.
+
+Deux essais simulés couvrent la désactivation des appels depuis un profil signé pendant le SMS et une lecture temporairement indisponible avec un numéro de soutien configuré. La réception marchande reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-28
+
 ## 2026-11-28 — Préférences avant l’appel de relève Watchtower
 
 Le deuxième palier relit le compte de chaque destinataire juste avant l’appel. Il vérifie l’identité, le rôle, la cuisine, l’état de garde et la préférence d’appel. Si la lecture échoue avant le premier envoi du palier, le prochain passage retente le palier. Après un envoi, Watchtower conserve son résultat et passe au palier suivant sans rejouer cet appel.

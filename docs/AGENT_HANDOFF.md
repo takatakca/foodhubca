@@ -1,3 +1,9 @@
+## 2026-11-28 — Reprise Uber après une lecture en échec
+
+La reprise garde le résultat des commandes traitées et poursuit les autres lectures après l’échec d’une commande. Un refus du jeton commun met fin aux nouvelles lectures de commandes. La vérification des annulations peut encore utiliser son jeton de lecture. Les données conservées pour examen sans commande enregistrée sortent du compteur de reprise. La preuve en cuisine reste suivie dans [#46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé Codex @ cloud · 2026-11-28
+
 ## 2026-11-28 — Routage déclaré par Uber
 
 L’activation indique si Uber a accepté la demande, quel gestionnaire Uber déclare et si Uber confirme l’état des webhooks. Les résultats et le journal comptent la configuration seulement quand Uber désigne Food Hub avec les webhooks actifs. Une nouvelle vérification en échec remplace l’indication précédente. La preuve de réception en cuisine reste suivie dans [#46](https://github.com/takatakca/foodhubca/issues/46).

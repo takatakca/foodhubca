@@ -200,7 +200,7 @@ export async function recoverMissedUberOrders(now = Date.now()): Promise<{ recov
   const intakeStores = isViaClover('uber_eats') ? [] : stores;
   let recovered = 0;
   let error: string | undefined;
-  for (const s of intakeStores) {
+  intake: for (const s of intakeStores) {
     let waiting: Array<{ id: string; placedAt: string | null }>;
     try { waiting = await listUberCreatedOrders(s.channelStoreId); } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -211,10 +211,18 @@ export async function recoverMissedUberOrders(now = Date.now()): Promise<{ recov
       const age = o.placedAt ? now - Date.parse(o.placedAt) : null;
       if (age !== null && (age < 60_000 || age > 11.5 * 60_000)) continue;
       if (await repo.findOrder('uber_eats', o.id)) continue;
-      await handleUberEvent({ event_type: 'orders.notification', meta: { resource_id: o.id, user_id: s.channelStoreId, status: 'pos' }, resource_href: `${uberApiBase()}/v2/eats/order/${encodeURIComponent(o.id)}` });
+      let outcome: HandlerOutcome;
+      try {
+        outcome = await handleUberEvent({ event_type: 'orders.notification', meta: { resource_id: o.id, user_id: s.channelStoreId, status: 'pos' }, resource_href: `${uberApiBase()}/v2/eats/order/${encodeURIComponent(o.id)}` });
+      } catch (e) {
+        error = e instanceof Error ? e.message : String(e);
+        if (/token refused/i.test(error)) break intake; // the order-details token is shared by every store
+        continue;
+      }
+      if (!outcome.orderId) continue;
       recovered++;
-      await logActivity({ actor: 'TAKATAK automation', source: 'automation', kind: 'order', action: 'uber_order_recovered', status: 'info', channel: 'uber_eats', brandName: s.brandName, locationCode: s.locationCode,
-        summary: `Uber Eats order ${o.id.slice(0, 8)} for ${s.brandName} · ${s.locationCode} never arrived by webhook — found on Uber and processed` });
+      await logActivity({ actor: 'TAKATAK automation', source: 'automation', kind: 'order', action: 'uber_order_recovered', status: 'info', channel: 'uber_eats', brandName: s.brandName, locationCode: s.locationCode, orderId: outcome.orderId,
+        summary: `Uber Eats order ${o.id.slice(0, 8)} for ${s.brandName} · ${s.locationCode} found on Uber — ${outcome.result}` });
     }
   }
   const cancelled = await recoverMissedUberCancellations(now, stores).catch(() => 0);

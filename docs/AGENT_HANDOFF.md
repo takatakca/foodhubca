@@ -1,3 +1,13 @@
+## 2026-11-28 — Horaires de surveillance avant la relève Watchtower
+
+Avant une demande téléphonique ou SMS pour un appareil, Watchtower relit les horaires, les marques reliées et la cuisine, puis évalue l’ouverture à l’heure de l’envoi. Si la cuisine ferme ou si les horaires deviennent indisponibles entre deux envois, la demande déjà acceptée conserve son reçu et sa réservation. Un palier dont l’envoi est suspendu peut reprendre au prochain passage admissible.
+
+Quand la lecture des horaires échoue pendant la détection, les alertes d’écran relais restent ouvertes et le passage est signalé comme partiel. Une cuisine explicitement désactivée ferme encore ses alertes. Une lecture réussie sans configuration utilise les heures implicites de 10 h à 23 h. Les libellés existants de fermeture des alertes de tablette restent associés à leurs preuves.
+
+Les cinq nouveaux scénarios échouent sur la tête initiale de #217 et réussissent avec le correctif. Les 164 essais ciblés, TypeScript et ESLint passent localement. Les appels et SMS sont simulés. La vérification de l’arbre compilé, la revue propriétaire et la preuve marchande restent suivies dans [#217](https://github.com/takatakca/foodhubca/pull/217) et [#46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé Codex @ cloud · 2026-11-28 08:38 Montréal
+
 ## 2026-11-28 — Résultats SMS conservés dans les alertes Watchtower
 
 Après une modification concurrente de l’alerte, Watchtower ajoute les résultats SMS du gérant, du soutien et du propriétaire au même incident avec la vérification d’identité déjà utilisée pour les appels. L’état plus récent de l’alerte, la cuisine et les réservations d’envoi sont conservés. Le numéro apparaît masqué et la référence du fournisseur reste dans le journal des messages.

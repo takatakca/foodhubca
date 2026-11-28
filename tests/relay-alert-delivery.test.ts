@@ -10,7 +10,7 @@ import { GET as watchSettingsRead, PUT as watchSettingsWrite } from '../app/api/
 import type { Actor } from '../lib/foodhub/activity';
 import { hashPassword, sessionCookieFor } from '../lib/foodhub/auth';
 import { saveLocation } from '../lib/foodhub/catalog';
-import { allDayWeek, saveHours } from '../lib/foodhub/hours';
+import { allDayWeek, emptyWeek, saveHours } from '../lib/foodhub/hours';
 import { enrollDevice, heartbeat as tabletHeartbeat } from '../lib/foodhub/identity/devices';
 import type { OutboxEntry } from '../lib/foodhub/notify';
 import type { CallStatus } from '../lib/foodhub/notify/call-status';
@@ -199,6 +199,40 @@ describe('Screen relay alerts without a console open', () => {
     expect(await repo.getKv('watch:settings')).toMatchObject({ enabled: true, smsAfterMin: 4, screenAlertPhone: null });
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it.each(['clock moves past closing', 'saved hours change', 'saved hours become unreadable'] as const)(
+    'keeps the first call receipt and defers further notifications when %s during the call',
+    async (change) => {
+      await prepareZeroMinuteScreenCall();
+      const hours = { locations: { [KITCHEN]: { ...emptyWeek(), thursday: [{ open: '11:00', close: '12:07' }] } }, brands: {}, holidays: [] };
+      await saveHours(hours);
+      const repo = getRepo();
+      await repo.saveUser({ username: 'manager', name: 'On-duty manager', role: 'manager', locations: [KITCHEN], active: true, phone: KITCHEN_PHONE });
+      const getKv = repo.getKv.bind(repo);
+      let hoursUnavailable = false;
+      const read = vi.spyOn(repo, 'getKv').mockImplementation(async (key) => {
+        if (hoursUnavailable && key === 'hours') throw new Error('Synthetic unavailable opening hours');
+        return getKv(key);
+      });
+      fetchMock.mockImplementationOnce(async () => {
+        if (change === 'clock moves past closing') advanceTo(8);
+        if (change === 'saved hours change') await saveHours({ ...hours, locations: { [KITCHEN]: emptyWeek() } });
+        if (change === 'saved hours become unreadable') hoursUnavailable = true;
+        return Response.json({ sid: CALL_SID }, { status: 201 });
+      });
+      try {
+        expect(await runCron()).toMatchObject({ opened: 1 });
+        expect(fetchMock).toHaveBeenCalledExactlyOnceWith(`${CALLS}.json`, expect.objectContaining({ method: 'POST' }));
+        const [incident] = await listIncidents({ status: ['open'] });
+        expect(incident?.steps).toContainEqual(expect.objectContaining({ kind: 'call', ok: true }));
+        expect(await readOutbox()).toEqual([expect.objectContaining({ incidentId: incident.id, channel: 'call', ref: CALL_SID })]);
+        expect(await repo.getKv(`watch:first-screen-call:${incident.id}`)).toMatchObject({ destinationFingerprint: expect.any(String) });
+        expect(await repo.getKv(`watch:screen-stage:${incident.id}:1`)).toBeNull();
+      } finally {
+        read.mockRestore();
+      }
+    },
+  );
 
   it('does not redial a zero-minute screen call after interruption saving its incident', async () => {
     await prepareZeroMinuteScreenCall();

@@ -60,9 +60,12 @@ function AlertsViewContent({ focus }: { focus: string | null }) {
   async function checkNow() {
     setBusy(true);
     try {
-      const { report } = await api<{ report: Pick<WatchReport, 'ran' | 'relayUnavailable' | 'opened' | 'resolved' | 'open'> }>('/api/foodhub/watch/run', { method: 'POST' });
-      if (report.relayUnavailable) {
-        const detail = t(
+      const { report } = await api<{ report: Pick<WatchReport, 'ran' | 'relayUnavailable' | 'hoursUnavailable' | 'opened' | 'resolved' | 'open'> }>('/api/foodhub/watch/run', { method: 'POST' });
+      if (report.hoursUnavailable || report.relayUnavailable) {
+        const detail = report.hoursUnavailable ? t(
+          'Horaires indisponibles. Relancez la vérification des écrans et de la relève.',
+          'Opening hours were unavailable. Run the screen and escalation check again.',
+        ) : t(
           'État des écrans relais indisponible. Les contrôles des tablettes de cuisine et les autres contrôles ont été effectués. Relancez la vérification.',
           'Relay screen status was unavailable. Kitchen tablets and the other checks ran. Run the check again.',
         );

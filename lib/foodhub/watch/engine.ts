@@ -154,6 +154,10 @@ interface Detection {
 function minutesSince(iso: string | null | undefined, now: number) { return iso ? (now - Date.parse(iso)) / 60000 : 0; }
 const ord = (o: StoredOrder) => `${CHANNEL_LABELS[o.channel]} #${o.displayId || o.externalOrderId.slice(0, 8)}`;
 
+function brandsAtLocation(stores: ChannelStore[], code: string): string[] {
+  return [...new Set(stores.filter((store) => store.locationCode === code).map((store) => store.brandName))];
+}
+
 /** Is any brand open at this location right now (store hours + holidays)? No hours set → 10:00–23:00. */
 function locationOpen(hours: HoursConfig, loc: string, brands: string[], now: number, tz: string): boolean {
   const holidays = holidaysFor(hours, loc, localDate(now, tz), 1);
@@ -225,13 +229,14 @@ async function detect(s: WatchSettings, now: number, injectedNow?: number) {
     repo.listStores(), listDevices().then((devices) => ({ devices, readAt: injectedNow ?? Date.now() })),
     repo.listJobs(200), repo.getKv<{ at: string }>('sync:last').catch(() => null), listScreens().catch(() => null),
   ]);
-  const screens = relaySnapshot ?? [];
+  const hoursUnavailable = savedHours === null;
+  const screens = hoursUnavailable ? [] : relaySnapshot ?? [];
   // Only an explicit inactive flag stops monitoring. Keep older bindings.
   const inactiveLocations = new Set(catalog.locations.filter(({ active }) => active === false).map(({ code }) => code));
   const hours = savedHours ?? { locations: {}, brands: {}, holidays: [] };
   const nativeTablets = new Map<string, NativeTabletObservation>();
   const loc = (code?: string | null) => (code ? catalog.locations.find((l) => l.code === code)?.name ?? code : 'magasin non relié');
-  const brandsAt = (code: string) => [...new Set(stores.filter((x) => x.locationCode === code).map((x) => x.brandName))];
+  const brandsAt = (code: string) => brandsAtLocation(stores, code);
   const out: Detection[] = [];
   const on = (k: IncidentKind) => s.rules[k]?.enabled !== false;
   const mappedStores = new Set(stores.map((x) => `${x.channel}|${x.channelStoreId}`));
@@ -477,7 +482,7 @@ async function detect(s: WatchSettings, now: number, injectedNow?: number) {
         detail: `${j.lastError ?? j.wait ?? ''}`.slice(0, 200) || undefined, detailEn: `${j.lastError ?? j.wait ?? ''}`.slice(0, 200) || undefined });
     }
   }
-  return { detections: out, nativeTablets, nativeTabletsReadAt: deviceSnapshot.readAt, inactiveLocations, relayUnavailable: relaySnapshot === null };
+  return { detections: out, nativeTablets, nativeTabletsReadAt: deviceSnapshot.readAt, inactiveLocations, relayUnavailable: relaySnapshot === null, hoursUnavailable };
 }
 
 function nativeTabletResolution(i: Incident, observed: NativeTabletObservation | undefined, readAt: number): DeviceOfflineResolution {
@@ -543,12 +548,17 @@ async function currentDeviceBinding(i: Incident, s: WatchSettings, now: number):
   return tablet.enrolledAt;
 }
 
-async function readDeviceDispatch(i: Incident, s: WatchSettings, now: number) {
-  const scope = await Promise.all([getCatalog({ strict: true }), currentDeviceBinding(i, s, now)]).catch(() => null);
+async function readDeviceDispatch(i: Incident, s: WatchSettings, readTime: () => number) {
+  if (!i.locationCode) return null;
+  const scope = await Promise.all([
+    getCatalog({ strict: true }), currentDeviceBinding(i, s, readTime()),
+    getHours({ strict: true }), getRepo().listStores(),
+  ]).catch(() => null);
   if (!scope) return null;
-  const [catalog, binding] = scope;
+  const [catalog, binding, hours, stores] = scope;
   const location = catalog.locations.find(({ code }) => code === i.locationCode);
   if (binding === null || location?.active === false) return null;
+  if (!locationOpen(hours, i.locationCode, brandsAtLocation(stores, i.locationCode), readTime(), foodhubTimeZone())) return null;
   return { binding, phone: location?.phone ?? undefined };
 }
 
@@ -605,7 +615,7 @@ function screenStageReservations(i: Incident) {
   };
 }
 
-async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now: number, quiet: boolean, ordinaryKitchenPhone: (code: string) => Promise<string | undefined>): Promise<boolean> {
+async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now: number, readTime: () => number, quiet: boolean, ordinaryKitchenPhone: (code: string) => Promise<string | undefined>): Promise<boolean> {
   if (i.status !== 'open' || i.awaitingFreshDetection) return false;
   const rule = s.rules[i.kind] ?? { enabled: true, escalate: false };
   if (!rule.escalate || i.severity === 'info') return false;
@@ -620,14 +630,14 @@ async function escalate(i: Incident, s: WatchSettings, users: FoodHubUser[], now
 
   // Check each device incident before claiming or sending anything. An earlier incident may have spent time awaiting the provider.
   const deviceAlert = isScreenDeviceIncident(i.kind);
-  const deviceDispatch = deviceAlert ? await readDeviceDispatch(i, s, now) : null;
+  const deviceDispatch = deviceAlert ? await readDeviceDispatch(i, s, readTime) : null;
   if (deviceAlert && !deviceDispatch) return false;
 
   // Validate again before the provider attempt. A failed check after an earlier send suspends the rest of that stage.
   let recheckBeforeSend = false;
   const mayContinue = async (fresh = false) => {
     if (!deviceAlert || (!fresh && !recheckBeforeSend)) return true;
-    const latest = await readDeviceDispatch(i, s, now);
+    const latest = await readDeviceDispatch(i, s, readTime);
     if (!latest || latest.binding !== deviceDispatch?.binding) return false;
     recheckBeforeSend = false;
     return true;
@@ -863,6 +873,8 @@ export interface WatchReport {
   at: string; trigger: string; ran: boolean; detections: number; opened: number; updated: number; resolved: number; escalated: number; open: number;
   /** The relay list failed to load while other incident checks ran. */
   relayUnavailable?: true;
+  /** Opening hours failed to load, so relay monitoring could not be evaluated. */
+  hoursUnavailable?: true;
 }
 
 function canReopenIncident(i: Incident, now: number): boolean {
@@ -877,6 +889,7 @@ function nextScreenIncidentId(key: string, predecessorId?: string): string {
 
 export async function runWatch(opts: { trigger?: string; force?: boolean; now?: number } = {}): Promise<WatchReport> {
   const now = opts.now ?? Date.now();
+  const readTime = opts.now === undefined ? Date.now : () => now;
   const repo = getRepo();
   const empty = (ran: boolean): WatchReport => ({ at: new Date(now).toISOString(), trigger: opts.trigger ?? 'manual', ran, detections: 0, opened: 0, updated: 0, resolved: 0, escalated: 0, open: 0 });
   const s = await getWatchSettings({ strict: true });
@@ -889,9 +902,10 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
   try {
     await repo.setKv(LAST_KEY, { at: new Date(now).toISOString() });
     const report = empty(true);
-    const { detections, nativeTablets, nativeTabletsReadAt, inactiveLocations, relayUnavailable } = await detect(s, now, opts.now);
+    const { detections, nativeTablets, nativeTabletsReadAt, inactiveLocations, relayUnavailable, hoursUnavailable } = await detect(s, now, opts.now);
     if (relayUnavailable) report.relayUnavailable = true;
-    const missingRelayEvidence = (i: Incident) => relayUnavailable && (i.kind === 'screen_down' || i.kind === 'screen_waiting');
+    if (hoursUnavailable) report.hoursUnavailable = true;
+    const missingRelayEvidence = (i: Incident) => (relayUnavailable || hoursUnavailable) && (i.kind === 'screen_down' || i.kind === 'screen_waiting');
     report.detections = detections.length;
     const [recentDocs, activeScreenDocs] = await Promise.all([
       repo.listDocs<Incident>(INCIDENTS, { since: new Date(now - 3 * 86400_000).toISOString(), limit: 2000 }),
@@ -1054,14 +1068,14 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
       // Persist the current status before escalation. A late writer must not overwrite a resolution or send from a stale snapshot.
       if (screenIncident && !(await saveIncident(i))) { dirty.delete(i.id); continue; }
       const stepCount = i.steps.length;
-      if (!missingRelayEvidence(i) && await escalate(i, s, users, now, quiet, ordinaryKitchenPhone)) {
+      if (!missingRelayEvidence(i) && await escalate(i, s, users, now, readTime, quiet, ordinaryKitchenPhone)) {
         report.escalated++;
         const dispatched = i.steps.slice(stepCount).filter((entry) => entry.dispatchId);
         if (dispatched.length) dispatchResults.set(i.id, dispatched);
       } else if (screenIncident) dirty.delete(i.id);
     }
     // Open incidents not touched this run can still need the next escalation step.
-    for (const i of live.values()) if (!SHARED_PHONE_KINDS.includes(i.kind) && !dirty.has(i.id) && !missingRelayEvidence(i) && (await escalate(i, s, users, now, quiet, ordinaryKitchenPhone))) dirty.set(i.id, i);
+    for (const i of live.values()) if (!SHARED_PHONE_KINDS.includes(i.kind) && !dirty.has(i.id) && !missingRelayEvidence(i) && (await escalate(i, s, users, now, readTime, quiet, ordinaryKitchenPhone))) dirty.set(i.id, i);
 
     for (const i of dirty.values()) {
       if (await saveIncident(i)) continue;
@@ -1074,7 +1088,7 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
       await logActivity({ actor: 'Watchtower', source: 'automation', kind: 'incident', action: i.kind, status: 'info', locationCode: i.locationCode, brandName: i.brandName, orderId: i.orderId, summary: i.titleEn });
     }
     report.open = [...live.values(), ...fresh].filter((i) => i.status === 'open' || i.status === 'acknowledged').length;
-    if (!relayUnavailable && (report.trigger === 'timer' || report.trigger === 'cron')) {
+    if (!relayUnavailable && !hoursUnavailable && (report.trigger === 'timer' || report.trigger === 'cron')) {
       const completion: WatchBackgroundCompletion = { at: new Date().toISOString(), trigger: report.trigger };
       // Diagnostic only. The existing watch:last marker still controls throttling and liveness.
       await repo.setKv(WATCH_BACKGROUND_COMPLETION_KEY, completion).catch(() => undefined);

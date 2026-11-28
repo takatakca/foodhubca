@@ -4,6 +4,7 @@ import { GET as cronWatch } from '../app/api/foodhub/cron/watch/route';
 import { POST as relayHeartbeat } from '../app/api/foodhub/screens/heartbeat/route';
 import type { Actor } from '../lib/foodhub/activity';
 import { saveLocation } from '../lib/foodhub/catalog';
+import { emptyWeek, saveHours } from '../lib/foodhub/hours';
 import { enrollDevice } from '../lib/foodhub/identity/devices';
 import { getRepo } from '../lib/foodhub/repo';
 import { addScreen, getScreen, removeScreen, SCREENS } from '../lib/foodhub/screens';
@@ -136,4 +137,43 @@ it.each([false, true])('accepts independently confirmed resolution (inactive cat
   expect(resolved).toMatchObject({ status: 'resolved', resolvedBy: 'auto' });
   expect(resolved?.steps.at(-1)?.message).toContain(inactive ? 'inactive kitchen' : 'Fixed');
   expect(fetchFixture).not.toHaveBeenCalled();
+});
+
+it.each([false, true])('preserves an overnight relay alert during an hours outage unless its kitchen is disabled (%s)', async (inactive) => {
+  vi.setSystemTime(Date.parse('2026-11-28T07:45:00Z'));
+  await saveHours({ locations: { [location.code]: { ...emptyWeek(), saturday: [{ open: '00:00', close: '03:00' }] } }, brands: {}, holidays: [] });
+  const screen = await addScreen({ name: 'Synthetic relay', platform: 'doordash', locationCode: location.code, viewUrl: 'http://127.0.0.1/s01/' }, owner);
+  if ('error' in screen) throw new Error(screen.error);
+  const response = await relayHeartbeat(new Request('http://127.0.0.1/api/foodhub/screens/heartbeat', {
+    method: 'POST', headers: { authorization: `Bearer ${relayToken}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ screens: [{ id: screen.id, state: 'crashed', title: 'Orders' }] }),
+  }));
+  expect(response.status).toBe(200);
+  const nightTick = (minute: number) => tick((Date.parse('2026-11-28T07:45:00Z') - start) / 60_000 + minute);
+  expect(await nightTick(0)).toMatchObject({ opened: 1, escalated: 0 });
+  const [incident] = await listIncidents();
+  const repo = getRepo();
+  const completed = await repo.getKv(WATCH_BACKGROUND_COMPLETION_KEY);
+  if (inactive) await saveLocation({ ...location, active: false });
+  const getKv = repo.getKv.bind(repo);
+  const read = vi.spyOn(repo, 'getKv').mockImplementation(async (key) => {
+    if (key === 'hours') throw new Error('Synthetic opening-hours read failure');
+    return getKv(key);
+  });
+  try {
+    expect(await nightTick(2)).toMatchObject({ hoursUnavailable: true, resolved: inactive ? 1 : 0, escalated: 0 });
+    expect(await repo.getKv(WATCH_BACKGROUND_COMPLETION_KEY)).toEqual(completed);
+    expect(fetchFixture).not.toHaveBeenCalled();
+    if (inactive) {
+      expect(await getIncident(incident.id)).toMatchObject({ status: 'resolved', resolvedBy: 'auto' });
+      expect((await getIncident(incident.id))?.steps.at(-1)?.message).toContain('inactive kitchen');
+    } else expect(await getIncident(incident.id)).toEqual(incident);
+  } finally {
+    read.mockRestore();
+  }
+  if (!inactive) {
+    expect(await nightTick(3)).toMatchObject({ opened: 0, resolved: 0, escalated: 1 });
+    expect(await getIncident(incident.id)).toMatchObject({ status: 'open', level: 1 });
+    expect(fetchFixture).toHaveBeenCalledTimes(1);
+  }
 });

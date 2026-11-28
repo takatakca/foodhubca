@@ -376,6 +376,62 @@ describe('kitchen print queue: never twice, cancelled never printed', () => {
 describe('kitchen print queue: current pending order claims', () => {
   beforeEach(fresh);
 
+  it('rejects a receipt from a tablet enrolled at another kitchen and accepts a staff-only receipt', async () => {
+    const enrolledBy = { username: 'owner', name: 'Owner', source: 'dashboard' } as const;
+    const { cookie } = await enrollDevice({ name: 'NDG tablet', locationCode: 'NDG' }, enrolledBy);
+    const owner = await ownerCookie();
+    const tablet = cookie.split(';')[0];
+    const order = await addOrder({ locationCode: 'VERDUN' });
+    const input = { location: 'VERDUN', deviceId: DEVICE, source: 'platform' };
+    const ticketId = `platform:${order.id}:order`;
+    const pendingInput = { ...input, ids: [ticketId] };
+    const repo = getRepo();
+    const key = claimKey(DEVICE, 'order', 'platform', order.id);
+    const events = await repo.listEvents(order.id);
+
+    expect((await pending(pendingInput, `${owner}; ${tablet}`)).status).toBe(403);
+    expect((await claim(order.id, input, `${owner}; ${tablet}`)).status).toBe(403);
+    expect(await repo.getKv(key)).toBeNull();
+    expect(await repo.getKv(kitchenPrintKey('order', 'platform', order.id))).toBeNull();
+    expect(await repo.listEvents(order.id)).toEqual(events);
+
+    const accepted = await claim(order.id, input, owner);
+    expect(accepted.status).toBe(200);
+    expect(await accepted.json()).toMatchObject({ claimed: true });
+    expect(await repo.getKv(key)).toMatchObject({ location: 'VERDUN', deviceId: DEVICE });
+    expect(await repo.getKv(key)).not.toHaveProperty('enrollmentId');
+    expect(await (await pending(pendingInput, owner)).json()).toMatchObject({ results: { [ticketId]: 'clear' } });
+  });
+
+  it('requires a PIN staff session and tablet cookie to refer to the same enrollment', async () => {
+    const enrolledBy = { username: 'owner', name: 'Owner', source: 'dashboard' } as const;
+    const first = await enrollDevice({ name: 'First NDG tablet', locationCode: 'NDG' }, enrolledBy);
+    const second = await enrollDevice({ name: 'Second NDG tablet', locationCode: 'NDG' }, enrolledBy);
+    const repo = getRepo();
+    const cook = await repo.saveUser({ username: 'cook', name: 'Cook', role: 'operator', locations: ['NDG'], active: true, passwordHash: null });
+    const pin = (await sessionCookieFor(cook, 'pin', first.device.id)).split(';')[0];
+    const mismatched = `${pin}; ${second.cookie.split(';')[0]}`;
+    const matching = `${pin}; ${first.cookie.split(';')[0]}`;
+    const order = await addOrder();
+    const input = { location: 'NDG', deviceId: DEVICE, source: 'platform' };
+    const ticketId = `platform:${order.id}:order`;
+    const pendingInput = { ...input, ids: [ticketId] };
+    const key = claimKey(DEVICE, 'order', 'platform', order.id);
+    const events = await repo.listEvents(order.id);
+
+    expect((await pending(pendingInput, mismatched)).status).toBe(403);
+    expect((await claim(order.id, input, mismatched)).status).toBe(403);
+    expect(await repo.getKv(key)).toBeNull();
+    expect(await repo.getKv(kitchenPrintKey('order', 'platform', order.id))).toBeNull();
+    expect(await repo.listEvents(order.id)).toEqual(events);
+
+    const accepted = await claim(order.id, input, matching);
+    expect(accepted.status).toBe(200);
+    expect(await accepted.json()).toMatchObject({ claimed: true });
+    expect(await repo.getKv(key)).toMatchObject({ enrollmentId: first.device.id });
+    expect(await (await pending(pendingInput, matching)).json()).toMatchObject({ results: { [ticketId]: 'clear' } });
+  });
+
   it('rechecks platform and direct cancellations after a fixed page horizon without writing claims or events', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     try {

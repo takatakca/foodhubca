@@ -22,9 +22,10 @@ export async function POST(req: Request, ctx: Ctx) {
     const source = b.source === 'platform' || b.source === 'direct' ? b.source : null;
     const kind = b.kind === 'cancel' ? 'cancel' : 'order';
     const enrollment = await resolvePrintEnrollment(req, caller);
+    if (enrollment instanceof Response) return enrollment;
     const result = await claimTabletPrint({
       orderId: id, deviceId: b.deviceId, location: caller.location, by: caller.label, source, kind,
-      enrollmentId: enrollment instanceof Response ? undefined : enrollment?.id,
+      enrollmentId: enrollment?.id,
     });
     if (!result.claimed && (result.reason === 'not_found' || result.reason === 'other_kitchen')) return fail('Order not found in this kitchen.', 404, { claimed: false, reason: result.reason });
     return ok({ ...result });

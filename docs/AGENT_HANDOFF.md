@@ -1,3 +1,11 @@
+## 2026-11-28 — Jumelage des réclamations d’impression de tablette
+
+La réclamation d’un ticket applique la même vérification de jumelage que la lecture de son état avant impression. Une tablette rattachée à une autre cuisine, ou un jumelage qui diffère de celui de la session NIP, reçoit un 403 avant toute écriture du reçu, de la marque de cuisine ou de l’événement d’impression. Une session du personnel seule ou un jumelage concordant permet toujours de réclamer le ticket et d’en relire l’état.
+
+Les deux cas de jumelage discordant renvoyaient 200 avant la correction. Les 25 essais locaux ciblés réussissent après la correction. La CI du SHA exact et l’impression sur une tablette autorisée restent à vérifier. [PR #219](https://github.com/takatakca/foodhubca/pull/219) · [Checklist marchande #46](https://github.com/takatakca/foodhubca/issues/46)
+
+— signé : Codex @ cloud · 2026-11-28
+
 ## 2026-11-28 — Reprise des lots de tickets sur la tablette Android
 
 La tablette conserve les reçus du chevauchement au-delà de 500 tickets et recharge le curseur de la même cuisine après un redémarrage. Un ticket en attente exige une réponse de la cuisine active. Avant d’envoyer les octets d’un ticket de commande, la tablette vérifie auprès du serveur l’état courant de sa réclamation. Cette lecture voit les annulations reçues après la borne du lot. Un résultat incertain laisse le ticket en attente. Le nouveau paquet requiert ce serveur pour imprimer les tickets de commande.

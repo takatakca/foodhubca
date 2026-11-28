@@ -9,6 +9,7 @@ import { applyExternalStatus, pipelineOutcomeText, processIncomingOrder } from '
 import { handleUberReportWebhook } from '../recon/automation';
 import { getRepo } from '../repo';
 import type { ChannelStore, PlatformStatus } from '../types';
+import { UBER_POLL_MISMATCH_REASON } from '../uber-review';
 import { listUberCanceledOrders } from './uber-api';
 import { uberPosForStore } from './uber-link';
 import { keepUnparsed, uberDeliveryStatus } from '../webhook-utils';
@@ -38,7 +39,10 @@ async function kept(body: unknown, reason: string, reference: string | null = nu
 }
 
 /** Processes one Uber webhook body. Throws when the work failed (the inbox then retries it). */
-export async function handleUberEvent(body: any): Promise<HandlerOutcome> {
+export async function handleUberEvent(
+  body: any,
+  polled?: { orderId: string; storeId: string },
+): Promise<HandlerOutcome> {
   const event = String(body?.event_type || '');
   // Order events carry the order id in meta.resource_id; delivery.state_changed in meta.order_id.
   const orderId = String(body?.meta?.resource_id || body?.meta?.order_id || '');
@@ -48,7 +52,25 @@ export async function handleUberEvent(body: any): Promise<HandlerOutcome> {
     if (!href) return kept(body, 'Uber order notification without resource_href or order id');
     // One immediate retry; after that the inbox replays the notification (Uber does not resend it).
     const details = await fetchUberOrder(href).catch(() => fetchUberOrder(href));
-    const order = parseUberOrder(details, body.meta?.user_id);
+    const detailStoreId = details?.store?.id;
+    if (polled && (String(details?.id ?? '') !== polled.orderId
+      || (detailStoreId != null && String(detailStoreId) !== polled.storeId))) {
+      const reason = UBER_POLL_MISMATCH_REASON;
+      const repo = getRepo();
+      const previous = await repo.findJobByReference(polled.orderId, {
+        kind: 'webhook_unparsed', channel: 'uber_eats', reason, listedStoreId: polled.storeId, reviewOnly: true,
+      });
+      if (!previous) {
+        // Review the listed identity without keeping data that can enter the normal webhook handler on Replay.
+        await repo.addJob({
+          kind: 'webhook_unparsed', channel: 'uber_eats', reference: polled.orderId, status: 'error',
+          request: { replayable: false, body: { meta: { resource_id: polled.orderId, user_id: polled.storeId } } },
+          result: { reason },
+        });
+      }
+      return { result: `kept: ${reason}` };
+    }
+    const order = parseUberOrder(details, polled?.storeId ?? body.meta?.user_id);
     if (!order) return kept(details, 'Uber order details could not be parsed', orderId || null);
     // Already cancelled / denied on Uber by the time Food Hub read it (a late replay): recorded as cancelled — never sent
     // to Clover, never accepted (the pipeline applies a cancel that arrived first).
@@ -200,7 +222,7 @@ export async function recoverMissedUberOrders(now = Date.now()): Promise<{ recov
   const intakeStores = isViaClover('uber_eats') ? [] : stores;
   let recovered = 0;
   let error: string | undefined;
-  for (const s of intakeStores) {
+  intake: for (const s of intakeStores) {
     let waiting: Array<{ id: string; placedAt: string | null }>;
     try { waiting = await listUberCreatedOrders(s.channelStoreId); } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -211,10 +233,21 @@ export async function recoverMissedUberOrders(now = Date.now()): Promise<{ recov
       const age = o.placedAt ? now - Date.parse(o.placedAt) : null;
       if (age !== null && (age < 60_000 || age > 11.5 * 60_000)) continue;
       if (await repo.findOrder('uber_eats', o.id)) continue;
-      await handleUberEvent({ event_type: 'orders.notification', meta: { resource_id: o.id, user_id: s.channelStoreId, status: 'pos' }, resource_href: `${uberApiBase()}/v2/eats/order/${encodeURIComponent(o.id)}` });
+      let outcome: HandlerOutcome;
+      try {
+        outcome = await handleUberEvent(
+          { event_type: 'orders.notification', meta: { resource_id: o.id, user_id: s.channelStoreId, status: 'pos' }, resource_href: `${uberApiBase()}/v2/eats/order/${encodeURIComponent(o.id)}` },
+          { orderId: o.id, storeId: s.channelStoreId },
+        );
+      } catch (e) {
+        error = e instanceof Error ? e.message : String(e);
+        if (/token refused/i.test(error)) break intake; // the order-details token is shared by every store
+        continue;
+      }
+      if (!outcome.orderId) continue;
       recovered++;
-      await logActivity({ actor: 'TAKATAK automation', source: 'automation', kind: 'order', action: 'uber_order_recovered', status: 'info', channel: 'uber_eats', brandName: s.brandName, locationCode: s.locationCode,
-        summary: `Uber Eats order ${o.id.slice(0, 8)} for ${s.brandName} · ${s.locationCode} never arrived by webhook — found on Uber and processed` });
+      await logActivity({ actor: 'TAKATAK automation', source: 'automation', kind: 'order', action: 'uber_order_recovered', status: 'info', channel: 'uber_eats', brandName: s.brandName, locationCode: s.locationCode, orderId: outcome.orderId,
+        summary: `Uber Eats order ${o.id.slice(0, 8)} for ${s.brandName} · ${s.locationCode} found on Uber — ${outcome.result}` });
     }
   }
   const cancelled = await recoverMissedUberCancellations(now, stores).catch(() => 0);
@@ -230,8 +263,15 @@ export async function recoverMissedUberCancellations(now = Date.now(), managed?:
   if (!uberEatsAdapter.readiness().canSend) return 0;
   const repo = getRepo();
   const stores = managed ?? (await repo.listStores('uber_eats')).filter((s) => uberPosForStore(s)?.orderManager === 'foodhub');
-  const open = (await repo.listOrders({ statuses: ['new', 'accepted', 'ready'], since: new Date(now - 3 * 3600_000).toISOString(), limit: 500 }))
-    .filter((o) => o.channel === 'uber_eats' && !o.viaHub && !o.viaPos);
+  if (!stores.length) return 0;
+  const open = await repo.listOrders({
+    channel: 'uber_eats',
+    channelStoreIds: stores.map((store) => store.channelStoreId),
+    directOnly: true,
+    statuses: ['new', 'accepted', 'ready'],
+    since: new Date(now - 3 * 3600_000).toISOString(),
+    limit: 500,
+  });
   let cancelled = 0;
   for (const s of stores) {
     const mine = open.filter((o) => o.channelStoreId === s.channelStoreId);

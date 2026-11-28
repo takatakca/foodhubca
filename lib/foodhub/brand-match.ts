@@ -18,9 +18,43 @@ export const BRAND_ALIASES: Record<string, string[]> = {
  * Jean-Talon E (owner, 2026-10-09; data/actual/locations.json); 5837 is the next unit of the same kitchen, still on
  * some platform store records.
  */
-export const LOCATION_NUMBER_ALIASES: Record<string, string[]> = { SAINT_LEONARD: ['5837'] };
+const saintLeonardAnnex = '5837';
+export const LOCATION_NUMBER_ALIASES: Record<string, string[]> = { SAINT_LEONARD: [saintLeonardAnnex] };
 
 export interface LocationRef { code: string; address_line_1: string }
+
+type KitchenAddress = { code: string; address?: string; city?: string; postalCode?: string };
+
+function civicLine(value: string): string {
+  return value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
+    .replace(/[.-]/g, ' ').replace(/\b(?:ave|avenue)\b/g, 'av')
+    .replace(/\best\b/g, 'e').replace(/\bouest\b/g, 'o').replace(/\s+/g, ' ').trim()
+    .replace(/^(\d+[a-z]?) (.+) av$/, '$1 av $2');
+}
+
+/** A provider street and civic number must identify a single current kitchen.
+ * Keep number suffixes and street directions. Conflicting or incomplete evidence is left for review. */
+export function kitchenAtAddress(address: string | undefined, locations: readonly KitchenAddress[]): string | undefined {
+  if (!address) return;
+  const [line, ...locality] = address.split(',').map((part) => part.trim());
+  if (!/^\d+[a-z]?\s+\S/i.test(line)) return;
+  const street = civicLine(line);
+  const postalPattern = /\b[a-z]\d[a-z]\s?\d[a-z]\d\b/i;
+  const postal = locality.join(' ').match(postalPattern)?.[0];
+  const localityNames = locality.map((part) => normName(part.replace(postalPattern, '')
+    .replace(/\b(?:qc|canada|can|ca)\b/gi, ''))).filter(Boolean);
+  const matches = locations.filter((place) => {
+    const registered = civicLine(place.address ?? '');
+    // The recorded annex belongs to this building only, including after catalogue edits.
+    const annex = place.code === 'SAINT_LEONARD' && registered === '5839 rue jean talon e'
+      && street === `${saintLeonardAnnex} rue jean talon e`;
+    if (registered !== street && !annex) return false;
+    if (postal && place.postalCode && normName(postal) !== normName(place.postalCode)) return false;
+    const city = normName(place.city ?? '');
+    return localityNames.every((name) => name === city || (name === 'montreal' && city === 'saintleonard'));
+  });
+  return matches.length === 1 ? matches[0].code : undefined;
+}
 
 /** "6280 Av Somerled" → "somerled": the street name without the number or the street type, for a fallback match. */
 const streetOf = (line: string) => normName(line.replace(/^\s*\d+[a-z]?\s+/i, '').replace(/\b(av|ave|avenue|rue|boul|boulevard|ch|chemin|e|o|est|ouest)\b\.?/gi, ' '));

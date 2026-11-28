@@ -13,9 +13,12 @@
 import crypto from 'node:crypto';
 import rawBrands from '../../../data/actual/brands.json';
 import rawLocations from '../../../data/actual/locations.json';
-import { matchBrandLocation, type LocationRef } from '../brand-match';
+import { kitchenAtAddress, matchBrandLocation, type LocationRef } from '../brand-match';
+import { getCatalog } from '../catalog';
 import { callApi, publicBaseUrl, result, timedFetch } from '../config';
 import { getRepo } from '../repo';
+import { defaultCloverMerchant } from '../pos/clover';
+import { uberCloverChoice } from '../uber-clover-choice';
 import type { ChannelResult } from '../types';
 import { enableUberIntegration, fetchUberPosData, listUberStorePages, uberApiBase, uberAuthorizeUrl, uberOrderManager, uberTokenUrl, type UberOrderManager, type UberPosState } from './uber-eats';
 
@@ -123,17 +126,19 @@ export async function finishUberConnect(state: string, code: string): Promise<{ 
   }
 }
 
-export async function uberConnectSession(id: string): Promise<{ stores: Array<UberMerchantStore & { suggestedClover?: string }>; error: string | null; active: boolean } | null> {
+export async function uberConnectSession(id: string) {
   const s = await getSession(id);
   if (!s) return null;
-  // Clover merchant suggestion: the register the other stores at that location already use (most common one).
-  const mapped = await getRepo().listStores().catch(() => []);
-  const cloverAt = (loc?: string) => {
-    const counts = new Map<string, number>();
-    for (const m of mapped) if (loc && m.locationCode === loc && m.cloverMerchantId) counts.set(m.cloverMerchantId, (counts.get(m.cloverMerchantId) ?? 0) + 1);
-    return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
-  };
-  return { stores: (s.stores ?? []).map((x) => ({ ...x, suggestedClover: cloverAt(x.suggestedLocation) })), error: s.error ?? null, active: Boolean(s.token) };
+  const [mapped, catalog, defaultMerchantId] = await Promise.all([
+    getRepo().listStores(), getCatalog({ strict: true }), defaultCloverMerchant(),
+  ]);
+  const locations = catalog.locations.filter((place) => place.active);
+  const stores = (s.stores ?? []).map((store) => {
+    const suggestedLocation = kitchenAtAddress(store.address, locations);
+    const { required, suggestedClover } = uberCloverChoice(store.id, suggestedLocation, mapped, defaultMerchantId);
+    return { ...store, suggestedLocation, suggestedClover, requiresCloverChoice: required };
+  });
+  return { stores, error: s.error ?? null, active: Boolean(s.token), defaultMerchantId };
 }
 
 export interface UberActivation {
@@ -150,12 +155,17 @@ export interface UberActivation {
 
 export function activationMessage(a: Pick<UberActivation, 'result' | 'enabled' | 'pos'>): string {
   if (!a.result.ok) return explainActivationError(a.result);
-  const notOn = a.enabled && !a.enabled.ok ? ` Order webhooks are not switched on yet (${a.enabled.message}) — use “Check with Uber” to retry.` : '';
+  const switchFailed = a.enabled && !a.enabled.ok ? ` The attempt to enable order webhooks failed (${a.enabled.message}).` : '';
   switch (a.pos?.orderManager) {
-    case 'foodhub': return `Activated — Food Hub now receives this store’s orders.${notOn}`;
-    case 'pending': return `Activated — Uber is moving this store’s orders to Food Hub (pending). Keep the tablet on until “Check with Uber” says Food Hub.${notOn}`;
-    case 'other': return `Activated, but another integration (e.g. UrbanPiper) still receives this store’s orders — they keep going there until it disconnects the store (or Uber moves it: merchants@uber.com).${notOn}`;
-    default: return `Sent to Uber — waiting for Uber to confirm (store.provisioned). Use “Check with Uber” to see who receives the orders.${notOn}`;
+    case 'foodhub': {
+      const manager = 'Uber lists Food Hub as the order manager.';
+      if (a.pos.integrationEnabled === true) return `${manager} Order webhooks are on. Verify kitchen receipt with a test order.`;
+      if (a.pos.integrationEnabled === false) return `${manager} Order webhooks are off.${switchFailed} Use “Check with Uber” before relying on Food Hub for orders.`;
+      return `${manager} Uber has not confirmed whether order webhooks are on.${switchFailed} Use “Check with Uber” again.`;
+    }
+    case 'pending': return `Uber reports that the move to Food Hub is pending.${switchFailed} Keep the tablet on until a test order reaches the kitchen.`;
+    case 'other': return `Uber lists another integration (e.g. UrbanPiper) as the order manager. Contact that integration or Uber (merchants@uber.com) to move the store.${switchFailed}`;
+    default: return `Uber has not confirmed the order manager.${switchFailed} Use “Check with Uber” again.`;
   }
 }
 
@@ -166,6 +176,10 @@ export function activationMessage(a: Pick<UberActivation, 'result' | 'enabled' |
 export async function activateUberStores(id: string, picks: Array<{ storeId: string; brandName: string; locationCode: string }>): Promise<UberActivation[]> {
   const s = await getSession(id);
   if (!s?.token) throw new Error('Uber connection expired. Click “Connect Uber Eats” again.');
+  const listed = new Set((s.stores ?? []).map(({ id }) => id));
+  if (picks.some(({ storeId }) => !listed.has(storeId))) {
+    throw new Error('Activate only stores listed for this Uber Eats connection.');
+  }
   const out: UberActivation[] = [];
   for (const p of picks) {
     const res = await callApi('uber_eats', `${uberApiBase()}/v1/eats/stores/${encodeURIComponent(p.storeId)}/pos_data`, {

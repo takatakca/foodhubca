@@ -20,7 +20,7 @@ import { runMevScenarios } from './e2e/mev-scenarios.mjs';
 import {
   MOCK_PORT, APP_PORT, APP, MOCK, PASSWORD, SCREENS_TOKEN, UBER_SECRET, DD_SECRET_B64, JET_API_KEY,
   SKIP_HMAC, SKIP_NOTIFY_KEY, CLOVER_TOKEN, CLOVER_APP_TOKEN, RELAY_SECRET, RELAY_CB_TOKEN, MEV_SECRET, mevMock, log,
-  uberStatus, ddDetails, knownUberStores, uberPosData, uberCreated, cloverPayments, cloverTenders, cloverOrderTypes,
+  uberStatus, ddDetails, knownUberStores, uberPosData, uberCreated, uberOrderStores, cloverPayments, cloverTenders, cloverOrderTypes,
   cloverOrderTotals, cloverAtomicTitles, cloverNativeOrders, cloverTagLinks, cloverItems, mock, basic, call, TZ, localDay, localHour,
   sleep, waitFor, sent, expectedDeadlineMs, findOrder, jetHash, skipWebhook, skipOrder, uberSigned, uberWebhook,
   relayHook, relayOrder, relayStatus, mockState, appEnv,
@@ -155,7 +155,7 @@ try {
   check('order webhooks switched on after activation (PATCH pos_data integration_enabled with the app token)', sent('PATCH', /\/v1\/eats\/stores\/uber-new-\d\/pos_data$/).filter((e) => e.headers.authorization === 'Bearer uber-token-1' && e.body?.integration_enabled === true).length === 2);
   const r1 = actv.json?.results?.find((r) => r.storeId === 'uber-new-1');
   const r2 = actv.json?.results?.find((r) => r.storeId === 'uber-new-2');
-  check('activation reads back who gets the orders: Food Hub for one, still UrbanPiper for the other (said plainly)', r1?.orderManager === 'foodhub' && /Food Hub now receives/.test(r1.message) && r2?.orderManager === 'other' && /UrbanPiper/.test(r2.message) && /merchants@uber\.com/.test(r2.message), JSON.stringify(actv.json?.results));
+  check('activation reports Uber routing and enabled webhooks separately from kitchen receipt', r1?.orderManager === 'foodhub' && r1.integrationEnabled === true && /test order/.test(r1.message) && r2?.orderManager === 'other' && /UrbanPiper/.test(r2.message) && /merchants@uber\.com/.test(r2.message), JSON.stringify(actv.json?.results));
   const mapped = (await call('GET', '/api/foodhub/stores')).json.stores.filter((x) => x.channelStoreId.startsWith('uber-new-'));
   check('activated store keeps its Clover register and the order-manager state', mapped.find((x) => x.channelStoreId === 'uber-new-1')?.cloverMerchantId === 'MAINMERCHANT' && mapped.find((x) => x.channelStoreId === 'uber-new-1')?.meta?.uberPos?.orderManager === 'foodhub' && mapped.find((x) => x.channelStoreId === 'uber-new-2')?.meta?.uberPos?.orderManager === 'other');
   uberPosData.set('uber-new-2', { ...uberPosData.get('uber-new-2'), order_manager_client_id: 'uber-id' }); // UrbanPiper lets go
@@ -1177,10 +1177,26 @@ try {
   console.log('\n42. Uber Eats: orders whose webhook never arrived (missed-order check)');
   const ago = (min) => new Date(Date.now() - min * 60_000).toISOString();
   // uber-new-1: Uber confirmed Food Hub as order manager. uber-store-uuid-1: never confirmed — must not be polled.
-  uberCreated.set('uber-new-1', [{ id: 'uber-missed-1', current_state: 'CREATED', placed_at: ago(2) }, { id: 'uber-too-old-1', current_state: 'CREATED', placed_at: ago(20) }, { id: 'uber-too-new-1', current_state: 'CREATED', placed_at: ago(0.2) }]);
+  const missedOrderFixtures = [{ id: 'uber-missed-1', current_state: 'CREATED', placed_at: ago(2) }, { id: 'uber-too-old-1', current_state: 'CREATED', placed_at: ago(20) }, { id: 'uber-too-new-1', current_state: 'CREATED', placed_at: ago(0.2) }];
+  mockState.uberFetchFails = 2;
+  uberCreated.set('uber-new-1', [{ id: 'uber-flaky-missed-1', current_state: 'CREATED', placed_at: ago(2) }, ...missedOrderFixtures]);
   uberCreated.set('uber-store-uuid-1', [{ id: 'uber-not-mine-1', current_state: 'CREATED', placed_at: ago(2) }]);
+  uberOrderStores.set('uber-missed-1', 'uber-new-1');
+  uberOrderStores.set('uber-mismatch-1', 'uber-store-uuid-1');
+  uberCreated.get('uber-new-1').unshift({ id: 'uber-mismatch-1', current_state: 'CREATED', placed_at: ago(2) });
   const sy41 = await call('POST', '/api/foodhub/sync', { body: { force: true } });
-  check('sync finds the order no webhook announced and processes it (Clover first, then accept)', sy41.json?.report?.uberMissed?.recovered === 1 && !!(await waitFor(async () => { const o = await findOrder('uber-missed-1'); return o?.posOrderId && o.status === 'accepted' ? o : null; })), JSON.stringify(sy41.json?.report?.uberMissed));
+  check('sync reports both failed reads of one candidate without saving it', sy41.json?.report?.uberMissed?.error === 'Uber order fetch failed: HTTP 503' && sent('GET', /\/v2\/eats\/order\/uber-flaky-missed-1$/).length === 2 && !(await findOrder('uber-flaky-missed-1')), JSON.stringify(sy41.json?.report?.uberMissed));
+  check('sync finds the order no webhook announced and processes it (Clover first, then accept)', sy41.json?.report?.uberMissed?.recovered === 1 && !!(await waitFor(async () => { const o = await findOrder('uber-missed-1'); return o?.posOrderId && o.status === 'accepted' && o.channelStoreId === 'uber-new-1' && o.locationCode === 'HOCHELAGA' ? o : null; })), JSON.stringify(sy41.json?.report?.uberMissed));
+  const reviewPage = await call('GET', '/api/foodhub/channels/uber-review?offset=0');
+  const heldIdentity = (reviewPage.json?.notices ?? []).find((notice) => notice.orderRef === 'uber-mismatch-1');
+  const recentUnparsed = (await call('GET', '/api/foodhub/channels')).json?.unparsed ?? [];
+  const replayIdentity = heldIdentity && await call('POST', '/api/foodhub/inbox', { body: { jobId: heldIdentity.id } });
+  check('a contradictory Uber read appears in the review page and cannot be replayed as a webhook',
+    reviewPage.status === 200 && heldIdentity?.reason === 'order_store_mismatch' && heldIdentity.storeRef === 'uber-new-1'
+      && !recentUnparsed.some((job) => job.id === heldIdentity?.id) && replayIdentity?.status === 409
+      && !(await findOrder('uber-mismatch-1')) && sent('GET', /\/v2\/eats\/order\/uber-mismatch-1$/).length === 1
+      && !sent('POST', /\/uber-mismatch-1\//).length);
+  uberCreated.set('uber-new-1', missedOrderFixtures);
   check('missed-order check skips stores not confirmed as Food Hub’s, orders past the 11.5-min window and orders the webhook may still bring', !(await findOrder('uber-not-mine-1')) && !(await findOrder('uber-too-old-1')) && !(await findOrder('uber-too-new-1')) && !sent('GET', /\/v1\/eats\/stores\/uber-store-uuid-1\/created-orders$/).length);
 
   console.log('\n42b. Order Relay (partner feed → Clover → kitchen), one menu for two brands, late orders never cooked by themselves');

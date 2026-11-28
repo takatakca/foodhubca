@@ -1,3 +1,110 @@
+## 2026-11-28 — Preuve Uber rattachée au magasin vérifié
+
+L’écran Liaisons rattache le résultat à l’identifiant Uber et à la ligne vérifiée. Si la ligne change de magasin, le résultat précédent disparaît avec son bouton d’activation. Un débranchement accepté garde le statut à confirmer pour le magasin Uber, même quand la liaison locale apparaît après la demande. Une vérification réussie de cette liaison peut rétablir le statut affiché.
+
+L’activation renvoie et consigne le dernier état enregistré par l’écriture conditionnelle. Les essais fictifs couvrent les changements de liaison, l’apparition d’une liaison pendant un débranchement et la conservation d’un état des webhooks désactivé ou d’un autre gestionnaire enregistré pendant l’activation. La réception en cuisine reste suivie dans [#46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé Codex @ cloud · 2026-11-28 07:40 Montréal
+
+## 2026-11-28 — Reprise et débranchement Uber sur le même candidat
+
+La répétition réunit les avis paginés de #218 et le débranchement protégé de #220. La console garde le choix explicite de caisse et présente le statut du routage séparément de la réception. Elle exécute une opération Uber à la fois par vue, conserve le résultat par magasin et indique la vérification requise après un débranchement si la liaison a changé pendant la demande. Les 174 tests ciblés, TypeScript et ESLint ciblé passent. Rejouer la compilation, les parcours signés sur PostgreSQL et la console dans Chromium. La preuve marchande est suivie dans [#46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-28
+
+## 2026-11-28 — Liaison modifiée pendant un débranchement Uber
+
+Lorsque Uber accepte le débranchement, Food Hub vérifie la liaison et l’état Uber enregistré avant de mettre à jour le magasin. Une nouvelle liaison ou une confirmation plus récente reste intacte, même si le magasin n’était pas lié au départ. L’écran garde le gestionnaire inconnu jusqu’à une nouvelle vérification Uber. L’activation, la vérification et le débranchement se font une action à la fois. Le résultat d’un magasin reste affiché quand une autre liaison change. Les autres données enregistrées en parallèle restent présentes. Le groupe de magasins du compte Uber et l’interrupteur des écritures restent nécessaires. Un compte limité à des cuisines doit avoir une liaison autorisée avant toute demande. Les essais utilisent des sessions et commerces fictifs et ne contactent aucun fournisseur.
+
+— signé : Codex @ cloud · 2026-11-28
+
+## 2026-11-28 — Identité des commandes Uber reprises
+
+La reprise vérifie que les détails concernent la commande et le magasin de la liste Uber avant d’enregistrer, d’annuler ou d’envoyer une commande en cuisine. Quand Uber omet le magasin des détails, la commande doit correspondre à l’identifiant exact de la liste pour conserver ce magasin. Un désaccord conserve seulement l’avis de recherche et laisse les autres commandes de la liste avancer. Si le même désaccord revient, la reprise conserve l’avis existant. L’avis est consultable dans Canaux et ne peut pas être rejoué. Une réponse corrigée permet ensuite à la reprise de traiter la commande. Les deux essais fictifs reproduisent un envoi vers une autre cuisine et une annulation de la mauvaise commande avant correction. La vérification marchande reste dans [la checklist #46](https://github.com/takatakca/foodhubca/issues/46).
+
+Le suivi de revue #218 recherche l’avis par commande, magasin, canal, marqueur de consultation et motif avant de retenir le résultat. Une page dédiée dans Canaux expose les métadonnées des avis Uber par groupe de cinq, en appliquant le périmètre des cuisines avant la limite. La vue récente conserve le parcours de rejeu des autres messages. Les tests de régression couvrent un message intermédiaire plus récent, deux magasins pour une référence et la consultation d’un avis ancien.
+
+— signé : Codex @ cloud · 2026-11-28
+
+## 2026-11-28 — Sélection des annulations Uber manquées
+
+La recherche lit les 500 commandes ouvertes récentes après avoir sélectionné Uber, ses magasins gérés et les commandes directes. Les commandes relayées et importées de Clover sont filtrées avant la limite. Un magasin dont aucune commande directe admissible n’est ouverte ne déclenche pas de lecture chez Uber. La preuve marchande reste suivie dans [#46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé Codex @ cloud · 2026-11-28
+
+## 2026-11-28 — Reprise Uber après une lecture en échec
+
+La reprise garde le résultat des commandes traitées et poursuit les autres lectures après l’échec d’une commande. Un refus du jeton commun met fin aux nouvelles lectures de commandes. La vérification des annulations peut encore utiliser son jeton de lecture. Les données conservées pour examen sans commande enregistrée sortent du compteur de reprise. La preuve en cuisine reste suivie dans [#46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé Codex @ cloud · 2026-11-28
+
+## 2026-11-28 — Routage déclaré par Uber
+
+L’activation indique si Uber a accepté la demande, quel gestionnaire Uber déclare et si Uber confirme l’état des webhooks. Les résultats et le journal comptent la configuration seulement quand Uber désigne Food Hub avec les webhooks actifs. Une nouvelle vérification en échec remplace l’indication précédente. La preuve de réception en cuisine reste suivie dans [#46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé Codex @ cloud · 2026-11-28
+
+## 2026-11-27 — Choix en double à l’activation Uber
+
+Un lot qui sélectionne deux fois le même magasin Uber reçoit HTTP 400 avant les appels fournisseur et les écritures de liaison. Les deux essais authentifiés couvrent un choix répété à l’identique et une autre destination Clover pour le même magasin. Ils conservent la session marchande et la liaison déjà enregistrée. La preuve de réception marchande reste suivie dans [la checklist #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé Codex @ cloud · 2026-11-27
+
+## 2026-11-27 — Périmètre des magasins dans l’activation Uber
+
+Food Hub vérifie toute la sélection contre la liste que le marchand a reçue dans sa session Uber. Un magasin absent ou une liste indisponible invalide le lot avant l’appel fournisseur ou l’enregistrement de la liaison. La session reste disponible pour corriger la sélection. Les autorisations marchandes et la réception en cuisine restent suivies dans #46.
+
+— signé Codex @ cloud · 2026-11-27
+
+
+## 2026-11-27 — Liaison modifiée pendant l’activation Uber
+
+Lorsque le fournisseur a déjà accepté l’activation et que la liaison a changé, la console affiche « Liaison à vérifier ». Cette ligne est retirée du lot à relancer dans la session courante. Les autres lignes restent disponibles pour la reprise. Le candidat local suit les revues de #198, #199 et #201.
+
+— signé Codex @ cloud · 2026-11-27
+
+## 2026-11-27 — Liaison révisée pendant une activation Uber
+
+Si une liaison est créée ou change de cuisine, de marque ou de caisse pendant la demande Uber, Food Hub garde la liaison enregistrée entre-temps. Le résultat indique que la demande Uber a été acceptée et invite à vérifier séparément la cuisine et la caisse déjà enregistrées. Les lectures et les confirmations de webhook publiées pendant la demande sont conservées lorsque la liaison reste la même. Les essais locaux suspendent la réponse simulée pendant une modification de liaison. [Suivi de la preuve marchande](https://github.com/takatakca/foodhubca/issues/46)
+
+— signé : Codex @ cloud · 2026-11-27
+
+## Choix de la caisse lors du branchement Uber
+
+La PR #199 conserve la caisse d’un magasin qui reste dans sa cuisine. Pour un déplacement ou pour un nouveau magasin dans une cuisine qui dessert plusieurs caisses, le formulaire demande un choix. Le serveur revalide les suggestions avant de transmettre le lot à Uber. Les tests utilisent des magasins et des caisses synthétiques. La publication de #198 précède #199 dans la [file de déploiement](https://github.com/takatakca/foodhubca/issues/155). Les preuves de réception en cuisine et au téléphone restent suivies dans [la checklist marchande](https://github.com/takatakca/foodhubca/issues/46).
+
+— Codex @ navigateur marchand · 2026-11-27
+
+## Rapprochement des adresses marchandes Uber
+
+Dans Restaurants → Branchements, la confirmation de cuisine dépend de l’adresse civique renvoyée par Uber et du catalogue actif. Une adresse absente laisse une indication historique. Une adresse reçue mais ambiguë demande un choix manuel. La reprise d’une session Uber recalcule la suggestion avant de proposer une caisse. Un magasin découvert et déjà lié conserve ses réglages dans le formulaire. Les preuves de liaison et les préalables marchands sont suivis dans [la checklist #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ navigateur marchand · 2026-11-27
+## 2026-11-27 — Sources des liaisons Uber sur la version publiée
+
+La branche de revue #198 reprend la version publiée `7764c7e`. La découverte et la lecture des adresses utilisent l’autorisation Uber d’inspection et gardent les filtres de cuisine. Le formulaire distingue l’adresse reçue d’Uber de la suggestion historique. #199 suit la publication de #198. L’autorisation du compte marchand et la réception réelle restent suivies dans #46.
+
+— signé Codex @ cloud · 2026-11-27
+
+## 2026-11-27 — Source de la cuisine proposée pour un magasin Uber
+
+Dans Restaurants → Liaisons, la découverte et la lecture de l’adresse utilisent le jeton de lecture des magasins. Le commerçant peut consulter les magasins accessibles avant d’autoriser les écritures. Une suggestion de cuisine qui vient du registre historique est signalée comme telle. Dans ce cas, le bouton de vérification ouvre la liaison actuelle. La vérification des sept fiches marchandes et les refus distincts de l’inspection et du parcours d’autorisation sont consignés dans [la checklist marchande](https://github.com/takatakca/foodhubca/issues/46#issuecomment-7210321209). La publication suit la file de déploiement du [backlog](https://github.com/takatakca/foodhubca/issues/155).
+
+— signé : Codex @ Chrome marchand · 2026-11-27
+
+## 2026-11-27 — Choix de la caisse Clover sur la version publiée
+
+La branche #201 reprend `7764c7e`. Le choix explicite de la caisse par défaut et la vérification de la liaison au moment de l’enregistrement restent couverts. Lors d’un déplacement Uber, le formulaire doit soumettre la caisse de destination. La vérification sur caisse marchande reste suivie dans #46.
+
+— signé Codex @ cloud · 2026-11-27
+
+## 27 novembre 2026 — Caisse par défaut dans l’éditeur de liaison
+
+Le formulaire manuel de Restaurants → Liaisons transmet une chaîne vide quand le commerçant choisit la caisse par défaut. La sauvegarde efface alors l’ancienne caisse explicite pour une liaison qui reste dans sa cuisine. Les appels partiels qui omettent ce champ ou envoient une valeur nulle conservent leur comportement. Un changement de cuisine Uber exige toujours un marchand Clover de destination.
+
+La mise à jour d’une liaison existante compare en base la version, la cuisine, le magasin, la caisse et les métadonnées lues pendant la requête. Une réaffectation concurrente renvoie un conflit et laisse le choix le plus récent en place. Les régressions utilisent des magasins fictifs. Le parcours d’activation Uber est suivi à part dans la PR #199. Le déploiement suit la file de #155.
+
+— Codex @ Chrome, 27 novembre 2026
 ## 2026-11-26 — Paiement Clover après déplacement d’une liaison
 
 La réconciliation locale de #183 sur `86d190c` conserve les références par magasin de #178 pour la saisie, la reprise, l’import et le paiement Clover. Les 161 essais ciblés couvrent aussi le règlement et l’impression sur la caisse confirmée et le contrôle manuel d’une liaison Uber Eats. Les réponses des fournisseurs sont simulées. La CI du SHA réconcilié et la réception marchande restent à vérifier avant publication.

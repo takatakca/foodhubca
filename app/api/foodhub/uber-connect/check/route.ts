@@ -1,5 +1,5 @@
 import { enableUberIntegration, fetchUberPosData, uberEatsAdapter, type UberPosState } from '@/lib/foodhub/adapters/uber-eats';
-import { UBER_LINK_STATUS_FIELDS, uberPosForStore } from '@/lib/foodhub/adapters/uber-link';
+import { UBER_LINK_STATUS_FIELDS, uberPosForStore, uberRoutingConfirmed } from '@/lib/foodhub/adapters/uber-link';
 import { activationMessage } from '@/lib/foodhub/adapters/uber-provision';
 import { isRelayStore } from '@/lib/foodhub/adapters/relay';
 import { logActivity } from '@/lib/foodhub/activity';
@@ -43,7 +43,7 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
   const repo = getRepo();
   const ids: string[] | null = Array.isArray(b.storeIds) && b.storeIds.length ? b.storeIds.map(String) : null;
   const stores = (await repo.listStores('uber_eats')).filter((s) => !isRelayStore(s) && inScope(actor, s.locationCode) && (!ids || ids.includes(s.id)));
-  const rows: Array<{ storeId: string; ok: boolean; orderManager: string | null; integrationEnabled: boolean | null; message: string }> = [];
+  const rows: Array<{ storeId: string; channelStoreId: string; ok: boolean; orderManager: UberPosState['orderManager'] | null; integrationEnabled: boolean | null; message: string }> = [];
   for (const s of stores) {
     let read = await fetchUberPosData(s.channelStoreId, { inspection: !enableWebhooks });
     let enabled: ChannelResult | null = null;
@@ -58,13 +58,13 @@ export const POST = withPerm('stores:map', async (req, _ctx, actor) => {
       read = saved ? { ...read, state: saved } : mappingChanged;
     }
     rows.push({
-      storeId: s.id, ok: read.ok, orderManager: read.state?.orderManager ?? null, integrationEnabled: read.state?.integrationEnabled ?? null,
+      storeId: s.id, channelStoreId: s.channelStoreId, ok: read.ok, orderManager: read.state?.orderManager ?? null, integrationEnabled: read.state?.integrationEnabled ?? null,
       message: read.ok ? activationMessage({ result: { channel: 'uber_eats', ok: true, status: 'done', message: 'OK' }, enabled, pos: read.state ?? null })
         : read.httpStatus === 404 || read.httpStatus === 403 ? `Uber does not show this store to Food Hub (HTTP ${read.httpStatus}) — it is not activated for this app yet: “Connect Uber Eats”.` : read.error ?? 'Could not read the store from Uber.',
     });
   }
-  const mine = rows.filter((x) => x.orderManager === 'foodhub').length;
+  const confirmed = rows.filter((x) => x.ok && uberRoutingConfirmed(x)).length;
   await logActivity({ actor: actor.name, source: actor.source, kind: 'settings', action: 'uber_check', status: 'info', channel: 'uber_eats',
-    summary: `Checked ${rows.length} Uber Eats store(s) with Uber: ${mine} send their orders to Food Hub${enableWebhooks ? ' (order webhooks switched on where they were off)' : ''}` });
+    summary: `Checked ${rows.length} Uber Eats store(s): ${confirmed} report Food Hub as order manager with order webhooks enabled${enableWebhooks ? ' (requested enabling where Uber reported them off)' : ''}` });
   return ok({ rows });
 });

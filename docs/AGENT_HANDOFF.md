@@ -1,3 +1,9 @@
+## 2026-11-27 — Périmètre des magasins dans l’activation Uber
+
+Food Hub vérifie toute la sélection contre la liste que le marchand a reçue dans sa session Uber. Un magasin absent ou une liste indisponible invalide le lot avant l’appel fournisseur ou l’enregistrement de la liaison. La session reste disponible pour corriger la sélection. Les autorisations marchandes et la réception en cuisine restent suivies dans #46.
+
+— signé Codex @ cloud · 2026-11-27
+
 ## 2026-11-26 — Paiement Clover après déplacement d’une liaison
 
 La réconciliation locale de #183 sur `86d190c` conserve les références par magasin de #178 pour la saisie, la reprise, l’import et le paiement Clover. Les 161 essais ciblés couvrent aussi le règlement et l’impression sur la caisse confirmée et le contrôle manuel d’une liaison Uber Eats. Les réponses des fournisseurs sont simulées. La CI du SHA réconcilié et la réception marchande restent à vérifier avant publication.

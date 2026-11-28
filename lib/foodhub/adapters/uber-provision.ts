@@ -166,6 +166,10 @@ export function activationMessage(a: Pick<UberActivation, 'result' | 'enabled' |
 export async function activateUberStores(id: string, picks: Array<{ storeId: string; brandName: string; locationCode: string }>): Promise<UberActivation[]> {
   const s = await getSession(id);
   if (!s?.token) throw new Error('Uber connection expired. Click “Connect Uber Eats” again.');
+  const listed = new Set((s.stores ?? []).map(({ id }) => id));
+  if (picks.some(({ storeId }) => !listed.has(storeId))) {
+    throw new Error('Activate only stores listed for this Uber Eats connection.');
+  }
   const out: UberActivation[] = [];
   for (const p of picks) {
     const res = await callApi('uber_eats', `${uberApiBase()}/v1/eats/stores/${encodeURIComponent(p.storeId)}/pos_data`, {

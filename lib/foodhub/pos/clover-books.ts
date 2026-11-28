@@ -13,9 +13,11 @@ import { createHash } from 'node:crypto';
 import { CHANNEL_LABELS, toCents } from '../config';
 import { cloverFetch } from './clover-http';
 import { getRepo } from '../repo';
+import { neverSent } from '../env-utils';
 import { screenEntryStoreRef } from '../screen-entry-id';
 import type { ChannelKey, StoredOrder } from '../types';
-import { cloverBaseUrl, cloverToken, defaultCloverMerchant } from './clover';
+import { cloverBaseUrl, cloverToken, cloverTokenFor, defaultCloverMerchant } from './clover';
+import { readCloverConnection } from './clover-oauth';
 import { cloverOrderTitle, cloverTipCents } from './clover-order';
 
 const KV = 'clover_refs';
@@ -36,13 +38,17 @@ export function platformLabel(channel: ChannelKey) {
   return CHANNEL_LABELS[channel];
 }
 
-async function cloverJson(mid: string, path: string, init: RequestInit = {}): Promise<{ ok: boolean; status: number; json: any }> {
-  const token = await cloverToken(mid);
+const PAYMENT_PROOF_TIMEOUT_MS = 5_000;
+
+async function cloverJson(mid: string, path: string, init: RequestInit = {}, beforeAttempt?: () => Promise<void>,
+  proofToken?: string): Promise<{ ok: boolean; status: number; json: any }> {
+  const token = proofToken ?? await cloverToken(mid);
   if (!token) return { ok: false, status: 0, json: { message: `No Clover API token for merchant ${mid}` } };
   const res = await cloverFetch(`${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(mid)}${path}`, {
     ...init,
+    ...(proofToken && { cache: 'no-store' as const, redirect: 'error' as const, signal: AbortSignal.timeout(PAYMENT_PROOF_TIMEOUT_MS) }),
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json', ...(init.headers || {}) },
-  });
+  }, proofToken ? { timeoutMs: PAYMENT_PROOF_TIMEOUT_MS, retries: 0 } : { beforeAttempt });
   const text = await res.text();
   let json: any = {};
   try { json = text ? JSON.parse(text) : {}; } catch { json = { raw: text.slice(0, 300) }; }
@@ -77,7 +83,7 @@ function tenderBodies(label: string) {
 }
 
 /** Finds (or creates once) a Clover object by label — tenders and order types work the same way. */
-async function ensureLabeled(mid: string, kind: 'tenders' | 'orderTypes', label: string): Promise<LabeledRef> {
+async function ensureLabeled(mid: string, kind: 'tenders' | 'orderTypes', label: string, beforeWrite?: () => Promise<void>): Promise<LabeledRef> {
   const refs = await readRefs();
   const known = refs[mid]?.[kind]?.[label];
   if (known) return { id: known };
@@ -90,7 +96,7 @@ async function ensureLabeled(mid: string, kind: 'tenders' | 'orderTypes', label:
   const bodies: object[] = kind === 'tenders' ? tenderBodies(label) : [{ label, taxable: true }];
   const answers: string[] = [];
   for (const body of bodies) {
-    const created = await cloverJson(mid, path, { method: 'POST', body: JSON.stringify(body) });
+    const created = await cloverJson(mid, path, { method: 'POST', body: JSON.stringify(body) }, beforeWrite);
     if (created.ok && created.json?.id) { await saveRef(mid, kind, label, String(created.json.id)); return { id: String(created.json.id) }; }
     answers.push(cloverAnswer(created));
     // Only a refusal is tried again: a 2xx without an id may have made it (the next lookup by label finds it — never
@@ -128,7 +134,14 @@ export async function postCloverPayment(mid: string, posOrderId: string, p: { am
   return { ok: true, paymentId: String(res.json.id), amount: p.amount / 100 };
 }
 
-export type BookResult = { ok: true; paymentId: string; amount: number } | { ok: false; skipped?: boolean; error: string };
+export type BookResult = { ok: true; paymentId: string; amount: number } | { ok: false; skipped?: boolean; definitelyNotRecorded?: true; error: string };
+
+interface PaymentGuards {
+  beforeTenderPost?: () => Promise<boolean>;
+  beforePaymentPost?: () => Promise<boolean>;
+}
+
+const DEFINITE_PAYMENT_REFUSAL = new Set([0, 400, 401, 403, 404, 405, 415, 422, 429]);
 
 /**
  * Records the platform's payment on the Clover order (custom tender), so the order closes as paid.
@@ -137,12 +150,18 @@ export type BookResult = { ok: true; paymentId: string; amount: number } | { ok:
  * Clover's own order total is only a fallback when the platform numbers are missing.
  * Never blocks the order: a failure is logged on the order and shown in alerts.
  */
-export async function recordCloverPayment(order: StoredOrder, mid: string | null | undefined): Promise<BookResult> {
-  if (!cloverRecordPaymentEnabled()) return { ok: false, skipped: true, error: 'Payment recording is off (FOODHUB_CLOVER_RECORD_PAYMENT=off).' };
+class CloverPaymentHeld extends Error {}
+
+export async function recordCloverPayment(order: StoredOrder, mid: string | null | undefined, guards?: PaymentGuards): Promise<BookResult> {
+  if (!cloverRecordPaymentEnabled()) return { ok: false, skipped: true, definitelyNotRecorded: true, error: 'Payment recording is off (FOODHUB_CLOVER_RECORD_PAYMENT=off).' };
   const merchant = mid || process.env.CLOVER_MERCHANT_ID;
-  if (!merchant || !order.posOrderId) return { ok: false, skipped: true, error: 'Order is not in Clover.' };
+  if (!merchant || !order.posOrderId) return { ok: false, skipped: true, definitelyNotRecorded: true, error: 'Order is not in Clover.' };
+  const assertAllowed = (check: () => Promise<boolean>) => async () => {
+    if (!(await check())) throw new CloverPaymentHeld();
+  };
+  let preparing = true;
   try {
-    const tender = await ensureLabeled(merchant, 'tenders', platformLabel(order.channel));
+    const tender = await ensureLabeled(merchant, 'tenders', platformLabel(order.channel), guards?.beforeTenderPost && assertAllowed(guards.beforeTenderPost));
     if (!tender.id) return { ok: false, error: `Could not find or create the "${platformLabel(order.channel)}" tender in Clover: ${tender.error}` };
     const tenderId = tender.id;
     const amounts = cloverPaymentAmounts(order);
@@ -153,6 +172,8 @@ export async function recordCloverPayment(order: StoredOrder, mid: string | null
       const cloverTotal = Number((await cloverJson(merchant, `/orders/${encodeURIComponent(order.posOrderId)}`)).json?.total);
       if (Number.isFinite(cloverTotal) && cloverTotal > 0) amount = cloverTotal;
     }
+    preparing = false;
+    const reference = externalPaymentId(order);
     const res = await cloverJson(merchant, `/orders/${encodeURIComponent(order.posOrderId)}/payments`, {
       method: 'POST',
       body: JSON.stringify({
@@ -161,14 +182,54 @@ export async function recordCloverPayment(order: StoredOrder, mid: string | null
         // Pickup / own-delivery tips are the restaurant's (tip-outs); a delivery tip is the courier's and stays out.
         tipAmount: cloverTipCents(order),
         tender: { id: tenderId },
-        externalPaymentId: externalPaymentId(order),
+        externalPaymentId: reference,
         result: 'SUCCESS',
       }),
-    });
-    if (!res.ok || !res.json?.id) return { ok: false, error: `Clover payment HTTP ${res.status}: ${JSON.stringify(res.json).slice(0, 200)}` };
-    return { ok: true, paymentId: String(res.json.id), amount: amount / 100 };
+    }, guards?.beforePaymentPost && assertAllowed(guards.beforePaymentPost));
+    const id = typeof res.json?.id === 'string' ? res.json.id.trim()
+      : !guards && typeof res.json?.id === 'number' ? String(res.json.id) : '';
+    const mismatched = guards?.beforePaymentPost && ((res.json?.externalPaymentId != null && res.json.externalPaymentId !== reference)
+      || (res.json?.order?.id != null && res.json.order.id !== order.posOrderId)
+      || (res.json?.result != null && res.json.result !== 'SUCCESS'));
+    if (!res.ok || !id || mismatched) {
+      const definitelyNotRecorded = DEFINITE_PAYMENT_REFUSAL.has(res.status);
+      // A paid row with unexpectedly mismatched proof is as ambiguous as a missing response.
+      return { ok: false, ...(definitelyNotRecorded && { definitelyNotRecorded: true }),
+        error: `Clover payment HTTP ${res.status}: ${JSON.stringify(res.json).slice(0, 200)}` };
+    }
+    return { ok: true, paymentId: id, amount: amount / 100 };
   } catch (error) {
-    return { ok: false, error: `Clover payment error: ${error instanceof Error ? error.message : String(error)}` };
+    // The guard runs before the first POST and then only after a definitive HTTP 429.
+    if (error instanceof CloverPaymentHeld) return { ok: false, skipped: true, definitelyNotRecorded: true, error: 'The Clover receipt is no longer eligible for payment.' };
+    return { ok: false, ...((preparing || neverSent(error)) && { definitelyNotRecorded: true }),
+      error: `Clover payment${preparing && guards ? ' preparation' : ''} error: ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
+
+/** Positive evidence only. Missing, repeated, or unavailable payment records leave the attempt held. */
+export async function confirmedCloverPayment(mid: string, posOrderId: string, paymentReference: string,
+  { background = false }: { background?: boolean } = {}): Promise<string | null> {
+  try {
+    // Scheduled proof only uses an already usable credential. It has no authority to refresh OAuth.
+    let token: string | undefined;
+    if (background) {
+      token = cloverTokenFor(mid) ?? undefined;
+      if (!token) {
+        const connection = await readCloverConnection(mid);
+        if (!connection || connection.status === 'pending'
+            || (connection.accessTokenExpiration && connection.accessTokenExpiration <= Math.floor(Date.now() / 1000))) return null;
+        token = connection.accessToken;
+      }
+      if (!token) return null;
+    }
+    const res = await cloverJson(mid, `/orders/${encodeURIComponent(posOrderId)}/payments?limit=100`, {}, undefined, token);
+    if (!res.ok || !Array.isArray(res.json?.elements) || res.json.elements.length >= 100 || res.json?.links?.next) return null;
+    const matching = res.json.elements.filter((payment: any) => payment?.externalPaymentId === paymentReference
+      && payment.order?.id === posOrderId);
+    if (matching.length !== 1 || matching[0].result !== 'SUCCESS' || typeof matching[0].id !== 'string') return null;
+    return matching[0].id.trim() || null;
+  } catch {
+    return null;
   }
 }
 

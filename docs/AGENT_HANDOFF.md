@@ -1,3 +1,119 @@
+## 2026-11-28 — Refus signé du relais conservé avant l’accusé HTTP
+
+Le relais enregistre un avis d’annulation ou de refus sous une identité calculée à partir du fournisseur et de la référence complète. La réception signée répond 503 si la base refuse l’écriture. Une nouvelle livraison retrouve le premier avis et laisse son traitement reprendre dans la boîte de réception existante. Le premier envoi Clover ou une reprise vérifie l’avis pour la commande relayée de ce fournisseur et s’arrête si sa lecture échoue. La clôture garde les protections existantes, y compris lorsque l’opérateur a déjà terminé la commande.
+
+L’essai local suspend le traitement après HTTP 200, puis livre une commande signée et vérifie qu’elle demeure annulée sans commande Clover. Des essais synthétiques couvrent le refus pendant la préparation, une panne de lecture et la clôture d’une copie existante. La preuve en cuisine et les conditions de restauration restent suivies dans [#46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé Codex @ cloud · 2026-11-28
+
+## 2026-11-27 — Assemblage local de #192 sur #194
+
+L’assemblage conserve les têtes `7764c7e` et `455f740`. Les 402 essais ciblés valident les refus signés, la retenue des nouvelles commandes Uber directes après bascule vers Clover, le rapprochement sans renvoi des règlements Skip et la vérification du reçu sur la caisse d’origine avant une fermeture après déplacement. Les fournisseurs sont simulés.
+
+La mise en service exige une revue, la CI du candidat et la vérification de la table de règlements Skip–Clover, du cycle de vie et des deux fonctions de reprise réservées au rôle serveur par PostgREST. Conserver les tentatives en cours pour le retour arrière. [Suivi de publication](https://github.com/takatakca/foodhubca/issues/155)
+
+— signé Codex @ cloud · 2026-11-27
+
+## 2026-11-27 — Rapprochement automatique des règlements Skip
+
+La reprise des commandes vérifie jusqu’à quatre tentatives Skip admissibles par passage. Un règlement en attente peut être vérifié après deux minutes. La base réserve chaque lecture pendant 90 secondes et reporte de cinq minutes une vérification terminée. L’expiration de la réservation permet une autre lecture. La tentative de règlement d’origine reste conservée.
+
+Le balayage lit uniquement les paiements du reçu sur sa caisse attestée avec une autorisation déjà valide. La synchronisation Clover habituelle continue de renouveler les autorisations approuvées. Un seul paiement réussi, lié à ce reçu et portant la référence exacte, permet le rapprochement. Un échec de lecture ou une preuve ambiguë conserve la mise en attente. Une commande terminale déjà payée peut récupérer le marqueur local et son événement dans une seule transaction.
+
+Avant publication de #192, vérifier le contrat précédent de `fh_apply_skip_lifecycle`, son option de clôture locale et les opérations `fh_claim_skip_payment_recoveries` et `fh_reschedule_skip_payment_recovery` via PostgREST. L’accès reste réservé au rôle serveur. [Suivi #155](https://github.com/takatakca/foodhubca/issues/155)
+
+## 2026-11-27 — Réservation du règlement Skip sur le reçu Clover
+
+Les avis signés de ramassage et de livraison peuvent arriver pendant la même réponse Clover. Le règlement direct Skip réserve le reçu et sa caisse attestée avant le POST de paiement. La base limite le règlement à une tentative par commande et par reçu. Le même agent peut reprendre après un refus HTTP 429 tant que la commande demeure admissible. Un refus certain libère la tentative. Une réponse perdue, ambiguë ou contradictoire conserve la réservation.
+
+Une annulation devient terminale dans Food Hub pendant que Clover traite le règlement. Le reçu reste ouvert jusqu’à confirmation. Un paiement confirmé sur ce même reçu suit le parcours existant de vérification du paiement après annulation. Un ancien reçu sans caisse attestée reste en vérification. Une lecture ultérieure peut rapprocher un paiement confirmé sur la caisse d’origine avec la référence exacte.
+
+Avant publication de #192, vérifier via PostgREST le contrat complet de `fh_apply_skip_lifecycle`, dont `prepare_payment`, `check_payment` et `finish_payment`. La table `fh_skip_clover_payments` et les opérations restent réservées au rôle serveur. Conserver les tentatives quand une version est remplacée. Une version qui précède la réservation ne doit pas reprendre les règlements encore en vérification. [Suivi #155](https://github.com/takatakca/foodhubca/issues/155)
+
+## 2026-11-26 — Avis de livreur Skip pendant une décision terminale
+
+Un avis de livreur d’une commande Skip directe conserve les observations du livreur et vérifie, dans la transaction de la commande, l’annulation ou le transfert à la tablette déjà enregistré. Une commande annulée, transférée ou terminée conserve son statut. Un ramassage ou une livraison peut faire avancer une commande admissible.
+
+Le règlement revérifie le reçu exact sur la caisse attestée avant de créer un mode de paiement ou d’enregistrer un paiement. Une relance après un refus HTTP 429 répète le contrôle. Une annulation arrivée pendant la lecture du mode de paiement peut ainsi empêcher l’écriture suivante.
+
+Les essais locaux couvrent les avis signés déjà reçus ou concurrents, le paiement Clover simulé et la mise à niveau PostgREST. Avant publication de #192, vérifier que le rôle serveur peut exécuter `apply_driver` dans `fh_apply_skip_lifecycle` et que le contrat existant reste disponible. [Suivi #155](https://github.com/takatakca/foodhubca/issues/155)
+
+## 2026-11-26 — Note fiscale facultative et reçu Clover historique incertain
+
+Le rapprochement MEV continue de conserver le reçu fiscal. La note Clover facultative est suspendue quand la commande Skip comporte un ancien résultat incertain sans caisse attestée. La décision utilise la commande effectivement enregistrée après la mise à jour fiscale. Un reçu confirmé garde le parcours normal.
+
+## 2026-11-26 — Ancien résultat Clover sans caisse attestée
+
+Un ancien refus incertain ou un ancien verrou de reprise sans attestation avant envoi met la commande directe Skip en vérification. La mise en attente conserve l’erreur d’origine, signale une fois le besoin de vérification et suspend les relances automatiques. Elle bloque la recherche dans une caisse déduite de la liaison actuelle, une nouvelle création Clover, une impression et les sorties JET. Les avis signés conservent leur état terminal. Un reçu avec sa caisse attestée reste conciliable sur cette caisse. Un refus définitif reconnu et une nouvelle préparation déclarée avant envoi gardent leur parcours habituel.
+
+Le contrat PostgreSQL de #192 inclut la mise en attente du résultat historique. Vérifier le rôle serveur et le contrat complet PostgREST avant la publication. [Suivi #155](https://github.com/takatakca/foodhubca/issues/155)
+
+## 2026-11-26 — Avis Skip déjà reçu avant le traitement du repli
+
+Quand le webhook de repli signé est enregistré, l’arbitrage vérifie le numéro complet de la commande et le magasin du fournisseur. Un avis correspondant bloque la prise en charge Clover et JET même si le traitement de l’avis attend. Si Clover avait déjà reçu la création, le reçu demeure lié et la copie est fermée sur la caisse d’origine sans impression. Une annulation signée reste prioritaire. Un magasin différent ou manquant ne peut pas modifier une commande directe dont le magasin est connu.
+
+## 2026-11-26 — Arbitrage des sorties Skip et Clover
+
+Avant une confirmation, un repli JET ou une création Clover, la transaction vérifie l’état réel, le reçu attendu et les annulations Skip déjà enregistrées. Elle réserve une seule décision pour la commande. Un refus JET explicite libère la prise en charge. Un résultat incertain reste visible et bloque un nouvel envoi jusqu’à vérification. Une confirmation manuelle déjà enregistrée bloque aussi l’admission automatique devenue périmée. Un renvoi Clover expressément demandé depuis une commande déjà acceptée reste possible. Un avis de repli signé peut reprendre le traitement après un arrêt entre la confirmation du fournisseur et le journal d’activité.
+
+L’admission vérifie aussi la liaison conservée au moment de choisir la caisse. Une modification de liaison suspend le premier POST et le repli automatique. Les reprises d’un reçu déjà transmis interrogent uniquement la caisse d’origine.
+
+Avant publication de #192, vérifier sur la cible via PostgREST le contrat complet de `fh_apply_skip_lifecycle`, y compris la réservation Clover avec liaison et les opérations `prepare_jet` et `finish_jet`. Conserver l’exécution au seul rôle serveur. [Suivi de publication et preuves marchandes](https://github.com/takatakca/foodhubca/issues/155)
+
+## 2026-11-26 — Avis Skip après la fenêtre de reprise d’une commande
+
+Une annulation signée ou un transfert signé vers la tablette peut déclencher la recherche du reçu Clover d’origine après la fin de la fenêtre de la commande. La recherche relit la caisse de la tentative et exige le marqueur Food Hub unique. Un résultat absent ou ambigu reste lié à l’avis pour vérification ou relance. Si le reçu est confirmé et que la commande demeure annulée ou transférée, la fermeture se fait sur la caisse qui l’a reçu. Une réservation temporaire empêche deux traitements simultanés de fermer de nouveau le même reçu. Cette reprise d’un avis terminal ne crée, n’imprime et ne confirme aucune commande à JET.
+
+## 2026-11-26 — Réponse Clover perdue après la création d’une commande Skip
+
+Avant le POST Clover, Food Hub réserve une tentative par commande dans PostgreSQL et conserve la caisse utilisée. Si la réponse est perdue, la reprise cherche une copie qui porte la référence Food Hub sur cette caisse, même si la liaison du magasin a changé. Une annulation durable est vérifiée avant d’imprimer ou de répondre à JET. Quand le reçu est confirmé pour une commande annulée, il est conservé et la copie est fermée sur la caisse d’origine. Tant que le résultat est absent ou ambigu, la commande reste à vérifier et une relance cherche le reçu sans envoyer une nouvelle création ni demander le repli JET. Un refus explicite de Clover peut libérer la tentative pour le repli habituel.
+
+Avant de publier #192, vérifier que la base accepte aussi `prepare_clover` et `clear_clover_attempt` via PostgREST au rôle serveur. Les essais locaux et simulés ne confirment pas la livraison d’une commande marchande ou l’impression réelle. Le suivi de publication et les preuves marchandes figurent dans [le backlog #155](https://github.com/takatakca/foodhubca/issues/155) et [la checklist #46](https://github.com/takatakca/foodhubca/issues/46).
+
+## 2026-11-26 — Reçu Clover reçu pendant une annulation Skip
+
+La transaction Skip conserve le reçu confirmé et la caisse de création ou d’adoption. Elle applique aussi l’annulation durable connue au retour de Clover avant toute impression. Une annulation confirmée garde le reçu pour fermer la copie sur la caisse qui l’a réellement reçue, même si le magasin a changé de liaison. Une seconde vérification précède la confirmation JET. Si cette vérification échoue, la reprise repart du reçu enregistré sans recréer ni réimprimer la commande. L’écriture du statut de confirmation protège une annulation concurrente.
+
+La base cible doit accepter les actions `record_receipt` et `check_receipt` via PostgREST pour le rôle serveur avant le déploiement du code. Les contrôles après un reçu confirmé couvrent l’arrivée normale et l’adoption d’un reçu Clover existant. Pour une commande Skip directe, une reprise n’adopte une copie que si la note Clover porte la référence Food Hub exacte et le résultat est unique. Un ancien titre sans cette preuve ou un résultat ambigu reste à examiner sans recréer ni fermer sa copie. La reprise après une réponse perdue est décrite plus haut.
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — Annulation Skip avant une commande directe ou sa reprise
+
+La commande directe Skip consulte la même transaction que le repli. Une annulation déjà reçue est appliquée même si son traitement asynchrone attend encore. Une seconde vérification intervient après les préparatifs locaux, avant l’envoi initial à Clover. La reprise revérifie après sa prise en charge et avant de chercher ou d’envoyer la commande à Clover. En cas d’indisponibilité, l’avis reste relançable et une prise en charge interrompue peut être reprise après son expiration. Les commandes relayées, saisies à l’écran ou importées de Clover gardent leur origine et une référence déjà rattachée à un autre magasin reste protégée.
+
+La fonction PostgreSQL élargie doit être disponible via PostgREST au rôle serveur avant le déploiement de ce code. Les contrôles s’appliquent avant de démarrer le parcours Clover décrit. Les réponses Clover déjà en transit et la suite du traitement externe demeurent à vérifier dans [le backlog #155](https://github.com/takatakca/foodhubca/issues/155).
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — Enregistrement durable du repli et de l’annulation Skip
+
+Les deux webhooks signés enregistrent l’avis dans la boîte de réception avant l’accusé JET. La reprise traite les deux types comme des avis de statut et la relance des anciens replis conserve leur type. Un repli dont l’écriture échoue reste en attente, sans commande provisoire. La transaction PostgreSQL choisit le statut et écrit la preuve de transition ensemble. Une annulation déjà enregistrée prévaut même si son traitement attend encore. Un repli valide conserve le suivi tablette et la règle MEV existante.
+
+Pour une base existante, la fonction `fh_apply_skip_lifecycle` et son autorisation au seul rôle serveur doivent être installées et vérifiées avant le déploiement du code. Le bloc idempotent figure dans `supabase/foodhub.sql` et `supabase/INSTALL_ALL.sql`. La publication et les preuves marchandes restent suivies dans [le backlog #155](https://github.com/takatakca/foodhubca/issues/155) et [la checklist #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — Relance des avis Skip Final Picked
+
+Les avis Final Picked conservés gardent leur provenance. La relance générique de la boîte de réception laisse l’avis disponible pour le rapprochement sans créer de commande. Les anciens avis portant le motif ou le libellé enregistré par le webhook reçoivent la même protection. Le webhook signé qui met à jour une commande connue et la relance d’une vraie commande initiale gardent leur comportement.
+
+Le traitement du repli et le préalable de mise en service de sa fonction PostgreSQL sont décrits ci-dessus.
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — Avis de repli Skip après une annulation
+
+Un avis signé de repli Skip conserve son accusé JET et ne remplace plus une commande annulée ou terminée par une instruction de préparation. Une annulation reçue avant la commande prévaut sur le repli. Une notification qui désigne un autre magasin déjà mappé est conservée pour vérification. Les commandes de repli valides restent visibles.
+
+Les essais signés couvrent l’ordre inversé, l’avis tardif, l’annulation concurrente et le registre d’annulations inaccessible avant l’enregistrement. Les preuves de réception réelle restent suivies dans [la checklist #46](https://github.com/takatakca/foodhubca/issues/46).
+
+— signé : Codex @ cloud · 2026-11-26
+
+## 2026-11-26 — Refus de commande relayée
+
+Un refus signé du partenaire enregistre une annulation de la commande relayée correspondante. Avant la commande, cette annulation attend dans les événements de réception et évite l’envoi d’un ticket Clover. Après la réception, elle fait sortir la commande de son état actif en cuisine. Le journal conserve le libellé original du partenaire et son motif. Les essais vérifient DoorDash, Uber Eats et Skip ainsi que le périmètre du fournisseur et les statuts terminaux. Si la clôture locale est enregistrée pendant le refus, l’écriture du statut relais revérifie la commande réellement en base et conserve cette clôture. Les appels de règlement et d’annulation Clover suivent uniquement un changement de statut confirmé. La chaîne réelle d’accueil en cuisine reste suivie dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
 ## 2026-11-26 — Paiement Clover après déplacement d’une liaison
 
 La réconciliation locale de #183 sur `86d190c` conserve les références par magasin de #178 pour la saisie, la reprise, l’import et le paiement Clover. Les 161 essais ciblés couvrent aussi le règlement et l’impression sur la caisse confirmée et le contrôle manuel d’une liaison Uber Eats. Les réponses des fournisseurs sont simulées. La CI du SHA réconcilié et la réception marchande restent à vérifier avant publication.
@@ -24,6 +140,7 @@ La vérification dans Réglages → Canaux lit les pages d’étiquettes et d’
 Quand Uber Eats est configuré via Clover, Food Hub conserve les nouvelles notifications Uber directes et les commandes directes ou relayées encore en file pour vérification. La reprise manuelle applique la même règle. La récupération ne consulte plus les nouvelles commandes côté Uber. L’import natif lit les commandes chez Clover, et les annulations et états des commandes directes déjà reçues continuent d’être traités.
 
 Les essais signés couvrent les notifications ordinaires et planifiées, les entrées déjà normalisées, la reprise, l’import natif Clover et les annulations antérieures. Les preuves de réception réelle restent suivies dans [l’issue #46](https://github.com/takatakca/foodhubca/issues/46).
+
 
 — signé : Codex @ cloud · 2026-11-26
 

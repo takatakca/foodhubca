@@ -271,7 +271,7 @@ try {
   console.log('\n10. Clover down — never accept what the kitchen did not get');
   await skipWebhook('orders', skipOrder('skip-order-0003', 'STL-POPOULET', 'tx-0003'));
   const o5 = await waitFor(async () => { const o = await findOrder('skip-order-0003'); return o?.status === 'failed' ? o : null; });
-  check('Skip: Clover failure → sent-to-pos-failed (Skip tablet backup flow)', o5?.posError && sent('POST', /^\/skip\/order\/skip-order-0003\/sent-to-pos-failed$/)[0]?.body?.transmissionId === 'tx-0003' && sent('POST', /skip-order-0003\/sent-to-pos-success$/).length === 0);
+  check('Skip: definitive Clover rejection → sent-to-pos-failed (Skip tablet backup flow)', o5?.posError && sent('POST', /^\/skip\/order\/skip-order-0003\/sent-to-pos-failed$/)[0]?.body?.transmissionId === 'tx-0003' && sent('POST', /skip-order-0003\/sent-to-pos-success$/).length === 0);
   await uberWebhook('uber-order-stl-1');
   const o6 = await waitFor(async () => { const o = await findOrder('uber-order-stl-1'); return o?.posError ? o : null; });
   check('Uber: Clover failure → NOT accepted, waits for staff', o6?.status === 'new' && sent('POST', /uber-order-stl-1\/accept_pos_order$/).length === 0);

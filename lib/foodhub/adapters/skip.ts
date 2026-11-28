@@ -116,6 +116,16 @@ export function reportSkipMissingItems(order: StoredOrder, items: Array<{ plu: s
   return send('POST', `/orders/${encodeURIComponent(order.externalOrderId)}/modification`, { modifications: [{ removedItems: items }] });
 }
 
+/** JET cancellation notices use orderID, unlike the initial and backup order bodies. */
+export function parseSkipCancelNotice(body: unknown): { externalOrderId: string; detail: Record<string, unknown> } | null {
+  if (!body || typeof body !== 'object') return null;
+  const notice = body as { orderID?: unknown; reason?: { code?: unknown }; happenedAt?: unknown };
+  if (typeof notice.orderID !== 'string' && typeof notice.orderID !== 'number') return null;
+  const externalOrderId = String(notice.orderID);
+  if (!externalOrderId.trim()) return null;
+  return { externalOrderId, detail: { reason: notice.reason?.code, happenedAt: notice.happenedAt } };
+}
+
 /** JET "Failed Order For Backup Flow": the order failed JET validation and went to the Skip tablet. */
 export function parseSkipFailedOrder(body: any): (NormalizedOrder & { failure: string }) | null {
   const o = body?.order;

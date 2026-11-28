@@ -66,7 +66,13 @@ export function cloverReadiness() {
  */
 export type InjectResult =
   | { ok: true; posOrderId: string; merchantId?: string; totalCents?: number; lineItems?: number; freeLines?: number; adopted?: boolean }
-  | { ok: false; skipped?: boolean; error: string; httpStatus?: number; uncertain?: boolean };
+  | { ok: false; skipped?: boolean; error: string; httpStatus?: number; uncertain?: boolean; mappingChanged?: true };
+
+type InjectOptions = {
+  orderTypeId?: string | null;
+  /** Persists or blocks this posting attempt. Rejection propagates before the request is sent. */
+  beforeCreate?: (merchantId: string) => Promise<void | Extract<InjectResult, { ok: false }>>;
+};
 
 /**
  * True when this deployment expects orders to reach Clover: injection on and either a merchant in the environment
@@ -98,9 +104,9 @@ export function cloverOrderDiscount(order: Pick<StoredOrder, 'marketplace' | 'di
   return { name: `${label} promotion`.slice(0, 64), amount: -cents };
 }
 
-export async function injectOrder(order: StoredOrder, merchantId?: string | null, opts: { orderTypeId?: string | null } = {}): Promise<InjectResult> {
+export async function injectOrder(order: StoredOrder, merchantId?: string | null, opts: InjectOptions = {}): Promise<InjectResult> {
   if (!cloverInjectionEnabled()) return { ok: false, skipped: true, error: 'POS injection is turned off (FOODHUB_POS_INJECTION=off).' };
-  const mid = merchantId || (await defaultCloverMerchant());
+  const mid = merchantId === undefined ? await defaultCloverMerchant() : merchantId;
   // No merchant for this store: harmless only when Clover is not configured at all; otherwise the store mapping is incomplete.
   if (!mid) return { ok: false, skipped: !cloverExpected(), error: 'No Clover merchant configured for this store — set it under Stores → Mapping.' };
   const token = await cloverToken(mid);
@@ -113,13 +119,20 @@ export async function injectOrder(order: StoredOrder, merchantId?: string | null
   if (draft.lineItems === 0) return { ok: false, error: 'Order has no line items to inject.' };
   const discount = cloverOrderDiscount(order, draft.linesCents);
   const body = (discount ? buildCloverOrderCart(order, { orderTypeId: opts.orderTypeId, discount }) : draft).body;
+  const endpoint = `${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(mid)}/atomic_order/orders`;
+  const request = {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  };
+  if (opts.beforeCreate) {
+    const blocked = await opts.beforeCreate(mid);
+    if (blocked) return blocked;
+  }
 
   try {
-    const res = await cloverFetch(`${cloverBaseUrl()}/v3/merchants/${encodeURIComponent(mid)}/atomic_order/orders`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify(body),
-    });
+    // A guarded send belongs to one recorded attempt. Caller code decides whether any later POST is allowed.
+    const res = await cloverFetch(endpoint, request, opts.beforeCreate ? { retries: 0 } : undefined);
     const text = await res.text();
     // 4xx: Clover refused it (nothing created). 5xx: a gateway may have answered after Clover created it — uncertain.
     if (!res.ok) return { ok: false, error: `Clover returned HTTP ${res.status}: ${text.slice(0, 300)}`, httpStatus: res.status, uncertain: res.status >= 500 };

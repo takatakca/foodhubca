@@ -205,7 +205,13 @@ export const mock = http.createServer(async (req, res) => {
       return req.headers.authorization === `Bearer ${CLOVER_APP_TOKEN}` ? send(200, { status: 'ACTIVE', isInTrial: false, appSubscription: { name: 'Free' } }) : send(401, {});
     }
     const mid = p.split('/')[4];
-    if (mid === 'FAILMERCHANT') return send(500, { message: 'Clover is down' });
+    if (mid === 'FAILMERCHANT') {
+      // This particular Skip order is refused before there can be a Clover receipt.
+      if (req.method === 'POST' && p.endsWith('/atomic_order/orders') && body?.orderCart?.title?.endsWith('#SK0003')) {
+        return send(422, { message: 'Clover refused this order' });
+      }
+      return send(500, { message: 'Clover is down' });
+    }
     const appMerchant = mid === 'APPMERCHANT' && req.headers.authorization === `Bearer ${CLOVER_APP_TOKEN}`;
     if (!appMerchant && req.headers.authorization !== `Bearer ${CLOVER_TOKEN}`) return send(401, {});
     if (p.endsWith('/categories') && req.method === 'GET') return send(200, { elements: [{ id: 'CAT-1', name: 'Poulet' }] });

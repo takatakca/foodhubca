@@ -1,6 +1,7 @@
-import { NextResponse, type NextRequest } from 'next/server';
-import { parseRelayOrder, parseRelayStatus, relayStatusApplies, relayTargetStatus, verifyRelayWebhook } from '@/lib/foodhub/adapters/relay';
-import { acceptNeedsClover, applyExternalStatus } from '@/lib/foodhub/pipeline';
+import { after, NextResponse, type NextRequest } from 'next/server';
+import { parseRelayOrder, parseRelayStatus, relayTargetStatus, verifyRelayWebhook } from '@/lib/foodhub/adapters/relay';
+import { receiveRelayCancellation, runInboxEntry } from '@/lib/foodhub/inbox';
+import { applyExternalStatus } from '@/lib/foodhub/pipeline';
 import { applyTgtgEvent, tgtgEventKind } from '@/lib/foodhub/tgtg-feed';
 import { getRepo } from '@/lib/foodhub/repo';
 import { readTextOr413 } from '@/lib/foodhub/http';
@@ -40,28 +41,28 @@ export async function POST(req: NextRequest) {
 
   const status = parseRelayStatus(body);
   if (status) {
+    const tgtgKind = status.channel === 'tgtg' ? tgtgEventKind(status.state) : null;
+    if (tgtgKind !== 'collected' && tgtgKind !== 'no_show' && relayTargetStatus(status.state) === 'cancelled') {
+      try {
+        const id = await receiveRelayCancellation(body, status);
+        if (id) after(async () => { await runInboxEntry(id); });
+      } catch (error) {
+        // An upstream cancellation remains valid even if the storage acknowledgement was lost.
+        console.error('[foodhub] could not save the relay cancellation before answering:', error);
+        return retryLater(status.channel);
+      }
+      return NextResponse.json({ ok: true });
+    }
     background(`relay status ${status.externalOrderId}`, async () => {
-      // Too Good To Go: "collected" / "no-show" mean the sale is done (pickup confirmed), not a courier hand-off.
-      if (status.channel === 'tgtg') {
-        const k = tgtgEventKind(status.state);
-        if (k === 'collected' || k === 'no_show') { await applyTgtgEvent({ kind: k, orderId: status.externalOrderId, word: status.state, reason: status.message }); return; }
+      // Too Good To Go: collected/no-show complete the sale, outside the relay cancellation path.
+      if (tgtgKind === 'collected' || tgtgKind === 'no_show') {
+        return applyTgtgEvent({ kind: tgtgKind, orderId: status.externalOrderId, word: status.state, reason: status.message });
       }
       const order = await getRepo().findOrder(status.channel, status.externalOrderId);
-      if (!order) {
-        // The order may still be in the webhook inbox (server stopped before processing it): a cancel waits for it and
-        // stops its Clover ticket on arrival, like a platform cancel that beats the order. Anything else is kept.
-        if (relayTargetStatus(status.state) === 'cancelled') {
-          const state = /cancel|fail/i.test(status.state) ? status.state : 'cancelled';
-          return void (await applyExternalStatus(status.channel, status.externalOrderId, state, { reason: status.message, source: 'relay', partnerState: status.state }));
-        }
-        return keepUnparsed(status.channel, body, 'Relay status for an order Food Hub does not have (yet)', status.externalOrderId);
-      }
-      // Forward-only: a late or repeated delivery never moves an order back or reopens a closed one.
-      if (!relayStatusApplies(order, status.state, { needsClover: acceptNeedsClover(order) })) {
-        await getRepo().addEvent(order.id, 'platform_status_ignored', { state: status.state, reason: status.message, source: 'relay', note: `Not applied: the order is already ${order.status}.` });
-        return;
-      }
-      return applyExternalStatus(status.channel, status.externalOrderId, status.state, { reason: status.message, source: 'relay' });
+      if (!order) return keepUnparsed(status.channel, body, 'Relay status for an order Food Hub does not have (yet)', status.externalOrderId);
+      return applyExternalStatus(status.channel, status.externalOrderId, status.state, {
+        reason: status.message, source: 'relay',
+      }, { relayState: status.state });
     }, { channel: status.channel, body, reference: status.externalOrderId, kind: 'order' });
     return NextResponse.json({ ok: true });
   }

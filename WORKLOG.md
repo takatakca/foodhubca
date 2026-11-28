@@ -38,6 +38,7 @@
 # Work log
 
 Newest first, one line per piece of work. Rule: `AGENTS.md` › Work log rule.
+- 2026-11-28 | Codex @ cloud | fix/page-native-kitchen-print-queue → PR #219 | correctif de revue | conserver les reçus de la fenêtre après redémarrage et vérifier la cuisine et les annulations avant impression | vérifier CI, publier le serveur par le propriétaire avant l’APK, puis essayer la tablette et l’imprimante autorisées — signé : Codex @ cloud · 2026-11-28
 Format: `YYYY-MM-DD | agent | branch → PR | status | what | next step`
 - 2026-10-30 03:25 | claude (security, session 01QsaHwL) @ Claude Code cloud | fix/nodemailer-addressparser-advisory → PR | ready for owner review/merge | nodemailer 10.0.16/10.0.13 → 10.3.1 (deduped), mailparser 3.9.32 → 3.14.1: clears the addressparser advisories GHSA-8c8m-p3m8-cjg8 / m943-m63m-w62w / 85x2-q946-cp5h (prod audit 0); typecheck, lint 0 errors, 1861 tests, build OK | merge; owner handles the public-repo data cleanup themselves — signé : Claude (session 01QsaHwL) @ Claude Code cloud · 2026-10-30 03:25
 - 2026-10-30 03:05 | claude (MEV / Clover, session 01QsaHwL) @ Claude Code cloud | feature/mev-clover-register → PR #100 | ready for owner review/merge after #99 | #99 (now on main 193ae17) merged in: cron keeps both the register poll and main's Suite tick; mevGate keeps App Market merchants and the Québec-only rule; typecheck, lint 0 errors, 1861 tests, build, verify:foodhub 628/0 | owner: merge #99 then #100; Clover dashboard + Dev Kit test — signé : Claude (session 01QsaHwL) @ Claude Code cloud · 2026-10-30 03:05

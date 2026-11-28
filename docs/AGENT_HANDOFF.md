@@ -1,5 +1,7 @@
 ## 2026-11-28 — Reprise des lots de tickets sur la tablette Android
 
+La tablette conserve les reçus du chevauchement au-delà de 500 tickets et recharge le curseur de la même cuisine après un redémarrage. Un ticket en attente exige une réponse de la cuisine active. Avant d’envoyer les octets d’un ticket de commande, la tablette vérifie auprès du serveur l’état courant de sa réclamation. Cette lecture voit les annulations reçues après la borne du lot. Un résultat incertain laisse le ticket en attente. Le nouveau paquet requiert ce serveur pour imprimer les tickets de commande.
+
 Les lectures paginées reprennent après la dernière date et le dernier identifiant lus. Une ligne terminée ou retirée du premier lot ne masque plus la commande suivante. Chaque page prolonge la validité de son jeton, tout en conservant la fenêtre de départ. Les essais comprennent une reprise au-delà de quinze minutes et deux lectures PostgreSQL avec retrait d’une ligne du premier lot.
 
 La tablette relit sa configuration entre les tickets et après une réponse de réclamation. Un ticket confirmé pendant un changement de cuisine reste en attente dans sa cuisine d’origine. Avant d’imprimer, la tablette vérifie ce rattachement et capture la destination d’impression. Les anciens tickets en attente sans liaison utilisent la configuration de démarrage du processus.

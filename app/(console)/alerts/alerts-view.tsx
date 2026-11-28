@@ -20,7 +20,7 @@ import { useScopeLabel } from '@/components/shell/scope-switcher';
 import { shortLoc, useViewer } from '@/components/shell/viewer';
 import { api, ApiError, ago, timeOf } from '@/lib/ui/api';
 import { useI18n, useProduct } from '@/lib/i18n/client';
-import { DEVICE_OFFLINE_RESOLUTIONS, type Incident } from '@/lib/foodhub/watch/types';
+import { DEVICE_OFFLINE_RESOLUTIONS, type DeviceOfflineResolution, type Incident, type IncidentStep } from '@/lib/foodhub/watch/types';
 import type { OutboxEntry } from '@/lib/foodhub/notify';
 import { watchtowerCallSid, type CallStatus } from '@/lib/foodhub/notify/call-status';
 import { cn } from '@/lib/ui/cn';
@@ -149,6 +149,13 @@ function CallStatusCheck({ id }: { id: string }) {
   );
 }
 
+function nativeTabletClosure(step?: IncidentStep): DeviceOfflineResolution | undefined {
+  if (step?.kind !== 'resolved') return undefined;
+  if (step.deviceOfflineResolution) return step.deviceOfflineResolution;
+  if (step.by === 'auto') return 'unconfirmed';
+  if (step.by === 'Watchtower' && step.message === DEVICE_OFFLINE_RESOLUTIONS.reassigned.message.join(' / ')) return 'reassigned';
+}
+
 function IncidentCard({ i, focus, defaultOpen, onChanged }: { i: Incident; focus: boolean; defaultOpen: boolean; onChanged: () => void }) {
   const { t, lang, loc } = useI18n();
   const { can, locName } = useViewer();
@@ -174,8 +181,9 @@ function IncidentCard({ i, focus, defaultOpen, onChanged }: { i: Incident; focus
     i.kind === 'payout_gap' ? { href: '/money/disputes', label: t('Voir les litiges', 'See disputes') } : null,
   ].filter((l): l is { href: string; label: string } => l !== null);
   const text = lang === 'fr' ? explanation[0] : explanation[1] ?? explanation[0];
-  const tabletClosure = i.kind === 'device_offline' && i.status === 'resolved' && i.resolvedBy === 'auto'
-    ? i.steps.filter((step) => step.kind === 'resolved' && step.by === 'auto' && step.at === i.resolvedAt).at(-1)?.deviceOfflineResolution ?? 'unconfirmed'
+  const tabletClosure = i.kind === 'device_offline' && i.status === 'resolved'
+    ? nativeTabletClosure(i.steps.filter((step) => step.kind === 'resolved' && step.by === i.resolvedBy && step.at === i.resolvedAt).at(-1))
+      ?? (i.resolvedBy === 'auto' ? 'unconfirmed' : undefined)
     : undefined;
   return (
     <Card className={cn('overflow-hidden', focus && 'ring-2 ring-brand', i.status === 'resolved' && 'opacity-75')}>
@@ -217,8 +225,7 @@ function IncidentCard({ i, focus, defaultOpen, onChanged }: { i: Incident; focus
                 </div>
                 <ol className="text-small space-y-2 border-l border-line pl-4">
                   {i.steps.slice(-10).map((s, k) => {
-                    const tabletResolution = i.kind === 'device_offline' && s.kind === 'resolved' && s.by === 'auto'
-                      ? s.deviceOfflineResolution ?? 'unconfirmed' : undefined;
+                    const tabletResolution = i.kind === 'device_offline' ? nativeTabletClosure(s) : undefined;
                     const closure = tabletResolution && DEVICE_OFFLINE_RESOLUTIONS[tabletResolution];
                     const resolutionDot = tabletResolution && tabletResolution !== 'heartbeat-restored' ? 'bg-ink-4' : 'bg-go';
                     return (

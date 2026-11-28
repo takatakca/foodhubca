@@ -296,6 +296,7 @@ it.each(scenarios)('keeps the right phone and alert history when moving $descrip
   } else {
     const { device } = await enrollDevice({ name: 'Test kitchen tablet', locationCode: ORIGINAL.code }, OWNER);
     id = device.id;
+    if (kind === 'device_offline') await tabletHeartbeat(device, { soundOn: true, visible: true });
   }
 
   async function tick(minute: number) {
@@ -340,6 +341,7 @@ it.each(scenarios)('keeps the right phone and alert history when moving $descrip
     expect((await moveAs(ORIGINAL.manager)).status).toBe(403);
     expect(await getDevice(id)).toMatchObject({ locationCode: ORIGINAL.code });
   }
+  const offlinePulse = kind === 'device_offline' ? (await getDevice(id))?.lastHeartbeat : undefined;
   expect((await moveAs(OWNER.username)).status).toBe(200);
   if (recoveredBeforeMove) await relayReport({ id, state: 'crashed' });
   expect(await tick(movedAt)).toMatchObject({ opened: 1, resolved: recoveredBeforeMove ? 0 : 1, escalated: 0 });
@@ -348,6 +350,16 @@ it.each(scenarios)('keeps the right phone and alert history when moving $descrip
   const history = await readIncidents(ORIGINAL.manager);
   expect(history).toMatchObject([{ id: original.id, locationCode: ORIGINAL.code, status: 'resolved', title: original.title }]);
   expect(history[0].successorDetection).toBeUndefined();
+  if (kind === 'device_offline') {
+    expect(offlinePulse).toMatchObject({ locationCode: ORIGINAL.code });
+    expect(await getDevice(id)).toMatchObject({
+      locationCode: DESTINATION.code, lastSeenAt: offlinePulse?.at, lastHeartbeat: offlinePulse,
+    });
+    expect(history[0].resolvedBy).toBe('Watchtower');
+    expect(history[0].steps.at(-1)).toMatchObject({
+      kind: 'resolved', by: 'Watchtower', deviceOfflineResolution: 'reassigned',
+    });
+  }
   const current = await readIncidents(DESTINATION.manager);
   expect(current).toMatchObject([{ kind, deviceId: id, locationCode: DESTINATION.code, status: 'open' }]);
   expect(current[0].id).not.toBe(original.id);

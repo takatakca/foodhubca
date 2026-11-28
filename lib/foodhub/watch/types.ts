@@ -35,7 +35,7 @@ export type IncidentKind =
 export type Severity = 'critical' | 'warning' | 'info';
 export type IncidentStatus = 'open' | 'acknowledged' | 'snoozed' | 'resolved';
 
-export type DeviceOfflineResolution = 'monitoring-hours-ended' | 'heartbeat-restored' | 'unconfirmed';
+export type DeviceOfflineResolution = 'monitoring-hours-ended' | 'heartbeat-restored' | 'reassigned' | 'unconfirmed';
 
 export const DEVICE_OFFLINE_RESOLUTIONS = {
   'monitoring-hours-ended': {
@@ -45,6 +45,10 @@ export const DEVICE_OFFLINE_RESOLUTIONS = {
   'heartbeat-restored': {
     label: ['Signal de la tablette reçu', 'Tablet heartbeat received'],
     message: ['Watchtower a reçu un nouveau signal de cette tablette.', 'Watchtower received a fresh heartbeat from this tablet.'],
+  },
+  reassigned: {
+    label: ['Tablette réaffectée', 'Tablet reassigned'],
+    message: ['Appareil réaffecté à une autre cuisine.', 'Device reassigned to another kitchen.'],
   },
   unconfirmed: {
     label: ['Fermeture sans retour confirmé', 'Closed without confirmed recovery'],

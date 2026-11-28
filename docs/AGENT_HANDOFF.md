@@ -1,10 +1,10 @@
 ## 2026-11-28 — Composition de la preuve tablette et de la relève Watchtower
 
-La composition locale réunit les révisions `a182e65` de [#217](https://github.com/takatakca/foodhubca/pull/217) et `d875cc4` de [#221](https://github.com/takatakca/foodhubca/pull/221). La mise à jour conditionnelle enregistre ensemble l’heure du signal signé et sa cuisine. Après une réaffectation ou une révocation concurrente, le signal en attente conserve son rejet et la provenance du dernier signal accepté reste disponible à Watchtower. Le prochain signal autorisé porte la cuisine actuelle. L’interface distingue le retour confirmé de la fin des heures de surveillance et de la fermeture sans retour confirmé.
+La composition locale réunit les révisions `a182e65` de [#217](https://github.com/takatakca/foodhubca/pull/217) et `d875cc4` de [#221](https://github.com/takatakca/foodhubca/pull/221). La mise à jour conditionnelle enregistre ensemble l’heure du signal signé et sa cuisine. Après une réaffectation ou une révocation concurrente, le signal en attente conserve son rejet et la provenance du dernier signal accepté reste disponible à Watchtower. Le prochain signal autorisé porte la cuisine actuelle. L’interface distingue le retour confirmé de la fin des heures de surveillance, de la fermeture sans retour confirmé et de la réaffectation. Les anciennes fermetures Watchtower avec le motif existant de réaffectation affichent le même libellé.
 
-Les 184 essais ciblés sur données fictives, TypeScript et le contrôle ESLint des fichiers TypeScript concernés passent localement. Le scénario de réaffectation vérifie aussi l’absence de provenance dans les réponses de gestion et de signal. Le contrôle complet et les essais compilés sur PostgreSQL portent sur le commit de composition. La revue et la publication sont réservées au propriétaire. [Preuves marchandes #46](https://github.com/takatakca/foodhubca/issues/46)
+Les 186 essais ciblés sur données fictives, TypeScript et le contrôle ESLint des fichiers TypeScript concernés passent localement. Le scénario de réaffectation vérifie la fermeture de l’incident de l’ancienne cuisine, la création d’un nouvel incident dans la cuisine de destination et la conservation de la provenance du signal signé. Les réponses de gestion et de signal écartent cette provenance interne. Le contrôle complet et les essais compilés sur PostgreSQL portent sur le commit de composition. La revue et la publication sont réservées au propriétaire. [Preuves marchandes #46](https://github.com/takatakca/foodhubca/issues/46)
 
-— signé : Codex @ cloud · 2026-11-28 04:06 Montréal
+— signé : Codex @ cloud · 2026-11-28 04:15 Montréal
 
 ## 2026-11-28 — Fermeture des alertes de tablette
 

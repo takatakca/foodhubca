@@ -103,3 +103,20 @@ it('opens the closed tab and expands its timeline when arriving from the inciden
   expect(html).toContain('Original kitchen timeline evidence');
   expect(html).not.toContain('Unrelated open alert');
 });
+
+it.each(['reassigned', undefined] as const)('shows a neutral tablet reassignment in the badge and timeline (%s)', (resolution) => {
+  const target = doc(TARGET, { status: 'resolved' }).data;
+  target.resolvedAt = target.openedAt;
+  target.resolvedBy = 'Watchtower';
+  target.steps = [{
+    at: target.resolvedAt, kind: 'resolved', by: 'Watchtower', deviceOfflineResolution: resolution,
+    message: 'Appareil réaffecté à une autre cuisine. / Device reassigned to another kitchen.',
+  }];
+  page.query = `i=${TARGET}`;
+  page.incidents = [target];
+
+  const html = renderToStaticMarkup(createElement(AlertsView));
+  expect(html.match(/>Tablet reassigned</g)).toHaveLength(2);
+  expect(html).toContain('Device reassigned to another kitchen.');
+  expect(html).not.toContain('fixed by Watchtower');
+});

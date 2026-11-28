@@ -802,9 +802,13 @@ export async function runWatch(opts: { trigger?: string; force?: boolean; now?: 
       if (cur && d.deviceId && (cur.locationCode ?? null) !== (d.locationCode ?? null)) {
         // The device keeps its ID, but each occurrence and its calls belong to their original kitchen.
         const wasOpen = cur.status !== 'resolved';
+        const nativeReassignment = cur.kind === 'device_offline';
         const previous: Incident = wasOpen ? {
           ...cur, status: 'resolved', resolvedAt: iso, resolvedBy: 'Watchtower', updatedAt: iso,
-          steps: [...cur.steps, { at: iso, kind: 'resolved', by: 'Watchtower', message: 'Appareil réaffecté à une autre cuisine. / Device reassigned to another kitchen.' }],
+          steps: [...cur.steps, {
+            at: iso, kind: 'resolved', by: 'Watchtower', message: DEVICE_OFFLINE_RESOLUTIONS.reassigned.message.join(' / '),
+            ...(nativeReassignment ? { deviceOfflineResolution: 'reassigned' } : {}),
+          }],
         } : cur;
         if (screenIncident) {
           if (wasOpen && cur.awaitingFreshDetection) {

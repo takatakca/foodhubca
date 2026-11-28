@@ -32,7 +32,7 @@ type OpenForm = { draftId: string; initial: Form; sourceLocation?: string; lock?
 type OrderManager = 'foodhub' | 'pending' | 'other' | 'unknown';
 type Pick = { storeId: string; name: string; address?: string; brandName: string; locationCode: string; cloverMerchantId: string; orderManager?: OrderManager; include: boolean };
 type CloverMerchant = { id: string; name: string | null; isDefault: boolean };
-type UberResult = { ok: boolean; message: string; orderManager?: OrderManager | null };
+type UberResult = { ok: boolean; message: string; orderManager?: OrderManager | null; disconnected?: boolean; mappingConflict?: boolean };
 type Known = { channel: string; storeId: string; name: string; address: string | null; suggestedBrand: string | null; suggestedLocation: string | null; confirmedByPlatform: boolean; mapped: { id: string; brandName: string; locationCode: string } | null; expectedLocation: string | null; locationMismatch: boolean };
 
 export function MappingView() {
@@ -136,10 +136,16 @@ export function MappingView() {
     if (!yes) return;
     setBusy(`disconnect:${p.storeId}`);
     try {
-      const d = await api<{ message: string }>('/api/foodhub/uber-connect/disconnect', { method: 'POST', json: { id: connectId, storeId: p.storeId } });
-      setResults((all) => ({ ...all, [p.storeId]: { ok: true, message: d.message, orderManager: null } }));
+      const d = await api<{ message: string; mappingConflict?: boolean }>('/api/foodhub/uber-connect/disconnect', { method: 'POST', json: { id: connectId, storeId: p.storeId } });
+      const message = d.mappingConflict
+        ? t('Uber a accepté le débranchement. Vérifiez la liaison enregistrée dans Food Hub.', 'Uber accepted the disconnect. Review the saved Food Hub link.')
+        : d.message;
+      setResults((all) => ({ ...all, [p.storeId]: { ok: true, message, disconnected: true, mappingConflict: d.mappingConflict } }));
       setPicks((all) => all.map((x) => (x.storeId === p.storeId ? { ...x, orderManager: 'unknown', include: false } : x)));
-      toast.success(t('Débranché d’Uber', 'Disconnected from Uber'), p.name);
+      const before = stores?.find((s) => s.channel === 'uber_eats' && s.channelStoreId === p.storeId);
+      if (before) setChecks(({ [before.id]: _previous, ...rest }) => rest);
+      if (d.mappingConflict) toast.warn(message, p.name);
+      else toast.success(t('Débranché d’Uber', 'Disconnected from Uber'), p.name);
       load();
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(''); }
   }
@@ -226,7 +232,9 @@ export function MappingView() {
                   <Td label={t('Cuisine', 'Kitchen')}><Select selectSize="sm" aria-label={t(`Cuisine de ${p.name}`, `${p.name} kitchen`)} value={p.locationCode} onChange={(e) => upd({ locationCode: e.target.value, cloverMerchantId: '' })}><option value="">—</option>{locations.map((l) => <option key={l.code} value={l.code}>{shortLoc(l.name)}</option>)}</Select></Td>
                   <Td label="Clover"><Select selectSize="sm" value={p.cloverMerchantId} onChange={(e) => upd({ cloverMerchantId: e.target.value })} aria-label="Clover"><option value="">{activationMovesKitchen(p) ? t('Choisir la caisse de destination', 'Choose the destination register') : t('par défaut', 'default')}</option>{cloverMerchants.map((m) => <option key={m.id} value={m.id}>{m.name ? `${m.name} · ${m.id}` : m.id}{m.isDefault ? t(' (défaut)', ' (default)') : ''}</option>)}</Select></Td>
                   <Td label={t('Commandes vont à', 'Orders go to')}><ManagerBadge value={r?.orderManager ?? p.orderManager} /></Td>
-                  <Td>{r && <Badge tone={r.ok ? (r.orderManager === 'other' ? 'wait' : 'go') : 'stop'} title={r.message}>{r.ok ? t('activé', 'activated') : t('échec', 'failed')}</Badge>}
+                  <Td>{r?.disconnected
+                    ? <Badge tone={r.mappingConflict ? 'wait' : 'neutral'} title={r.message}>{r.mappingConflict ? t('Liaison à vérifier', 'Review link') : t('Débranché', 'Disconnected')}</Badge>
+                    : r && <Badge tone={r.ok ? (r.orderManager === 'other' ? 'wait' : 'go') : 'stop'} title={r.message}>{r.ok ? t('activé', 'activated') : t('échec', 'failed')}</Badge>}
                     {((r?.orderManager ?? p.orderManager) === 'foodhub' || (r?.orderManager ?? p.orderManager) === 'pending') && (
                       <Button variant="ghost" size="sm" className="text-stop" loading={busy === `disconnect:${p.storeId}`} onClick={() => disconnect(p)}>{t('Débrancher d’Uber', 'Disconnect from Uber')}</Button>
                     )}</Td>

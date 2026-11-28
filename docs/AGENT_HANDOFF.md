@@ -1,3 +1,9 @@
+## 2026-11-28 — Liaison modifiée pendant un débranchement Uber
+
+Lorsque Uber accepte le débranchement, Food Hub vérifie la liaison et l’état Uber enregistré avant de mettre à jour le magasin. Une nouvelle liaison ou une confirmation plus récente reste intacte. Les autres données enregistrées en parallèle restent présentes. Le groupe de magasins du compte Uber et l’interrupteur des écritures restent nécessaires. Un compte limité à des cuisines doit avoir une liaison autorisée avant toute demande. Les essais utilisent des sessions et commerces fictifs et ne contactent aucun fournisseur.
+
+— signé : Codex @ cloud · 2026-11-28
+
 ## 2026-11-26 — Paiement Clover après déplacement d’une liaison
 
 La réconciliation locale de #183 sur `86d190c` conserve les références par magasin de #178 pour la saisie, la reprise, l’import et le paiement Clover. Les 161 essais ciblés couvrent aussi le règlement et l’impression sur la caisse confirmée et le contrôle manuel d’une liaison Uber Eats. Les réponses des fournisseurs sont simulées. La CI du SHA réconcilié et la réception marchande restent à vérifier avant publication.
